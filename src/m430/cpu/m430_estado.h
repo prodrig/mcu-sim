@@ -27,7 +27,7 @@ enum : uint16_t {
     SR_BITS = 0x01FF,            // los demás son reservados [de modelo: se leen a 0]
 };
 
-enum class M430Acceso : uint8_t { Busqueda, Lectura, Escritura, Pila, Vector };
+enum class M430Acceso : uint8_t { Busqueda, Lectura, Escritura, Pila, Vector, Instruccion };
 
 struct m430_mem_if {
     virtual ~m430_mem_if() = default;

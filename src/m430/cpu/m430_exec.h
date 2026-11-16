@@ -161,8 +161,8 @@ private:
         escribe16(a, v, t);
         if (tam == 4) escribe16(a + 2, (v >> 16) & 0xFu, t);
     }
-    uint16_t busca() {
-        const uint16_t w = uint16_t(lee16(e.r[0], M430Acceso::Busqueda));
+    uint16_t busca(M430Acceso t = M430Acceso::Busqueda) {
+        const uint16_t w = uint16_t(lee16(e.r[0], t));
         e.r[0] = (e.r[0] + 2) & amask_;
         return w;
     }
@@ -330,7 +330,7 @@ private:
     // --- La instrucción -------------------------------------------------------------
     unsigned ejecuta(bool& ilegal) {
         const uint32_t pc0 = e.r[0];
-        uint16_t w = busca();
+        uint16_t w = busca(M430Acceso::Instruccion);
         bool ext = false;
         uint16_t xw = 0;
         if (x_ && m430_es_ext(w)) { ext = true; xw = w; w = busca(); }

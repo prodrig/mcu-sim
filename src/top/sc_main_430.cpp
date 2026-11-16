@@ -24,6 +24,20 @@
 //       -mlarge, igual que en msp430-elf-run
 //   N6  el cargador: TI-TXT y ELF_MSP430
 //
+//   (M2) la depuración, en el laboratorio:
+//   N7  los códigos de IR de [JTAG] y los de JTAG_defs.h (al revés), bit a
+//       bit, sin tiempo
+//   N8  la sonda de bancada (el port de las macros HAL de la MSP Debug
+//       Stack) por JTAG de 4 hilos: el JTAG ID, la sincronización, memoria,
+//       registros, el PC, un paso, soltar, el EEM, el POR y el fusible
+//   N9  lo mismo por Spy-Bi-Wire, y su salida por el tope de 7 µs
+//   N10 el EEM en el núcleo: un disparador de búsqueda para la CPU, el de
+//       escritura la para tras la instrucción; GENCLKCTRL
+//   N11-N12 GDB por --gdb-dap (directo) y por --gdb (la sonda, en 4 hilos y
+//       en SBW): parar, registros, memoria, Z0 (0x4343), Z1, Z2, paso,
+//       Ctrl-C y monitor reset halt. Hablan por un socket de verdad: van al
+//       final y su tiempo no cuenta en «el resto»
+//
 // Uso: test430
 //      test430 --elf a.elf [cpu|cpux|cpuxv2]: no es la suite: el ELF en el
 //      laboratorio, con su salida a la estándar (el código de salida es el de
@@ -37,9 +51,13 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <memory>
 #include "common/asan_opciones.h"
 #include "m430/lab/soc_lab_m430.h"
 #include "m430/cpu/m430_decod.h"
+#include "m430/sonda/sonda_m430.h"
+#include "m430/gdb/gdb_m430.h"
+#include "verif/gdb_client.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -64,6 +82,11 @@ static const FilaCiclos FILAS_CICLOS[] = {
 };
 
 static const char* const DIR = "verif/m430/elf/";
+static sc_time g_t_gdb = SC_ZERO_TIME;
+static unsigned puerto_gdb(unsigned i) {
+    const char* e = std::getenv("TEST430_PUERTO_GDB");
+    return (e ? unsigned(std::atoi(e)) : 3471u) + i;
+}
 static std::string lee_fichero(const std::string& r) {
     std::ifstream f(r, std::ios::binary);
     std::stringstream s;
@@ -109,7 +132,26 @@ SC_MODULE(TbM430) {
     SocLabM430 cpux{"lab_cpux", M430_LAB_CPUX};
     SocLabM430 cpuxv2{"lab_cpuxv2", M430_LAB_CPUXV2};
 
-    SC_CTOR(TbM430) { SC_THREAD(run); }
+    // Los stubs de GDB de N11-N12 (sus hilos se crean en la elaboración)
+    std::unique_ptr<DbgDirectoM430> dbg_dap_;
+    std::unique_ptr<SondaM430> sonda_4h_, sonda_sbw_;
+    std::unique_ptr<DbgSondaM430> dbg_4h_, dbg_sbw_;
+    std::unique_ptr<GdbStubM430> stub_dap_, stub_4h_, stub_sbw_;
+
+    SC_CTOR(TbM430) {
+        SC_THREAD(run);
+        dbg_dap_.reset(new DbgDirectoM430(cpu.nucleo, cpu.eem));
+        dbg_dap_->al_reset = [this] { cpu.por(); };
+        stub_dap_.reset(new GdbStubM430("gdb_dap", *dbg_dap_, puerto_gdb(0), "gdb-dap-430"));
+        SondaM430::Pines p4; p4.tck = &cpu.jtag_tck; p4.tms = &cpu.jtag_tms; p4.tdi = &cpu.jtag_tdi; p4.tdo = &cpu.jtag_tdo;
+        sonda_4h_.reset(new SondaM430(p4, SondaM430::Modo::Jtag4));
+        dbg_4h_.reset(new DbgSondaM430(*sonda_4h_, 2));
+        stub_4h_.reset(new GdbStubM430("gdb_4h", *dbg_4h_, puerto_gdb(1), "gdb-430-4h"));
+        SondaM430::Pines ps; ps.test = &cpu.sbw_test; ps.rst = &cpu.sbw_rst;
+        sonda_sbw_.reset(new SondaM430(ps, SondaM430::Modo::Sbw));
+        dbg_sbw_.reset(new DbgSondaM430(*sonda_sbw_, 2));
+        stub_sbw_.reset(new GdbStubM430("gdb_sbw", *dbg_sbw_, puerto_gdb(2), "gdb-430-sbw"));
+    }
 
     // Corre un ELF hasta exit() (o `tope`); "" si se ha podido cargar
     std::string corre(SocLabM430& lab, const std::string& elf, sc_time tope = sc_time(2, SC_SEC)) {
@@ -297,13 +339,233 @@ SC_MODULE(TbM430) {
         check(e3.find("no para MSP430") != std::string::npos, "un ELF de RISC-V no se carga: «" + e3 + "»");
     }
 
+    // --- M2 -------------------------------------------------------------------
+    void n7() {
+        grupo("N7 los códigos de IR: [JTAG] y JTAG_defs.h de la MSP Debug Stack, al revés");
+        // {código de JTAG_defs.h (desplazado con el MSB primero), código de [JTAG]}
+        static const uint8_t T[][2] = {
+            {0xC1, IR430_ADDR_16BIT}, {0x21, IR430_ADDR_CAPTURE}, {0xA1, IR430_DATA_TO_ADDR},
+            {0x61, IR430_CAPTURE_CPU_REG}, {0xE1, IR430_DEVICE_ID}, {0x82, IR430_DATA_16BIT},
+            {0x42, IR430_DATA_CAPTURE}, {0xC2, IR430_DATA_QUICK}, {0x22, IR430_DATA_PSA},
+            {0x62, IR430_SHIFT_OUT_PSA}, {0x90, IR430_EMEX_DATA_EXCHANGE}, {0x50, IR430_EMEX_READ_TRIGGER},
+            {0xD0, IR430_EMEX_READ_CONTROL}, {0x30, IR430_EMEX_WRITE_CONTROL}, {0x88, IR430_CNTRL_SIG_HIGH_BYTE},
+            {0x48, IR430_CNTRL_SIG_LOW_BYTE}, {0xC8, IR430_CNTRL_SIG_16BIT}, {0x28, IR430_CNTRL_SIG_CAPTURE},
+            {0xA8, IR430_CNTRL_SIG_RELEASE}, {0xE8, IR430_COREIP_ID}, {0x44, IR430_PREPARE_BLOW},
+            {0x24, IR430_EX_BLOW}, {0x86, IR430_JMB_EXCHANGE}, {0x46, IR430_JSTATE_ID},
+            {0x26, IR430_TDO_EVENT}, {0xA6, IR430_TDO_EVENT_CTL}, {0xFF, IR430_BYPASS}};
+        unsigned mal = 0;
+        for (const auto& t : T) {
+            uint8_t r = 0;
+            for (unsigned i = 0; i < 8; ++i) if ((t[0] >> i) & 1u) r = uint8_t(r | (0x80u >> i));
+            if (r != t[1]) ++mal;
+        }
+        check(!mal, std::to_string(sizeof T / sizeof T[0]) + " instrucciones: las dos fuentes, bit a bit");
+    }
+
+    // La sonda de bancada sobre el laboratorio de CPU, con dbg_cpu.elf corriendo
+    void sonda(SondaM430::Modo modo, const char* q) {
+        const std::string elf = std::string(DIR) + "dbg_cpu.elf";
+        uint32_t s_cont = 0, s_vig = 0, s_obj = 0, s_main = 0;
+        simbolo_elf(elf, "contador", s_cont); simbolo_elf(elf, "vigilada", s_vig);
+        simbolo_elf(elf, "objetivo", s_obj); simbolo_elf(elf, "main", s_main);
+        corre(cpu, elf, sc_time(10, SC_US));
+        wait(200, SC_US);
+        SondaM430::Pines pp;
+        if (modo == SondaM430::Modo::Jtag4) { pp.tck = &cpu.jtag_tck; pp.tms = &cpu.jtag_tms; pp.tdi = &cpu.jtag_tdi;
+                                              pp.tdo = &cpu.jtag_tdo; }
+        else { pp.test = &cpu.sbw_test; pp.rst = &cpu.sbw_rst; }
+        SondaM430 s(pp, modo);
+        const std::string p = std::string(q) + ": ";
+        const uint8_t id = s.conecta();
+        check(id == 0x89, p + "el JTAG ID al desplazar la IR: 0x" + hex2(id));
+        const bool sinc = s.sincroniza(false);
+        const uint32_t pc_cpu = cpu.cpu().pc();
+        const uint16_t pc = s.lee_pc();
+        check(sinc && pc == pc_cpu && cpu.nucleo.en_tclk(), p + "sincronizada (TCE, INSTR_LOAD) y el PC por ADDR_CAPTURE");
+        const uint16_t c0 = cpu.ram16(s_cont);
+        check(s.lee_palabra(uint16_t(s_cont)) == c0, p + "ReadMemWord de contador");
+        s.escribe_palabra(uint16_t(s_vig), 0x1234);
+        s.escribe_byte(uint16_t(s_vig + 1), 0x56);
+        check(cpu.ram16(s_vig) == 0x5634, p + "WriteMemWord y WriteMemByte en vigilada");
+        const uint32_t r4 = cpu.cpu().reg(4), sr = cpu.cpu().reg(2);
+        const uint16_t l4 = s.lee_reg(4), lsr = s.lee_reg(2);
+        check(l4 == r4 && lsr == sr, p + "ReadCpuReg (MOV Rn,&0x00FE por el MDB): R4 y SR");
+        s.escribe_reg(5, 0xBEEF);
+        check(cpu.cpu().reg(5) == 0xBEEF && s.lee_pc() == pc + 8,
+              p + "WriteCpuReg (MOV #n,Rn y JMP $-4): R5 = 0xBEEF; el PC, 4 palabras más (las de las dos lecturas)");
+        s.pon_pc(uint16_t(s_obj));
+        check(cpu.cpu().pc() == s_obj && s.lee_pc() == s_obj, p + "SetPc: el PC en objetivo");
+        const bool paso = s.un_paso();
+        check(paso && s.lee_pc() == s_obj + 4 && cpu.ram16(s_cont) == uint16_t(c0 + 1),
+              p + "un paso por TCLK: INC &contador se hace y el PC avanza");
+        s.escribe_eem(0x88, 0x0026);
+        check(s.lee_eem(0x88) == 0x0026 && cpu.eem.genclkctrl() == 0x26, p + "el EEM por IR_EMEX_DATA_EXCHANGE: GENCLKCTRL");
+        s.pon_pc(uint16_t(s_main));
+        s.suelta_cpu();
+        const uint16_t c1 = cpu.ram16(s_cont);
+        wait(500, SC_US);
+        check(!cpu.nucleo.en_tclk() && cpu.ram16(s_cont) != c1, p + "IR_CNTRL_SIG_RELEASE: la CPU corre sola");
+        const bool por = s.sincroniza(true);
+        // Las tres bajadas de TCLK de ExecutePOR cargan el vector y pueden ejecutar
+        // la primera instrucción: el PC, en el vector o justo después [de modelo]
+        const uint16_t vpc = s.lee_pc(), vec = cpu.ram16(0xFFFE);
+        check(por && vpc >= vec && vpc <= vec + 6, p + "POR por el registro de control: la CPU, en el vector de reset");
+        s.suelta_cpu();
+        // El fusible: IR_PREPARE_BLOW y IR_EX_BLOW; después solo hay BYPASS
+        s.ir_shift(IR430_PREPARE_BLOW);
+        s.ir_shift(IR430_EX_BLOW);
+        const uint8_t id2 = uint8_t(s.ir_shift(IR430_CNTRL_SIG_16BIT));
+        check(cpu.tap.fusible() && id2 != 0x89, p + "el fusible fundido: el TAP ya no da su ID (0x" + hex2(id2) + ")");
+        cpu.tap.restaura_fusible();
+        s.desconecta();
+        wait(100, SC_US);
+        if (modo == SondaM430::Modo::Sbw) {
+            check(!cpu.pines.en_sbw(), p + "SBWTCK bajo más de 7 µs: fuera de Spy-Bi-Wire");
+        }
+    }
+    static std::string hex2(unsigned v) { char b[8]; std::snprintf(b, sizeof b, "%02X", v); return b; }
+    void n8() { grupo("N8 la sonda de bancada por JTAG de 4 hilos (las macros HAL de 2xx)"); sonda(SondaM430::Modo::Jtag4, "4 hilos"); }
+    void n9() { grupo("N9 la sonda de bancada por Spy-Bi-Wire"); sonda(SondaM430::Modo::Sbw, "SBW"); }
+
+    void n10() {
+        grupo("N10 el EEM en el núcleo: búsqueda, escritura y control de relojes");
+        const std::string elf = std::string(DIR) + "dbg_cpu.elf";
+        uint32_t s_obj = 0, s_vig = 0;
+        simbolo_elf(elf, "objetivo", s_obj); simbolo_elf(elf, "vigilada", s_vig);
+        corre(cpu, elf, sc_time(10, SC_US));
+        EemM430& e = cpu.eem;
+        e.escribe(0x00, uint16_t(s_obj)); e.escribe(0x02, 0x0000); e.escribe(0x06, 0x0001);
+        e.escribe(0x80, 0x0001); e.escribe(0x82, EemM430::EEM_EN);
+        wait(200, SC_US);
+        check(cpu.nucleo.parado() && cpu.cpu().pc() == s_obj && (e.lee(0x82) & EemM430::E_STOPPED) && (e.lee(0x8E) & 1u),
+              "disparador de búsqueda en objetivo: la CPU se para ANTES, E_STOPPED y TRIGFLAG");
+        e.escribe(0x06, 0); e.escribe(0x8E, 0xFFFF);
+        e.escribe(0x08, uint16_t(s_vig)); e.escribe(0x0A, 0x0026); e.escribe(0x0E, 0x0002); e.escribe(0x80, 0x0002);
+        cpu.nucleo.pide_parada(false);
+        wait(200, SC_US);
+        const uint32_t pc = cpu.cpu().pc();
+        check(cpu.nucleo.parado() && (e.lee(0x8E) & 2u) && pc != s_obj, "disparador de escritura en vigilada: se para tras la instrucción");
+        e.escribe(0x82, EemM430::EEM_RST);
+        e.escribe(0x82, 0);
+        check(e.lee(0x80) == 0 && !e.parado(), "EEM_RST borra los disparadores");
+        cpu.nucleo.pide_parada(false);
+    }
+
+    // --- GDB --------------------------------------------------------------------
+    GdbClient cli;
+    uint32_t reg(unsigned n) {
+        char b[8]; std::snprintf(b, sizeof b, "p%x", n);
+        const std::string r = cli.pedir(b);
+        uint32_t v = 0;
+        for (size_t i = 0; i + 1 < r.size() && i < 8; i += 2) v |= uint32_t(std::strtoul(r.substr(i, 2).c_str(), nullptr, 16)) << (4 * i);
+        return v;
+    }
+    static std::string hexs(const std::string& t) { std::string o; char b[4];
+        for (unsigned char c : t) { std::snprintf(b, sizeof b, "%02x", c); o += b; } return o; }
+    std::string z(char c, unsigned t, uint32_t a, unsigned k) {
+        char b[48]; std::snprintf(b, sizeof b, "%c%u,%x,%x", c, t, unsigned(a), k); return cli.pedir(b, sc_time(200, SC_MS));
+    }
+    std::string espera_parada() {
+        for (int i = 0; i < 400; ++i) { const std::string r = cli.recibir(sc_time(5, SC_MS)); if (!r.empty()) return r; }
+        return std::string();
+    }
+    void sesion(GdbStubM430& st, unsigned puerto, const char* q) {
+        const std::string elf = std::string(DIR) + "dbg_cpu.elf";
+        uint32_t s_obj = 0, s_vig = 0, s_main = 0;
+        simbolo_elf(elf, "objetivo", s_obj); simbolo_elf(elf, "vigilada", s_vig); simbolo_elf(elf, "main", s_main);
+        corre(cpu, elf, sc_time(10, SC_US));
+        const sc_time t0 = sc_time_stamp();
+        if (std::getenv("TEST430_DEPURA")) std::printf("  [antes] tclk=%d parado=%d pc=%x tce1=%x\n", cpu.nucleo.en_tclk(), cpu.nucleo.parado(), unsigned(cpu.cpu().pc()), cpu.tap.cntrl());
+        st.set_halt_on_attach(true);
+        st.set_enabled(true);
+        wait(1, SC_MS);
+        const std::string p = std::string(q) + ": ";
+        if (!cli.conectar(puerto)) { check(false, p + "no conecta"); st.set_enabled(false); return; }
+        wait(1, SC_MS);
+        const std::string sup = cli.pedir("qSupported:swbreak+;hwbreak+", sc_time(5, SC_SEC));
+        const bool con = sup.find("PacketSize") != std::string::npos && cli.pedir("QStartNoAckMode") == "OK" &&
+                         cli.pedir("?", sc_time(5, SC_SEC)).rfind("T0", 0) == 0;
+        const std::string g = cli.pedir("g", sc_time(5, SC_SEC));
+        const uint32_t pc0 = reg(0);
+        check(con && g.size() == 16 * 8 && pc0 >= s_obj && pc0 < s_main + 16,
+              p + "conectar parado; g (16 registros de 4 bytes); el PC en el bucle" +
+              (con && g.size() == 16 * 8 && pc0 >= s_obj && pc0 < s_main + 16 ? std::string()
+               : " — con=" + std::to_string(con) + " g=" + std::to_string(g.size()) + " pc=" + std::to_string(pc0)));
+        cli.pedir("P5=efbe0000", sc_time(5, SC_SEC));
+        char m[32]; std::snprintf(m, sizeof m, "m%x,2", unsigned(s_vig));
+        const std::string mv = cli.pedir(m, sc_time(5, SC_SEC));
+        check(reg(5) == 0xBEEF && mv.size() == 4, p + "P y m");
+        // Z0: 0x4343 en objetivo
+        const bool z0 = z('Z', 0, s_obj, 2) == "OK";
+        std::snprintf(m, sizeof m, "m%x,2", unsigned(s_obj));
+        const bool en_ram = cli.pedir(m, sc_time(5, SC_SEC)) == "4343";
+        cli.enviar("c");
+        const std::string pb = espera_parada();
+        check(z0 && en_ram && pb.find("swbreak") != std::string::npos && reg(0) == s_obj,
+              p + "Z0: 0x4343 (CLR.B R3) en objetivo y el disparador de su búsqueda: swbreak");
+        z('z', 0, s_obj, 2);
+        const bool z1 = z('Z', 1, s_obj, 2) == "OK";
+        cli.enviar("c");
+        const std::string ph = espera_parada();
+        check(z1 && ph.find("hwbreak") != std::string::npos && reg(0) == s_obj, p + "Z1: un disparador de búsqueda: hwbreak");
+        z('z', 1, s_obj, 2);
+        const bool z2 = z('Z', 2, s_vig, 2) == "OK";
+        cli.enviar("c");
+        const std::string pw = espera_parada();
+        char w[32]; std::snprintf(w, sizeof w, "watch:%x", unsigned(s_vig));
+        const uint32_t pc_w = reg(0);
+        check(z2 && pw.find(w) != std::string::npos && pc_w > s_main, p + "Z2: escritura en vigilada: watch, tras el MOV");
+        z('z', 2, s_vig, 2);
+        cli.enviar("s");
+        const std::string ps = espera_parada();
+        check(ps.rfind("T05", 0) == 0 && reg(0) != pc_w, p + "un paso");
+        const bool rh = cli.pedir("qRcmd," + hexs("reset halt"), sc_time(5, SC_SEC)) == "OK";
+        check(rh && reg(0) == cpu.ram16(0xFFFE), p + "monitor reset halt: el PC en el vector de reset");
+        cli.enviar("c");
+        wait(300, SC_US);
+        cli.crudo("\x03");
+        const std::string pi = espera_parada();
+        const uint32_t pc_i = reg(0);
+        check(pi.rfind("T02", 0) == 0 && pc_i >= s_obj && pc_i < s_main + 16, p + "Ctrl-C con el programa en marcha: T02 en el bucle");
+        cli.pedir("D");
+        cli.desconectar();
+        wait(1, SC_MS);
+        st.set_enabled(false);
+        g_t_gdb += sc_time_stamp() - t0;
+    }
+    void n11() {
+        grupo("N11 GDB por --gdb-dap (el núcleo y el EEM en directo)");
+        sesion(*stub_dap_, puerto_gdb(0), "--gdb-dap");
+    }
+    void n12() {
+        grupo("N12 GDB por --gdb (la sonda de bancada, por 4 hilos y por SBW)");
+        sesion(*stub_4h_, puerto_gdb(1), "--gdb 4 hilos");
+        sonda_4h_->desconecta();
+        sesion(*stub_sbw_, puerto_gdb(2), "--gdb SBW");
+        sonda_sbw_->desconecta();
+    }
+
     void run() {
+        if (const char* solo = std::getenv("TEST430_SOLO")) {       // para depurar la suite
+            const std::string g = solo;
+            if (g == "N8") n8(); else if (g == "N9") n9(); else if (g == "N10") n10();
+            else if (g == "N11") n11(); else if (g == "N12") n12();
+            std::printf("\nTOTAL 430: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
+            sc_stop();
+            return;
+        }
         n1();
         n2();
         n3();
         n4();
         n5();
         n6();
+        n7();
+        n8();
+        n9();
+        n10();
+        n11();
+        n12();
         std::printf("\nTOTAL 430: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }
@@ -347,5 +609,9 @@ int sc_main(int argc, char* argv[]) {
         return (unsigned long long)(t.value() * (sc_get_time_resolution().to_seconds() / 1e-12));
     };
     std::printf("\nTiempo simulado: %llu ps\n", ps(sc_time_stamp()));
+    if (g_t_gdb != SC_ZERO_TIME)
+        std::printf("  de los cuales N11-N12 (socket de GDB): %llu ps\n"
+                    "  el resto                             : %llu ps\n",
+                    ps(g_t_gdb), ps(sc_time_stamp() - g_t_gdb));
     return g_fallos ? 1 : 0;
 }

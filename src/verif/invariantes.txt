@@ -425,5 +425,9 @@ testc6                 202      53173701458348        resto
 # ciclos de SLAU144K y SLAU391F fila a fila; N4 las pruebas propias (la guia
 # donde el simulador de GDB no la sigue, irq y LPM, la irq por encima de
 # 64 KB); N5 printf de newlib con y sin -mlarge; N6 TI-TXT y ELF_MSP430.
-# Igual en dos pasadas (15-11-2026).
-test430               723      8248215750000
+# M2 (16-11-2026) anade N7-N12 detras: los codigos de IR, la sonda de
+# bancada por 4 hilos y por SBW, el EEM y GDB por --gdb-dap y por --gdb. Los
+# grupos de M1 no cambian (acaban en 8248215750000 ps, como antes); N11-N12
+# hablan por un socket y su tiempo no cuenta: el invariante pasa a «resto».
+# Igual en dos pasadas.
+test430               776      8282166500000  resto

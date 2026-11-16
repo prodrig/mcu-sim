@@ -38,6 +38,8 @@
 #include <string>
 #include <vector>
 #include "../cpu/nucleo_m430.h"
+#include "../debug/pines_m430.h"
+#include "../../common/analog_net.h"
 #include "../../common/imagen_fw.h"
 
 namespace stm32 {
@@ -51,9 +53,24 @@ SC_MODULE(SocLabM430), public m430_irq_if {
 
     NucleoM430 nucleo;
     bool eco_uart = false;
+    // La depuración (M2): el EEM, el TAP y sus pines, de 4 hilos y de SBW
+    EemM430 eem;
+    TapM430 tap;
+    AnalogNet jtag_tck{"jtag_tck"}, jtag_tms{"jtag_tms"}, jtag_tdi{"jtag_tdi"}, jtag_tdo{"jtag_tdo"},
+              sbw_test{"sbw_test"}, sbw_rst{"sbw_rst"};
+    PinesM430 pines;
 
-    SocLabM430(sc_core::sc_module_name nm, const M430Caps& caps, double hz_nucleo = 8e6)
-        : sc_core::sc_module(nm), nucleo("nucleo", caps), ram_(MEM, 0) {
+    // `disparadores` del EEM: 2 (XS, como el G2553) por omisión
+    SocLabM430(sc_core::sc_module_name nm, const M430Caps& caps, double hz_nucleo = 8e6, unsigned disparadores = 2)
+        : sc_core::sc_module(nm), nucleo("nucleo", caps),
+          eem(disparadores, disparadores <= 2 ? 1 : disparadores == 3 ? 2 : disparadores <= 5 ? 3 : 4),
+          tap(caps.arq == M430Arq::CPU ? 0x89 : caps.arq == M430Arq::CPUX ? 0x89 : 0x91, caps.tiene_20bits(), &eem),
+          pines("pines", tap, PinesM430::Pines{&jtag_tck, &jtag_tms, &jtag_tdi, &jtag_tdo, &sbw_test, &sbw_rst}),
+          ram_(MEM, 0) {
+        nucleo.tap = &tap;
+        nucleo.eem = &eem;
+        tap.pon_cpu(&nucleo);
+        nucleo.al_por = [this](bool v) { rst_n.write(!v); };
         bus.register_b_transport(this, &SocLabM430::b_transport);
         bus.register_transport_dbg(this, &SocLabM430::transport_dbg);
         nucleo.bus.bind(bus);
@@ -65,6 +82,7 @@ SC_MODULE(SocLabM430), public m430_irq_if {
         nucleo.cpu.llamada_lab = [this](uint32_t d) { return llamada(d); };
         SC_HAS_PROCESS(SocLabM430);
         SC_THREAD(retardo_proc);
+        SC_METHOD(por_proc); sensitive << ev_por_; dont_initialize();
     }
 
     M430Cpu& cpu() { return nucleo.cpu; }
@@ -101,6 +119,8 @@ SC_MODULE(SocLabM430), public m430_irq_if {
         nucleo.pide_parada(false);
         rst_n.write(!activo);
     }
+    // Un POR que no borra lo del laboratorio (para la depuración)
+    void por() { rst_n.write(false); ev_por_.notify(sc_core::sc_time(1, sc_core::SC_US)); }
     bool terminado() const { return fin_; }
     uint32_t codigo() const { return codigo_; }
     const sc_core::sc_event& ev_fin() const { return ev_fin_; }
@@ -201,6 +221,8 @@ private:
         default: break;
         }
     }
+    sc_core::sc_event ev_por_;
+    void por_proc() { rst_n.write(true); }
     void retardo_proc() {
         for (;;) {
             wait(ev_ret_);
