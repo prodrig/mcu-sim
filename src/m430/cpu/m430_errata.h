@@ -15,6 +15,9 @@
 //          PC. No se modela: depende de lo que haya detrás del salto en la
 //          memoria, que el compilador ya evita [declarado].
 //
+//   CPU4   (2xx: el G2553) PUSH #4 / #8 por el generador de constantes: valor
+//          equivocado. AVISA una vez; empuja la constante [declarado].
+//
 // La F5529 tiene además CPU23, CPU27, CPU29 y CPU30 (de la palabra de
 // extensión, los modos de bajo consumo y el TA): ninguna cambia lo que
 // computa un programa bien escrito: se documentan y no se modelan.

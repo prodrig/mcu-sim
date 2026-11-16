@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MSP-EXP430G2ET: la LaunchPad del MSP430G2553 (P-20 / M3 de doc/analisis_msp430.md)
+
+     Lo que lleva la placa aparte del chip [SLAU772A, §2 y los esquematicos,
+     hoja 3 de 3, «MSP430G2xxx Target»]:
+
+         XU1   el zocalo DIP-20 con el MSP430G2553IN20
+         LED1  D1, VERDE, en P1.0 por 390 ohm (R4), tras el jumper J6
+         LED2  D2, ROJO, en P1.6 por 470 ohm (R8), tras J7. P1.6 es tambien
+               TDI/TCLK del JTAG de 4 hilos: con J7 puesto, el LED parpadea
+               cuando se programa por 4 hilos, como en la placa
+         LED3  D3, RGB de catodo comun (19-337/R6GHBHC): azul en P2.5 por
+               24 ohm, rojo en P2.1 por 110 ohm y verde en P2.3 por 16 ohm,
+               tras los tres puentes de J8
+         S1    el pulsador de uso general, en P1.3, a masa, con 47 kohm a 3V3
+               (R6): no hace falta el pull-up interno
+         S2    RESET, en RST/SBWTDIO, con 47 kohm a 3V3 (R10) y 1 nF (C13, no
+               se modela)
+         Y1    el cristal de 32 768 Hz NO esta conectado de fabrica (R6/R5 sin
+               montar: XIN/XOUT van a P2.6/P2.7 de los conectores)
+         J101  el bloque de aislamiento entre el eZ-FET y el chip [tabla 2]:
+               GND, 5V, 3V3, RXD <<, TXD >>, SBW RST y SBW TST, todos puestos
+               de fabrica y en horizontal (la UART por hardware, la USCI_A0)
+         BCL   el backchannel del eZ-FET («MSP Application UART1»): la
+               USCI_A0 en P1.1 (RXD) y P1.2 (TXD), hasta el PC por RFC 2217
+               en el 3356. Los baudios los pone el terminal
+         J1/J2 los conectores BoosterPack de 20 pines [hoja 3]
+
+     El eZ-FET en si es de M11: hasta entonces se depura con el stub de GDB
+     contra el nucleo (--gdb-dap) o por los pines, Spy-Bi-Wire en TEST/RST con
+     la sonda de bancada (--gdb), que programa la Flash con el controlador y
+     TCLK, como el Replicator430.
+
+         ./build/mcu-sim placas/msp_exp430g2et.xml --valida
+         ./build/mcu-sim placas/msp_exp430g2et.xml verif/g2553/elf/oobe.elf --ms=2000
+-->
+<placa nombre="msp-exp430g2et">
+  <mcu tipo="MSP430G2553" id="u0"/>
+
+  <!-- Los LED, cada uno tras su jumper (J6, J7) -->
+  <componente tipo="Jumper" id="J6" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P1.0"/>
+  </componente>
+  <componente tipo="Jumper" id="J7" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P1.6"/>
+  </componente>
+  <componente tipo="Led" id="LED1" a_vss="si" vf="2.1" r="390" color="verde">
+    <pin nombre="anodo" nodo="J6.2"/>
+  </componente>
+  <componente tipo="Led" id="LED2" a_vss="si" vf="2.0" r="470">
+    <pin nombre="anodo" nodo="J7.2"/>
+  </componente>
+  <!-- J8: los tres del RGB, 1-2 verde (P2.3), 3-4 rojo (P2.1), 5-6 azul (P2.5) -->
+  <componente tipo="Jumper" id="J8" filas="2" columnas="3" puente="1 2, 3 4, 5 6">
+    <pin nombre="1" nodo="P2.3"/>
+    <pin nombre="3" nodo="P2.1"/>
+    <pin nombre="5" nodo="P2.5"/>
+  </componente>
+  <componente tipo="RGBLed" id="LED3" comun="catodo"
+              vf_r="2.0" vf_g="2.9" vf_b="2.9" r_r="110" r_g="16" r_b="24">
+    <pin nombre="r" nodo="J8.4"/>
+    <pin nombre="g" nodo="J8.2"/>
+    <pin nombre="b" nodo="J8.6"/>
+  </componente>
+
+  <!-- S1 en P1.3 con R6 a 3V3: tres que tiran del nodo -->
+  <nodo id="P1.3" bus="si"/>
+  <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P1.3"/>
+  </componente>
+  <componente tipo="Rpull" id="R6" v="3.3" r="47000" visible="no">
+    <pin nombre="a" nodo="P1.3"/>
+  </componente>
+
+  <!-- RESET: RST con R10 a 3V3, el boton y la sonda (SBWTDIO) -->
+  <nodo id="RST" bus="si"/>
+  <componente tipo="Button" id="S2" v_cerrado="0" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="RST"/>
+  </componente>
+  <componente tipo="Rpull" id="R10" v="3.3" r="47000" visible="no">
+    <pin nombre="a" nodo="RST"/>
+  </componente>
+
+  <!-- Los 5 V del USB del eZ-FET, por J101 -->
+  <nodo id="5V" bus="si"/>
+  <nodo id="DVSS" bus="si"/>
+  <componente tipo="Fuente" id="USB" v="5" limite_ma="500">
+    <pin nombre="pin" nodo="J101.4"/>
+  </componente>
+
+  <!-- J101 [tabla 2]: los impares del chip, los pares del eZ-FET -->
+  <componente tipo="Jumper" id="J101" filas="2" columnas="7"
+              puente="1 2, 3 4, 5 6, 7 8, 9 10, 11 12, 13 14">
+    <pin nombre="1" nodo="DVSS"/>       <!-- GND -->
+    <pin nombre="3" nodo="5V"/>         <!-- 5V -->
+    <pin nombre="5" nodo="DVCC"/>       <!-- 3V3 -->
+    <pin nombre="7" nodo="P1.1"/>       <!-- RXD << : UCA0RXD -->
+    <pin nombre="9" nodo="P1.2"/>       <!-- TXD >> : UCA0TXD -->
+    <pin nombre="11" nodo="RST"/>       <!-- SBW RST -->
+    <pin nombre="13" nodo="TEST"/>      <!-- SBW TST -->
+  </componente>
+  <!-- El backchannel del eZ-FET, del lado del eZ-FET de J101: su rx lee el
+       TX del MCU -->
+  <componente tipo="PuenteSerie" id="BCL" host="rfc2217:3356"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="J101.10"/>
+    <pin nombre="tx" nodo="J101.8"/>
+  </componente>
+
+  <!-- ===================================================================
+       Los conectores BOOSTERPACK [hoja 3, «BoosterPack Headers»]: J1 1-10
+       y J2 11-20, como en la serigrafia
+       =================================================================== -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="10">
+    <pin nombre="1" nodo="DVCC"/>   <!-- +3.3V -->
+    <pin nombre="2" nodo="P1.0"/>   <!-- Analog_In, LED1 -->
+    <pin nombre="3" nodo="P1.1"/>   <!-- LP_UART_RX -->
+    <pin nombre="4" nodo="P1.2"/>   <!-- LP_UART_TX -->
+    <pin nombre="5" nodo="P1.3"/>   <!-- GPIO, S1 -->
+    <pin nombre="6" nodo="P1.4"/>   <!-- Analog_In -->
+    <pin nombre="7" nodo="P1.5"/>   <!-- SPI_CLK -->
+    <pin nombre="8" nodo="P2.0"/>   <!-- GPIO -->
+    <pin nombre="9" nodo="P2.1"/>   <!-- I2C_SCL -->
+    <pin nombre="10" nodo="P2.2"/>  <!-- I2C_SDA -->
+  </componente>
+  <componente tipo="Conector" id="J2" filas="1" columnas="10">
+    <pin nombre="1" nodo="P2.3"/>   <!-- 11, GPIO -->
+    <pin nombre="2" nodo="P2.4"/>   <!-- 12, GPIO -->
+    <pin nombre="3" nodo="P2.5"/>   <!-- 13, GPIO -->
+    <pin nombre="4" nodo="P1.6"/>   <!-- 14, SPI_MISO, LED2 -->
+    <pin nombre="5" nodo="P1.7"/>   <!-- 15, SPI_MOSI -->
+    <pin nombre="6" nodo="RST"/>    <!-- 16, RST -->
+    <pin nombre="7" nodo="TEST"/>   <!-- 17, TEST -->
+    <pin nombre="8" nodo="P2.7"/>   <!-- 18, GPIO (XOUT) -->
+    <pin nombre="9" nodo="P2.6"/>   <!-- 19, PWM (XIN) -->
+    <pin nombre="10" nodo="DVSS"/>  <!-- 20, GND -->
+  </componente>
+</placa>

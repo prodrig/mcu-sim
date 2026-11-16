@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # =============================================================================
-# dibuja_ti.py — Genera los dibujos de las tres placas de TI:
-#                msp_exp432p401r.svg, boostxl_edumkii.svg y msp_exp432e401y.svg
+# dibuja_ti.py — Genera los dibujos de las placas de TI:
+#                msp_exp432p401r.svg, boostxl_edumkii.svg, msp_exp432e401y.svg
+#                y msp_exp430g2et.svg
 #
 # Los SVG estan versionados; esto es como se hicieron, para rehacerlos si
 # cambia una placa. Una unidad es 0,1 mm. Cada pieza visible del XML y cada
@@ -690,7 +691,112 @@ def e401y():
     s.text((xi + xp) / 2, Y(485), "J10", size=11)
     s.guarda("msp_exp432e401y.svg")
 
+# =============================================================================
+# MSP-EXP430G2ET
+# =============================================================================
+def g2et():
+    com = """
+  MSP-EXP430G2ET, dibujada a mano: una aproximacion, no una foto ni una
+  ilustracion del fabricante. Es el dibujo de placas/msp_exp430g2et.xml. La
+  disposicion, la de la figura 1 de SLAU772A: el eZ-FET y su USB arriba, el
+  bloque de aislamiento J101 (siete puentes, de lado a lado), el zocalo DIP-20
+  del MSP430G2553 en medio con las tiras BoosterPack J1 (1-10) a la izquierda
+  y J2 (20-11) a la derecha, y abajo los LED con sus jumpers (J6, J7 y los
+  tres de J8 del RGB), S1 (P1.3) y S2 (RESET).
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, una unidad es 0,1 mm (la placa mide unos 51 x 66 mm sin el
+  eZ-FET; aqui, la placa entera). Cada pieza viva con el id de su pieza en
+  el XML: LED1, LED2, LED3 (RGBLed), S1, S2, USB, BCL y los conectores J1, J2
+  y J101, cada pin con su id. Los jumpers ensenan su puente (J101, J6, J7 y
+  J8): cada posicion es un elemento PIEZA@valor. BCL#destino es un rotulo.
+"""
+    W, H = 1000, 1060
+    s = Svg(W, H, com)
+    bx, by, bw, bh = 230, 30, 540, 980
+    cx = bx + bw / 2
+    s.rect(bx, by, bw, bh, ROJO_PCB, BORDE_PCB, 5, rx=18)
+    for x, y in ((bx + 30, by + 30), (bx + bw - 30, by + 30), (bx + 30, by + bh - 30), (bx + bw - 30, by + bh - 30)):
+        agujero(s, x, y)
+    # El eZ-FET y su USB, arriba
+    usb_micro(s, cx, by - 22, id="USB")
+    s.text(cx, by + 52, "USB (eZ-FET)", size=12)
+    chip(s, cx - 160, by + 80, 90, 90, "eZ-FET", "F5528", id="EZFET")
+    s.text(cx - 115, by + 190, "eZ-FET lite", size=12)
+    s.abre("BCL")
+    s.rect(cx - 40, by + 85, 220, 72, "#fef9e7", "#d68910", 2, rx=5)
+    s.cierra()
+    s.text(cx + 70, by + 105, "Backchannel UART", size=12, fill="#7e5109", bold=True)
+    s.text(cx + 70, by + 123, "USCI_A0 (P1.1, P1.2)", size=11, fill="#7e5109")
+    s.text(cx + 70, by + 145, "RFC 2217 en localhost:3356", size=12, fill="#1b2631", bold=True, id="BCL#destino")
+    # J101: siete columnas, pares arriba (eZ-FET), impares abajo (el chip)
+    y_par, y_impar = by + 250, by + 250 + P
+    x0 = cx - 3 * P
+    pines, puentes = [], []
+    nombres = ["GND", "5V", "3V3", "RXD<<", "TXD>>", "SBW RST", "SBW TST"]
+    for k in range(7):
+        x = x0 + k * P
+        pines.append(("J101.%d" % (2 * k + 2), x, y_par))
+        pines.append(("J101.%d" % (2 * k + 1), x, y_impar))
+        puentes.append((x, y_par, x, y_impar))
+    jumper(s, "J101", pines, {"+".join("%d-%d" % (2 * k + 1, 2 * k + 2) for k in range(7)): puentes})
+    for k, n in enumerate(nombres):
+        s.text(x0 + k * P, y_impar + 30, n, size=9, rot=-90, anchor="end")
+    s.text(x0 - 30, y_par + 5, "J101", size=13, anchor="end", bold=True)
+    s.line(bx, y_par + P / 2, bx + bw, y_par + P / 2, "#ffffff", 2, "8 6")
+    s.text(bx + 12, y_par - 2, "eZ-FET", size=11, anchor="start")
+    s.text(bx + 12, y_impar + 22, "MSP430G2553", size=11, anchor="start")
+    # Las BoosterPack: J1 (1-10) a la izquierda, J2 (20-11) a la derecha
+    yb = by + 400
+    xj1, xj2 = cx - 228.6 + 20, cx + 228.6 - 20
+    tira_vertical(s, "J1", xj1, yb, ["J1.%d" % k for k in range(1, 11)])
+    tira_vertical(s, "J2", xj2, yb, ["J2.%d" % k for k in range(10, 0, -1)])
+    s.text(xj1, yb - 22, "1", size=12, bold=True)
+    s.text(xj2, yb - 22, "20", size=12, bold=True)
+    s.text(xj1, yb + 10 * P + 8, "J1", size=12)
+    s.text(xj2, yb + 10 * P + 8, "J2", size=12)
+    j1 = ["3V3", "P1.0", "P1.1", "P1.2", "P1.3", "P1.4", "P1.5", "P2.0", "P2.1", "P2.2"]
+    j2 = ["GND", "P2.6", "P2.7", "TEST", "RST", "P1.7", "P1.6", "P2.5", "P2.4", "P2.3"]
+    for k in range(10):
+        y = yb + k * P
+        etiqueta(s, bx - 50, y, j1[k], 74)
+        etiqueta(s, bx + bw + 50, y, j2[k], 74)
+    # El zocalo DIP-20 con el chip
+    s.rect(cx - 70, yb - 15, 140, 10 * P + 5, "#1f1f1f", "#000", 1.5, rx=4)
+    chip(s, cx - 55, yb, 110, 10 * P - 25, "MSP430", "G2553IN20")
+    s.text(cx, yb + 10 * P + 25, "XU1 (DIP-20)", size=11)
+    cristal(s, "Y1", cx - 30, yb + 10 * P + 40, 60, 18, "Y1 32 kHz (sin montar)")
+    # Los LED y sus jumpers
+    yl = by + 760
+    def puente_v(id, x, y):
+        jumper(s, id, [(id + ".1", x, y), (id + ".2", x, y + P)], {"1-2": [(x, y, x, y + P)]})
+    puente_v("J6", cx - 190, yl)
+    puente_v("J7", cx - 110, yl)
+    s.text(cx - 190, yl - 22, "J6", size=10)
+    s.text(cx - 110, yl - 22, "J7", size=10)
+    led(s, "LED1", cx - 190, yl + 90, "#2ecc71", 11)
+    s.text(cx - 190, yl + 120, "LED1 P1.0", size=11)
+    led(s, "LED2", cx - 110, yl + 90, "#e74c3c", 11)
+    s.text(cx - 110, yl + 120, "LED2 P1.6", size=11)
+    x8 = cx - 10
+    pines8 = []
+    for k in range(3):
+        pines8.append(("J8.%d" % (2 * k + 1), x8 + k * P, yl))
+        pines8.append(("J8.%d" % (2 * k + 2), x8 + k * P, yl + P))
+    jumper(s, "J8", pines8, {"1-2+3-4+5-6": [(x8 + k * P, yl, x8 + k * P, yl + P) for k in range(3)]})
+    s.text(x8 + P, yl - 22, "J8 (G R B)", size=10)
+    led_rgb(s, "LED3", x8 + P, yl + 95, 15)
+    s.text(x8 + P, yl + 132, "LED3 (RGB)", size=11)
+    boton(s, "S1", cx + 130, yl + 70, 56)
+    s.text(cx + 130, yl + 120, "S1 (P1.3)", size=12)
+    boton(s, "S2", cx + 215, yl + 70, 56)
+    s.text(cx + 215, yl + 120, "S2 RESET", size=12)
+    s.text(cx, by + bh - 50, "MSP-EXP430G2ET", size=20, bold=True)
+    s.text(cx, by + bh - 30, "Texas Instruments", size=12)
+    s.guarda("msp_exp430g2et.svg")
+
 
 p401r()
 edumkii()
 e401y()
+g2et()

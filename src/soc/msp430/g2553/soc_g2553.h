@@ -60,6 +60,7 @@
 #include "../../../m430/debug/pines_m430.h"
 #include "../../../periph/ti/timer_a.h"
 #include "../../../common/analog_net.h"
+#include "../../../pins/pin_mux.h"
 #include "../../../common/imagen_fw.h"
 #include "../desc/msp430g2553.h"
 
@@ -80,9 +81,15 @@ SC_MODULE(SocG2553), public m430_irq_if {
     TapM430 tap{0x89, false, &eem};
 
     // Los pines: P1.0-P1.7, P2.0-P2.7, P3.0-P3.7 y RST/TEST
-    std::vector<std::unique_ptr<AnalogNet>> pin;
-    AnalogNet test{"TEST"}, rst{"RST"};
-    PinesM430 pines_dbg;
+    // Los de la placa, si el pin está en un nodo compartido (un <hilo> de un
+    // <sistema>, un nodo de bus): `Cableado`; si no, los suyos
+    std::vector<std::unique_ptr<AnalogNet>> propios_;
+    std::vector<analog_net_if*> pin;
+    analog_net_if& test;
+    analog_net_if& rst;
+    // SBW en TEST/RST y JTAG de 4 hilos en P1.4-P1.7 con TEST arriba
+    // (TCK, TMS, TDI/TCLK, TDO) [DS «JTAG pins»]
+    std::unique_ptr<PinesM430> pines_dbg;
     double vcc = 3.3;
     double temperatura = 25.0;           // °C, para el sensor del ADC10
     bool cristal_32k = false;            // la G2ET lo trae sin montar
@@ -96,16 +103,27 @@ SC_MODULE(SocG2553), public m430_irq_if {
     std::string uart_tx;
     std::function<void(uint8_t)> al_tx_uart;
 
-    SocG2553(sc_core::sc_module_name nm)
+    SocG2553(sc_core::sc_module_name nm, const Cableado* cab = nullptr)
         : sc_core::sc_module(nm), nucleo("nucleo", M430_G2553),
-          pines_dbg("pines_dbg", tap, PinesM430::Pines{nullptr, nullptr, nullptr, nullptr, &test, &rst}),
-          mem_(0x10000, 0xFF) {
+          test(nodo_alim(cab, "TEST")), rst(nodo_alim(cab, "RST")), mem_(0x10000, 0xFF) {
         for (unsigned i = 0; i < 24; ++i) {
-            char n[8]; std::snprintf(n, sizeof n, "P%u.%u", 1 + i / 8, i % 8);
-            pin.emplace_back(new AnalogNet(n));
-            id_pin_[i] = pin.back()->register_driver(n);
-            pin.back()->set_hiz(id_pin_[i]);
+            char n[8]; std::snprintf(n, sizeof n, "P%u_%u", 1 + i / 8, i % 8);
+            analog_net_if* x = cab ? cab->busca(i / 8, i % 8) : nullptr;
+            if (!x) {
+                propios_.emplace_back(new AnalogNet(n));
+                n[2] = '.';
+                propios_.back()->nombre_esq = n;
+                x = propios_.back().get();
+            }
+            n[2] = '.';
+            pin.push_back(x);
+            id_pin_[i] = x->register_driver(n);
+            x->set_hiz(id_pin_[i]);
         }
+        PinesM430::Pines pj{pin[4], pin[5], pin[6], pin[7], &test, &rst};
+        pj.jtag4_con_test = true;
+        pines_dbg.reset(new PinesM430("pines_dbg", tap, pj));
+        tap.tension_test = [this] { return test.floating() ? 0.0 : double(test.voltage()); };   // VPP
         bus.register_b_transport(this, &SocG2553::b_transport);
         bus.register_transport_dbg(this, &SocG2553::transport_dbg);
         nucleo.bus.bind(bus);
@@ -115,8 +133,12 @@ SC_MODULE(SocG2553), public m430_irq_if {
         nucleo.tap = &tap;
         nucleo.eem = &eem;
         nucleo.perif_hi = 0x200;
+        nucleo.cpu.conserva_registros = true;
+        // CPU4 está en SLAZ440K y no en devices.csv (CPU_Bugs = 0 en la fila del G2553)
+        nucleo.cpu.errata.activas |= m430::ERR_CPU4;
+        nucleo.al_parada_dbg = [this](bool) { relojes(); };              // [UG2 §2.1.2]: solo PC y SR
         tap.pon_cpu(&nucleo);
-        nucleo.al_por = [this](bool v) { if (v) puc(true); else rst_n.write(true); };
+        nucleo.al_por = [this](bool v) { if (v) puc(true); else { reset_regs(); rst_n.write(true); } };
         nucleo.cpu.al_cambiar_sr = [this](uint16_t, uint16_t) { relojes(); };
         for (TimerAP4* t : {&ta0, &ta1}) {
             t->clk(clk_dummy); t->rst_n(rst_n); t->clk_en(uno); t->clk_hz(hz_smclk);
@@ -137,6 +159,8 @@ SC_MODULE(SocG2553), public m430_irq_if {
         SC_THREAD(uart_rx_proc);
         SC_THREAD(flash_proc);
         SC_THREAD(adc_proc);
+        SC_METHOD(test_proc); sensitive << test.value_changed_event(); dont_initialize();   // JTAG de 4 hilos
+        SC_METHOD(rst_pin_proc); sensitive << rst.value_changed_event() << ev_rst_pin_; dont_initialize();
         SC_METHOD(entradas_proc);
         for (auto& p : pin) sensitive << p->value_changed_event();
         dont_initialize();
@@ -146,7 +170,7 @@ SC_MODULE(SocG2553), public m430_irq_if {
 
     M430Cpu& cpu() { return nucleo.cpu; }
     static double frecuencia_dco(unsigned rsel, unsigned dco, unsigned mod) { return f_dco_de(rsel, dco, mod); }
-    AnalogNet& p(unsigned puerto, unsigned bit) { return *pin[(puerto - 1) * 8 + bit]; }
+    analog_net_if& p(unsigned puerto, unsigned bit) { return *pin[(puerto - 1) * 8 + bit]; }
 
     // Carga un ELF o un TI-TXT en la Flash y la información (con lo de
     // fábrica en INFOA si el programa no la toca); deja el chip en reset
@@ -170,6 +194,7 @@ SC_MODULE(SocG2553), public m430_irq_if {
     // El POR (el de la placa): borra también las banderas de reset
     void reset(bool activo) { if (activo) { rst_n.write(false); } else { ifg1_ = 0; reset_regs(); rst_n.write(true); } }
     uint8_t mem8(uint32_t a) const { return a < 0x10000 ? mem_[a] : 0; }
+    void poke(uint32_t a, uint8_t v) { if (a < 0x10000) mem_[a] = v; }
     uint16_t mem16(uint32_t a) const { return uint16_t(mem8(a) | (mem8(a + 1) << 8)); }
     double f_mclk() const { return f_mclk_; }
     double f_smclk() const { return f_smclk_; }
@@ -201,6 +226,11 @@ SC_MODULE(SocG2553), public m430_irq_if {
     }
 
 private:
+    analog_net_if& nodo_alim(const Cableado* cab, const char* n) {
+        if (cab) if (analog_net_if* x = cab->busca_alim(n)) return *x;
+        propios_.emplace_back(new AnalogNet(n));
+        return *propios_.back();
+    }
     std::vector<uint8_t> mem_;
     int id_pin_[24];
     uint8_t ie1_ = 0, ifg1_ = 0, ie2_ = 0, ifg2_ = 0;
@@ -212,13 +242,15 @@ private:
     sc_core::sc_event ev_wdt_;
     sc_core::sc_time wdt_t0_{sc_core::SC_ZERO_TIME};
     unsigned n_puc_ = 0;
+    bool wdt_pausa_ = false;
+    sc_core::sc_time wdt_t_pausa_;
     // Puertos (0, 1, 2 = P1, P2, P3)
     struct Puerto { uint8_t in = 0, out = 0, dir = 0, ifg = 0, ies = 0, ie = 0, sel = 0, sel2 = 0, ren = 0; };
     Puerto pt_[3];
     // FLASH2
-    uint16_t fctl1_ = 0, fctl2_ = 0x42, fctl3_ = 0x18;
+    uint16_t fctl1_ = 0, fctl2_ = 0x42, fctl3_ = 0x58;   // FCTL3: LOCKA, LOCK y WAIT [UG2 §7.4]
     bool acciv_ = false;
-    sc_core::sc_event ev_flash_;
+    sc_core::sc_event ev_flash_, ev_flash_corta_;
     struct OpFlash { int tipo = 0; uint32_t a = 0; uint16_t v = 0; bool byte = false; } op_;
     // USCI_A0
     uint8_t uca_[16] = {};            // 0x5D..0x67 por desplazamiento desde 0x5D
@@ -267,9 +299,9 @@ private:
         ie1_ = ie2_ = ifg2_ = 0;
         ifg1_ = uint8_t((ifg1_ & 0x0D) | 0x04);      // PORIFG (y RSTIFG/WDTIFG si venían)
         dcoctl_ = 0x60; bcsctl1_ = 0x87; bcsctl2_ = 0; bcsctl3_ = 0x05;
-        wdtctl_ = 0x6900; wdt_t0_ = sc_core::sc_time_stamp();
+        wdtctl_ = 0x6900; wdt_t0_ = sc_core::sc_time_stamp(); wdt_pausa_ = false;
         for (Puerto& x : pt_) { x.out = x.dir = x.ifg = x.ies = x.ie = x.sel = x.sel2 = x.ren = 0; }
-        fctl1_ = 0x9600 & 0; fctl2_ = 0x42; fctl3_ = 0x18; acciv_ = false;
+        fctl1_ = 0; fctl2_ = 0x42; fctl3_ = 0x58; acciv_ = false;
         for (uint8_t& u : uca_) u = 0;
         uca_[0x61 - 0x5D] = 0x01;                     // UCSWRST
         tx_lleno_ = false; ucastat_ = 0;
@@ -287,6 +319,24 @@ private:
     }
     sc_core::sc_event ev_puc_fin_;
     void puc_fin_proc() { reset_regs(); rst_n.write(true); }
+    // RST/NMI: abajo más de 2 µs (t(RST) [DS]) es un reset; sin conducir, la
+    // placa lo tiene arriba (47 kΩ en la G2ET). Con SBW, es SBWTDIO y no
+    // resetea [JTAG §2.3.1]. NMI (WDTNMI) no se modela.
+    sc_core::sc_event ev_rst_pin_;
+    bool rst_pin_bajo_ = false;
+    void rst_pin_proc() {
+        const bool bajo = !rst.floating() && rst.voltage() < 0.5f * float(vcc) && !pines_dbg->rst_es_sbw();
+        if (bajo && !rst_pin_bajo_) {
+            if (!(ev_rst_pin_.triggered())) { ev_rst_pin_.notify(sc_core::sc_time(2, sc_core::SC_US)); return; }
+            rst_pin_bajo_ = true;
+            rst_n.write(false);
+        } else if (!bajo && rst_pin_bajo_) {
+            rst_pin_bajo_ = false;
+            ifg1_ |= 0x08;                                         // RSTIFG
+            reset_regs();
+            rst_n.write(true);
+        }
+    }
 
     // --- Relojes ------------------------------------------------------------------------
     void relojes() {
@@ -304,6 +354,22 @@ private:
         f_mclk_ = fm / divm;
         f_smclk_ = (sr & SR_SCG1) ? 0.0 : ((bcsctl2_ & 0x08) ? f_lf : f_dco_) / divs;
         f_aclk_ = f_lf / diva;
+        // El control de relojes del EEM: con la CPU en manos de la depuración,
+        // los que GENCLKCTRL dice se paran (la herramienta pone 0x26, ACLK y
+        // SMCLK: el perro y los Timer_A no corren parados) [UG2 §28.2.4;
+        // MSPDS, DefaultClkCntrl]. Sin herramienta que lo escriba, nada
+        if (nucleo.parada_dbg()) {
+            if (eem.genclkctrl() & EemM430::STOP_SMCLK) f_smclk_ = 0.0;
+            if (eem.genclkctrl() & EemM430::STOP_ACLK) f_aclk_ = 0.0;
+        }
+        // El perro, congelado mientras su reloj no corre (LPM o depuración):
+        // su cuenta sigue donde estaba
+        {
+            const double fw = (wdtctl_ & 0x04) ? f_aclk_ : f_smclk_;
+            const sc_core::sc_time ahora = sc_core::sc_time_stamp();
+            if (fw <= 0.0 && !wdt_pausa_) { wdt_pausa_ = true; wdt_t_pausa_ = ahora; }
+            else if (fw > 0.0 && wdt_pausa_) { wdt_pausa_ = false; wdt_t0_ += ahora - wdt_t_pausa_; }
+        }
         hz_mclk.write(f_mclk_);
         hz_smclk.write(f_smclk_);
         ta0.recalcula(); ta1.recalcula();
@@ -331,9 +397,11 @@ private:
 
     // --- Pines --------------------------------------------------------------------------
     void pines_salida() {
+        const bool jtag4 = pines_dbg && pines_dbg->jtag4_activo();
         for (unsigned i = 0; i < 24; ++i) {
             const Puerto& x = pt_[i / 8];
             const unsigned b = i % 8;
+            if (jtag4 && i >= 4 && i <= 7) { pin[i]->set_hiz(id_pin_[i]); continue; }   // son del JTAG
             const bool sel = (x.sel >> b) & 1u, sel2 = (x.sel2 >> b) & 1u, dir = (x.dir >> b) & 1u;
             int fn = 0;                                               // 0 GPIO; 1 TA0.1; 2 TXD
             if (i == 2 && sel && sel2) fn = 2;
@@ -348,6 +416,7 @@ private:
     }
     bool tx_nivel_ = true;
     void salidas_ta() { pines_salida(); }
+    void test_proc() { pines_salida(); }
     bool nivel(unsigned i) const { return !pin[i]->floating() && pin[i]->voltage() > 0.5f * float(vcc); }
     void entradas_proc() {
         for (unsigned k = 0; k < 3; ++k) {
@@ -397,22 +466,31 @@ private:
         if ((fctl3_ & 0x10) || (fctl3_ & 0x01)) { acceso_mal(); return; }   // LOCK o BUSY
         if (a >= 0x10C0 && a < 0x1100 && (fctl3_ & 0x40)) { acceso_mal(); return; }   // LOCKA
         const double f = f_ftg();
-        if (f < 257e3 || f > 476e3) { acceso_mal(); return; }
-        if (fctl1_ & 0x06) op_ = OpFlash{(fctl1_ & 0x04) ? 2 : 1, a, v, byte};
+        // Con FSSEL = MCLK bajo JTAG, MCLK es TCLK: no hay frecuencia que mirar
+        if (!ftg_de_tclk() && (f < 257e3 || f > 476e3)) { acceso_mal(); return; }
+        // ERASE: el segmento; MERAS: la principal; los dos: también la información [UG2 tabla 7-1]
+        if (fctl1_ & 0x06) op_ = OpFlash{(fctl1_ & 0x06) == 0x02 ? 1 : (fctl1_ & 0x06) == 0x04 ? 2 : 4, a, v, byte};
         else if (fctl1_ & 0x40) op_ = OpFlash{3, a, v, byte};
         else { acceso_mal(); return; }
         fctl3_ |= 0x01;                                       // BUSY
         ev_flash_.notify(sc_core::SC_ZERO_TIME);
     }
     void acceso_mal() { fctl3_ |= 0x04; acciv_ = true; avisa_irq(); }      // ACCVIFG
+    // El generador de tiempos cuenta TCLK: FSSEL = MCLK y la CPU bajo JTAG
+    bool ftg_de_tclk() const { return ((fctl2_ >> 6) & 3) == 1 && nucleo.en_tclk(); }
     void flash_proc() {
         for (;;) {
             wait(ev_flash_);
-            const double tftg = 1.0 / f_ftg();
             // [DS «Flash Memory»]: palabra o byte 30 tFTG, segmento 4819, masivo 10593
-            const double n = op_.tipo == 3 ? 30 : op_.tipo == 1 ? 4819 : 10593;
-            nucleo.pide_parada(true);                        // la CPU espera (se ejecuta de la Flash)
-            wait(sc_core::sc_time(n * tftg, sc_core::SC_SEC));
+            const unsigned n = op_.tipo == 3 ? 30 : op_.tipo == 1 ? 4819 : 10593;
+            const unsigned div = (fctl2_ & 0x3F) + 1;
+            nucleo.espera(true);                             // la CPU espera (se ejecuta de la Flash)
+            if (ftg_de_tclk()) {
+                // Bajo JTAG: n ciclos del generador = n·div bajadas de TCLK (las
+                // TCLKstrobes de [JTAG §2.4.7]); sin ellas, la operación no acaba
+                const uint64_t fin = nucleo.ciclos_mclk_jtag() + uint64_t(n) * div;
+                while (nucleo.ciclos_mclk_jtag() < fin && nucleo.en_tclk()) wait(nucleo.ev_mclk_jtag() | ev_flash_corta_);
+            } else wait(sc_core::sc_time(double(n) / f_ftg(), sc_core::SC_SEC));
             if (op_.tipo == 3) {
                 mem_[op_.a] &= uint8_t(op_.v);
                 if (!op_.byte) mem_[op_.a + 1] &= uint8_t(op_.v >> 8);
@@ -424,10 +502,14 @@ private:
                 fctl1_ &= uint16_t(~0x06);
             } else {
                 std::fill(mem_.begin() + 0xC000, mem_.end(), 0xFF);
+                if (op_.tipo == 4) {                                  // masivo: también la información
+                    std::fill(mem_.begin() + 0x1000, mem_.begin() + 0x10C0, 0xFF);
+                    if (!(fctl3_ & 0x40)) std::fill(mem_.begin() + 0x10C0, mem_.begin() + 0x1100, 0xFF);
+                }
                 fctl1_ &= uint16_t(~0x06);
             }
             fctl3_ = uint16_t(fctl3_ & ~0x01) | 0x08;          // BUSY a 0, WAIT a 1
-            nucleo.pide_parada(false);
+            nucleo.espera(false);
         }
     }
 
@@ -668,7 +750,13 @@ private:
             return;
         }
         if (a >= 0x0C00 && a < 0x1000) {                       // BSL de ROM (declarado)
-            if (gp.is_read()) { d[0] = (a & 1) ? 0x3F : 0xFF; if (n == 2) d[1] = 0x3F; }
+            if (gp.is_read())
+                for (unsigned i = 0; i < n; ++i) {
+                    const uint32_t x = a + i;
+                    // El identificador del chip en 0x0FF0 (0x25, 0x53: la «version»
+                    // 0x5325 de devicedb, que GetDevice del Replicator lee) [DS tabla «Device ID»]
+                    d[i] = x == 0x0FF0 ? 0x25 : x == 0x0FF1 ? 0x53 : (x & 1) ? 0x3F : 0xFF;
+                }
             return;
         }
         if (es_flash(a) && gp.is_write() && !dbg) { escribe_flash(a, uint16_t(d[0] | (n == 2 ? d[1] << 8 : 0)), n == 1); return; }

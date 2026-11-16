@@ -14,23 +14,44 @@
 //     lectura), TCE1 (10), POR (11), RELEASE_LBYTE (12), TAGFUNCSAT (13).
 //   * Los registros de datos de §2.2.4: ADDR_16BIT (el MAB de JTAG; 20 bits
 //     en la CPUX), ADDR_CAPTURE, DATA_TO_ADDR (el MDB de JTAG; con
-//     HALT_JTAG, un flanco de subida de TCLK hace el acceso en el MAB de
-//     JTAG), DATA_16BIT (el MDB de JTAG para lo que la CPU lee; el MAB es el
+//     HALT_JTAG, la bajada de TCLK hace el acceso en el MAB de JTAG),
+//     DATA_16BIT (el MDB de JTAG para lo que la CPU lee; el MAB es el
 //     de la CPU), DATA_CAPTURE (lee el MDB sin tocarlo), CNTRL_SIG_16BIT, su
 //     CAPTURE y su RELEASE, BYPASS, EMEX_DATA_EXCHANGE (el EEM: primero la
 //     dirección con el bit 0 de lectura, y luego el dato [MSPDS
 //     EemDataExchange.c]), PREPARE_BLOW y EX_BLOW (el fusible).
 //
-// LO QUE NO ESTÁ [declarado]: DATA_QUICK y DATA_PSA/SHIFT_OUT_PSA contestan
-// el MDB y avisan una vez; los registros de 5xx/FR (CNTRL de Xv2, JMB,
-// JSTATE, DEVICE_ID, COREIP_ID) son de M4 y M6. Las instrucciones se
-// comprueban contra las de JTAG_defs.h con sus bits invertidos (test430 N7).
+// Lo que añade P-20 (las secuencias de [JTAG] §2.4 y del Replicator430):
+//
+//   * DATA_QUICK [JTAG §2.4.3.2]: con HALT_JTAG, cada subida de TCLK hace el
+//     acceso (lectura o escritura según R/W) en la dirección rápida, y cada
+//     bajada la incrementa en 2. La dirección empieza en el MAB de la CPU más
+//     4: con HaltCPU, el MAB es el PC, Start−4 tras SetPC(Start−4) [JTAG
+//     §2.4.3.2; de modelo: el desfase, el de WriteMemQuick/ReadMemQuick del
+//     Replicator].
+//   * DATA_PSA y SHIFT_OUT_PSA [JTAG §2.4.5]: al entrar, el registro PSA y su
+//     dirección valen el MDB de JTAG si la CPU está parada (EnhVerify) o la
+//     de la última búsqueda si no (SetPC(Start−2)); cada subida de TCLK avanza la dirección en 2, lee la palabra
+//     y la acumula con el polinomio 0x0805; SHIFT_OUT_PSA lo da. Con PSA, la
+//     CPU no ve los flancos.
+//   * El fusible [JTAG §2.3.6]: PREPARE_BLOW y luego EX_BLOW con VPP (más de
+//     6 V) en TEST: por la actualización de la IR (4 hilos) o por una subida
+//     de TCLK con EX_BLOW cargada (SBW, IR_Ex_Blow_SBW_Shift). Fundido, la IR
+//     sigue dando el JTAG ID, pero todos los registros de datos son de 1 bit
+//     (DR_Shift16(0xAAAA) da 0x5555: IsFuseBlown).
+//
+// Los registros de 5xx/FR (CNTRL de Xv2, JMB, JSTATE, DEVICE_ID, COREIP_ID)
+// son de M4 y M6. Las instrucciones se comprueban contra las de JTAG_defs.h
+// con sus bits invertidos (test430 N7).
 // =============================================================================
 #ifndef STM32_M430_DEBUG_TAP_M430_H
 #define STM32_M430_DEBUG_TAP_M430_H
 
 #include <cstdint>
 #include <cstdio>
+#include <functional>
+#include <cstdlib>
+#include <systemc>
 #include "eem.h"
 
 namespace stm32 {
@@ -66,6 +87,9 @@ struct m430_jtag_cpu_if {
     virtual bool jtag_instr_load() const = 0;          // INSTR_LOAD
     virtual void jtag_por(bool v) = 0;                 // el POR de JTAG
     virtual uint32_t jtag_mab() const = 0;             // el MAB de la CPU
+    // La dirección de la última búsqueda de instrucción (el MAB del ciclo de
+    // búsqueda, que es donde arrancan DATA_QUICK y PSA)
+    virtual uint32_t jtag_ultima_busqueda() const { return jtag_mab(); }
     // Un acceso con el bus en manos de JTAG (HALT_JTAG)
     virtual uint16_t jtag_lee(uint32_t a, bool byte) = 0;
     virtual void jtag_escribe(uint32_t a, uint16_t v, bool byte) = 0;
@@ -99,14 +123,42 @@ public:
     bool fusible() const { return fusible_; }
     void restaura_fusible() { fusible_ = false; }
     uint64_t ciclos_tck() const { return n_tck_; }
+    // La tensión de TEST (para VPP), la pone quien tenga el pin
+    std::function<double()> tension_test;
+    uint16_t psa() const { return psa_; }
 
     // TDI en Run-Test/Idle: TCLK
     void tdi_en_rti(bool nivel) {
         if (st_ != RTI || nivel == tclk_) return;
         tclk_ = nivel;
         if (!cpu_) return;
-        // Con HALT_JTAG, la subida hace el acceso de JTAG en el MAB de JTAG
-        if (nivel && (cntrl_ & CS430_HALT_JTAG) && (cntrl_ & CS430_TCE1) && ir_ == IR430_DATA_TO_ADDR) {
+        // El fusible por SBW: la subida de TCLK con EX_BLOW cargada y VPP
+        if (nivel && ir_ == IR430_EX_BLOW && armado_ && hay_vpp()) { fusible_ = true; armado_ = false; }
+        // DATA_QUICK: la subida hace el acceso; la bajada incrementa
+        if (ir_ == IR430_DATA_QUICK && (cntrl_ & CS430_HALT_JTAG) && (cntrl_ & CS430_TCE1)) {
+            if (nivel) {
+                const bool byte = (cntrl_ & CS430_BYTE) != 0;
+                if (cntrl_ & CS430_RW) mdb_ = cpu_->jtag_lee(quick_, byte);
+                else { cpu_->jtag_escribe(quick_, mdb_jtag_, byte); mdb_ = mdb_jtag_; }
+            } else quick_ = (quick_ + 2) & (cpux_ ? 0xFFFFFu : 0xFFFFu);
+            cpu_->jtag_tclk(nivel);
+            return;
+        }
+        // PSA: cada subida, una palabra más
+        if (ir_ == IR430_DATA_PSA) {
+            if (nivel && (cntrl_ & CS430_TCE1)) {
+                psa_dir_ = (psa_dir_ + 2) & (cpux_ ? 0xFFFFFu : 0xFFFFu);
+                const uint16_t d = cpu_->jtag_lee(psa_dir_, false);
+                psa_ = uint16_t((psa_ & 0x8000u) ? (((psa_ ^ 0x0805u) << 1) | 1u) : (psa_ << 1));
+                psa_ ^= d;
+            }
+            return;
+        }
+        // Con HALT_JTAG, la BAJADA hace el acceso de JTAG en el MAB de JTAG: el
+        // WriteFLASH de SBW del Replicator llega a SetTCLK con TCLK ya arriba
+        // (lo deja así TCLKstrobes) y la escritura solo puede ser al bajar
+        // [JTAG §2.4.2: «SetTCLK; ClrTCLK» tras DATA_TO_ADDR]
+        if (!nivel && (cntrl_ & CS430_HALT_JTAG) && (cntrl_ & CS430_TCE1) && ir_ == IR430_DATA_TO_ADDR) {
             const bool byte = (cntrl_ & CS430_BYTE) != 0;
             if (cntrl_ & CS430_RW) mdb_ = cpu_->jtag_lee(mab_jtag_, byte);
             else { cpu_->jtag_escribe(mab_jtag_, mdb_jtag_, byte); mdb_ = mdb_jtag_; }
@@ -126,10 +178,13 @@ public:
         const Estado ant = st_;
         st_ = siguiente(st_, tms);
         if (st_ == CAP_DR) captura_dr();
-        else if (st_ == CAP_IR) { n_ = 8; sr_ = invierte(fusible_ ? 0xFFu : id_, 8); }
+        else if (st_ == CAP_IR) { n_ = 8; sr_ = invierte(id_, 8); }
         else if (st_ == UPD_DR) actualiza_dr();
         else if (st_ == UPD_IR) actualiza_ir();
         else if (st_ == TLR && ant != TLR) { ir_ = IR430_BYPASS; emex_fase_ = 0; }
+        // Al volver a Run-Test/Idle, TDI vuelve a ser TCLK (las secuencias lo
+        // dejan como estaba; IR_Ex_Blow_SBW_Shift lo deja abajo a propósito)
+        if (st_ == RTI && ant != RTI) tdi_en_rti(tdi);
         return tdo();
     }
     bool tdo() const { return (st_ == SH_DR || st_ == SH_IR) ? (sr_ & 1u) != 0 : false; }
@@ -152,7 +207,10 @@ private:
     uint64_t sr_ = 0, n_tck_ = 0;
     unsigned n_ = 0, emex_fase_ = 0;
     uint8_t emex_dir_ = 0;
-    bool tclk_ = true, fusible_ = false, preparado_ = false, avisado_ = false;
+    bool tclk_ = true, fusible_ = false, preparado_ = false, armado_ = false;
+    uint32_t quick_ = 0, psa_dir_ = 0;
+    uint16_t psa_ = 0;
+    bool hay_vpp() const { return tension_test && tension_test() > 6.0; }
 
     static Estado siguiente(Estado s, bool tms) {
         static const Estado T[16][2] = {
@@ -185,7 +243,7 @@ private:
     void captura_dr() {
         n_ = largo_dr();
         uint32_t v = 0;
-        if (fusible_) { sr_ = 0; return; }
+        if (fusible_) { n_ = 1; sr_ = 0; return; }   // fundido: todo es BYPASS
         switch (ir_) {
         case IR430_CNTRL_SIG_16BIT: case IR430_CNTRL_SIG_CAPTURE: v = estado_cntrl(); break;
         case IR430_CNTRL_SIG_HIGH_BYTE: v = estado_cntrl() >> 8; break;
@@ -193,9 +251,8 @@ private:
         case IR430_ADDR_16BIT: case IR430_ADDR_CAPTURE: v = cpu_ ? cpu_->jtag_mab() : 0; break;
         case IR430_DATA_TO_ADDR: case IR430_DATA_16BIT: case IR430_DATA_CAPTURE: case IR430_DATA_QUICK:
             v = mdb_; break;
-        case IR430_DATA_PSA: case IR430_SHIFT_OUT_PSA:
-            if (!avisado_) { avisado_ = true; std::fprintf(stderr, "[tap430] PSA declarado (aviso una vez)\n"); }
-            v = mdb_; break;
+        case IR430_SHIFT_OUT_PSA: v = psa_; break;
+        case IR430_DATA_PSA: v = mdb_; break;
         case IR430_EMEX_DATA_EXCHANGE:
             v = (emex_fase_ == 1 && (emex_dir_ & 1u) && eem_) ? eem_->lee(uint8_t(emex_dir_ & ~1u)) : 0; break;
         default: v = 0; break;
@@ -213,17 +270,28 @@ private:
     void actualiza_ir() {
         ir_ = uint8_t(valor_ir());
         if (fusible_) { ir_ = IR430_BYPASS; return; }
+        if (cpu_ && ir_ == IR430_DATA_QUICK) quick_ = (cpu_->jtag_mab() + 4) & (cpux_ ? 0xFFFFFu : 0xFFFFu);
+        if (cpu_ && ir_ == IR430_DATA_PSA) {
+            psa_dir_ = (cntrl_ & CS430_HALT_JTAG) ? mdb_jtag_ : cpu_->jtag_ultima_busqueda();
+            psa_ = uint16_t(psa_dir_);
+        }
         if (ir_ == IR430_EMEX_DATA_EXCHANGE) emex_fase_ = 0;
         if (ir_ == IR430_CNTRL_SIG_RELEASE || ir_ == IR430_BYPASS) {
             // RELEASE (y BYPASS, que lo hace a la vez [JTAG §2.2.4.2.4]): la CPU, libre
             if (cpu_ && (cntrl_ & CS430_TCE1)) { cpu_->jtag_halt(false); cpu_->jtag_control(false); }
             cntrl_ = uint16_t(cntrl_ & ~(CS430_TCE1 | CS430_HALT_JTAG));
         }
-        if (ir_ == IR430_PREPARE_BLOW) preparado_ = true;
-        else if (ir_ == IR430_EX_BLOW) { if (preparado_) fusible_ = true; preparado_ = false; }
-        else preparado_ = false;
+        if (ir_ == IR430_PREPARE_BLOW) { preparado_ = true; armado_ = false; }
+        else if (ir_ == IR430_EX_BLOW) {
+            if (preparado_ && hay_vpp()) fusible_ = true;           // 4 hilos: VPP ya puesta
+            else armado_ = preparado_;                              // SBW: la VPP y TCLK vienen después
+            preparado_ = false;
+        } else { preparado_ = false; armado_ = false; }
     }
-    uint32_t valor_ir() const { return uint32_t(invierte(sr_, 8)); }
+    // La IR entra con el LSB primero [JTAG §2.2.2]: por eso las herramientas
+    // (JTAG_defs.h, el Replicator430) desplazan los códigos al revés con el
+    // MSB primero (IR_CNTRL_SIG_16BIT = 0xC8 por 0x13). El registro, tal cual
+    uint32_t valor_ir() const { return uint32_t(sr_ & 0xFFu); }
     void actualiza_dr() {
         if (fusible_) return;
         const uint32_t v = valor_dr();

@@ -430,7 +430,14 @@ testc6                 202      53173701458348        resto
 # grupos de M1 no cambian (acaban en 8248215750000 ps, como antes); N11-N12
 # hablan por un socket y su tiempo no cuenta: el invariante pasa a «resto».
 # Igual en dos pasadas.
-test430               776      8282166500000  resto
+# P-20 (16-11-2026) mueve el resto a 8295630750000 (+13464250000 ps), A
+# PROPOSITO y solo en N8 y N9: el fusible ya no se funde con la secuencia
+# corta de antes, sino con la de BlowFuse del Replicator430 (VPP en TEST,
+# +7,08 ms en N8) y por SBW con su VPP y su TCLK (+6,38 ms en N9); y el tope
+# de SBW pasa de 7 a 100 us (la hoja de datos da 15-100 us; el ejemplo de
+# SLAA754 deja SBWTCK abajo hasta 25 us y en la placa funciona), con lo que
+# la comprobacion de salida espera mas. N1-N7 y N10 empiezan donde antes.
+test430               776      8295630750000  resto
 
 # testg2: el MSP430G2553 (M3 de doc/analisis_msp430.md). G1 el SoC contra el
 # descriptor generado y las constantes de fabrica del DCO; G2 g2_basico.c
@@ -438,4 +445,7 @@ test430               776      8282166500000  resto
 # ADC10, Timer0_A3, LPM0, S2 y eco de RX); G3 g2_wdt.c (PUC del perro y
 # WDTIFG); G4 la sonda de bancada por SBW en TEST/RST. Sin sockets: total.
 # Igual en dos pasadas.
-testg2                 17       188894000000         total
+# P-20 (16-11-2026): G5, el Replicator430 de TI como oraculo (SBW, JTAG de 4
+# hilos en P1.4-P1.7, PSA, DATA_QUICK y el fusible), anade 8 comprobaciones
+# y el tiempo que hablan; G1-G4 acaban donde antes (188894000000).
+testg2                 25       1363803568644        total

@@ -12,14 +12,24 @@
 //   G3  g2_wdt.c: el perro guardián sin refrescar da un PUC a los 8,192 ms y
 //       el programa lo ve en WDTIFG
 //   G4  la sonda de bancada por Spy-Bi-Wire en TEST/RST: el JTAG ID y la Flash
+//   G5  el Replicator430 de TI (verif/m430/replicator), compilado para el
+//       anfitrión sobre los pines del chip, como oráculo: por SBW, GetDevice,
+//       el borrado masivo con su comprobación por PSA, WriteFLASH de
+//       g2_basico.elf con TCLKstrobes y su VerifyMem por PSA, la memoria
+//       rápida (DATA_QUICK), HaltCPU/ReleaseCPU con la misma secuencia que la
+//       sonda (MSPDS), ReleaseDevice y el programa en marcha; por JTAG de 4
+//       hilos en P1.4-P1.7, el segmento D; y el fusible (BlowFuse con VPP en
+//       TEST): después, GetDevice da STATUS_FUSEBLOWN
 // =============================================================================
 #include <systemc>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
 #include "common/asan_opciones.h"
 #include "soc/msp430/g2553/soc_g2553.h"
 #include "m430/sonda/sonda_m430.h"
+#include "verif/m430/replicator/replicador430.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -39,7 +49,7 @@ SC_MODULE(TbG2) {
 
     // Los flancos de un pin
     struct Mide { std::vector<sc_time> t; std::vector<bool> v; };
-    Mide mide(AnalogNet& n, sc_time cuanto) {
+    Mide mide(analog_net_if& n, sc_time cuanto) {
         Mide m;
         const sc_time fin = sc_time_stamp() + cuanto;
         bool ant = n.voltage() > 1.6f;
@@ -145,11 +155,130 @@ SC_MODULE(TbG2) {
         wait(100, SC_US);
     }
 
+    // La imagen de un ELF en palabras, por trozos
+    struct Trozo { uint16_t dir; std::vector<uint16_t> w; };
+    static std::vector<Trozo> imagen(const std::string& ruta) {
+        std::vector<TrozoFw> t;
+        std::vector<Trozo> r;
+        if (!lee_elf(ruta, t, ELF_MSP430).empty()) return r;
+        for (const TrozoFw& x : t) {
+            // Solo la Flash principal (lo de delante es la cabecera del ELF)
+            const uint32_t ini = std::max<uint32_t>(x.dir, 0xC000), fin = std::min<uint32_t>(x.dir + uint32_t(x.datos.size()), 0x10000);
+            if (ini >= fin) continue;
+            Trozo z; z.dir = uint16_t(ini & ~1u);
+            for (uint32_t a = z.dir; a < fin; a += 2) {
+                auto b = [&](uint32_t y) -> uint16_t { return (y >= x.dir && y < x.dir + x.datos.size()) ? x.datos[y - x.dir] : 0xFF; };
+                z.w.push_back(uint16_t(b(a) | (b(a + 1) << 8)));
+            }
+            r.push_back(z);
+        }
+        return r;
+    }
+    // Lo que entra por TDI, sin lo que sale (para comparar secuencias)
+    static std::vector<std::string> entradas(const std::vector<std::string>& t, size_t desde = 0) {
+        std::vector<std::string> r;
+        for (size_t i = desde; i < t.size(); ++i) r.push_back(t[i].substr(0, t[i].find('>')));
+        return r;
+    }
+    void g5() {
+        grupo("G5 el Replicator430 de TI como oráculo (SBW, JTAG de 4 hilos y el fusible)");
+        g2.reset(true);
+        wait(1, SC_US);
+        g2.reset(false);
+        wait(1, SC_MS);
+        std::vector<std::string> tr;
+        HilRep::Pines hp; hp.test = &g2.test; hp.rst = &g2.rst;
+        {
+            Replicador430 r(hp, true);
+            r.hil().alimenta = [this](bool on) { g2.reset(!on); };
+            r.init_target();
+            check(r.get_device() == 1, "SBW: GetDevice (JTAG ID 0x89, el chip 0x2553 en 0x0FF0, ExecutePOR)");
+            r.erase_flash(Replicador430::BORRA_MASIVO, 0xFE00);
+            check(r.erase_check(0xC000, 0x2000) == 1 && g2.mem16(0xC000) == 0xFFFF && g2.mem16(0xFFFE) == 0xFFFF &&
+                  g2.mem8(0x10FE) != 0xFF,
+                  "EraseFLASH(ERASE_MASS) con TCLKstrobes(10600) y EraseCheck por PSA: la principal en blanco, INFOA no (LOCKA)");
+            std::vector<Trozo> img = imagen(std::string(DIR) + "g2_basico.elf");
+            unsigned palabras = 0;
+            for (Trozo& z : img) { r.write_flash(z.dir, uint16_t(z.w.size()), z.w.data()); palabras += unsigned(z.w.size()); }
+            bool bien = !img.empty();
+            for (Trozo& z : img) bien = bien && r.verify_mem(z.dir, uint16_t(z.w.size()), z.w.data()) == 1;
+            std::vector<uint16_t> mal = img.empty() ? std::vector<uint16_t>() : img[0].w;
+            if (!mal.empty()) mal[0] ^= 1;
+            const bool caza = !mal.empty() && r.verify_mem(img[0].dir, uint16_t(mal.size()), mal.data()) == 0;
+            check(bien && caza, "WriteFLASH de g2_basico.elf (" + std::to_string(palabras) +
+                                " palabras, TCLKstrobes(35)) y VerifyMem por PSA; un bit cambiado, la PSA no casa");
+            uint16_t q[16], v[16];
+            for (unsigned i = 0; i < 16; ++i) q[i] = uint16_t(0x1111 * (i + 1) ^ 0x0F0F);
+            r.write_mem_quick(0x0300, 16, q);
+            r.read_mem_quick(0x0300, 16, v);
+            bool rapida = r.read_mem(true, 0x0300) == q[0];
+            for (unsigned i = 0; i < 16; ++i) rapida = rapida && v[i] == q[i] && g2.mem16(0x0300 + 2 * i) == q[i];
+            check(rapida, "WriteMemQuick y ReadMemQuick (DATA_QUICK): 16 palabras en la RAM, y ReadMem");
+            // HaltCPU y ReleaseCPU: lo mismo que halt_cpu/release_cpu de la sonda
+            r.hil().traza = &tr;
+            r.halt_cpu(); r.release_cpu();
+            r.hil().traza = nullptr;
+            size_t k = 0;
+            while (k < tr.size() && tr[k].rfind("I41", 0) != 0) ++k;     // sin SetInstrFetch
+            const std::vector<std::string> rep = entradas(tr, k);
+            r.release_device(0xFFFE);
+            r.hil().tres_estados();
+            g2.uart_tx.clear();
+            wait(40, SC_MS);
+            check(g2.uart_tx.rfind("hola G2553\n", 0) == 0,
+                  "ReleaseDevice(V_RESET): el programa escrito por JTAG arranca («hola G2553» por la UART)");
+            // La sonda (MSPDS), la misma operación
+            SondaM430::Pines sp; sp.test = &g2.test; sp.rst = &g2.rst;
+            SondaM430 s(sp, SondaM430::Modo::Sbw);
+            s.conecta();
+            s.sincroniza(false);
+            std::vector<std::string> ts;
+            s.traza = &ts;
+            s.halt_cpu(); s.release_cpu();
+            s.traza = nullptr;
+            s.desconecta();
+            check(!rep.empty() && rep == entradas(ts),
+                  "HaltCPU/ReleaseCPU del Replicator y halt_cpu/release_cpu de la sonda: la misma secuencia (" +
+                  std::to_string(rep.size()) + " transacciones)");
+            wait(1, SC_MS);
+        }
+        {
+            Replicador430 r(HilRep::Pines{&g2.p(1, 4), &g2.p(1, 5), &g2.p(1, 6), &g2.p(1, 7), &g2.test, &g2.rst}, false);
+            r.hil().alimenta = [this](bool on) { g2.reset(!on); };
+            r.init_target();
+            const unsigned st = r.get_device();
+            r.erase_flash(Replicador430::BORRA_SEGMENTO, 0x1000);
+            uint16_t d[4] = {0xCAFE, 0x0430, 0x2553, 0x1234};
+            r.write_flash(0x1000, 4, d);
+            check(st == 1 && r.verify_mem(0x1000, 4, d) == 1 && g2.mem16(0x1000) == 0xCAFE && g2.mem16(0x1006) == 0x1234 &&
+                  g2.mem16(0x1008) == 0xFFFF,
+                  "JTAG de 4 hilos (P1.4-P1.7, entrada con RST abajo): GetDevice, el segmento D borrado, escrito y por PSA");
+            r.release_device(0xFFFE);
+            r.hil().tres_estados();
+            wait(1, SC_MS);
+        }
+        {
+            Replicador430 r(hp, true);
+            r.hil().alimenta = [this](bool on) { g2.reset(!on); };
+            r.init_target();
+            const unsigned antes = r.get_device();
+            const unsigned fundido = r.blow_fuse();
+            const unsigned despues = r.get_device();
+            check(antes == 1 && fundido == 1 && despues == 2 && g2.tap.fusible(),
+                  "BlowFuse por SBW (VPP en TEST): GetDevice da STATUS_FUSEBLOWN (IsFuseBlown: 0xAAAA -> 0x5555)");
+            r.release_target();
+            g2.tap.restaura_fusible();
+            g2.reset(false);
+            wait(1, SC_MS);
+        }
+    }
+
     void run() {
         g1();
         g2_();
         g3();
         g4();
+        g5();
         std::printf("\nTOTAL G2: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

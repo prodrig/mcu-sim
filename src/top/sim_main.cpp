@@ -138,6 +138,7 @@
 #include "../soc/msp432e4/msp432e4_mcu.h"
 #include "../soc/stm32f3/stm32f3_mcu.h"
 #include "../soc/esp32c3/esp32c3_mcu.h"
+#include "../soc/msp430/g2553/g2553_mcu.h"
 #include "../soc/esp32c6/esp32c6_mcu.h"
 
 using namespace sc_core;
@@ -262,6 +263,8 @@ struct McuMontado {
     GdbStub*      stub = nullptr;       // solo en modo "pines" y con puerto
     // El de pines de un RISC-V (G2', E6): el stub sobre un DTM por JTAG
     GdbStubRv*    stub_rv = nullptr;
+    // El que el chip se hace él (un MSP430: su sonda por SBW, P-20)
+    GdbRspBase*   stub_chip = nullptr;
     JtagSonda*    sonda_jtag = nullptr;
     DmiPorJtag*   dmi_jtag = nullptr;
     SondaRed*     ocd  = nullptr;       // modos "openocd" y "cmsis-dap", con puerto
@@ -522,7 +525,11 @@ SC_MODULE(Sim) {
             analog_net_if* jt[4] = {m.mcu->nodo_depuracion("tck"), m.mcu->nodo_depuracion("tms"),
                                     m.mcu->nodo_depuracion("tdi"), m.mcu->nodo_depuracion("tdo")};
             const bool solo_jtag = !m.mcu->nodo_swclk() && jt[0] && jt[1] && jt[2] && jt[3];
-            if (d.depuracion == "pines" && d.puerto_gdb && solo_jtag) {
+            if (d.depuracion == "pines" && d.puerto_gdb)
+                m.stub_chip = m.mcu->stub_pines("gdb_" + (d.id.empty() ? std::string("dut") : d.id), d.puerto_gdb);
+            if (m.stub_chip) {
+                // el chip se ha colgado su propia sonda
+            } else if (d.depuracion == "pines" && d.puerto_gdb && solo_jtag) {
                 const std::string snm = "gdb_" + (d.id.empty() ? "dut" : d.id);
                 m.sonda_jtag = new JtagSonda(JtagSonda::Pines{jt[0], jt[1], jt[2], jt[3], nullptr}, 10e6);
                 m.dmi_jtag = new DmiPorJtag(*m.sonda_jtag);
@@ -1591,6 +1598,9 @@ SC_MODULE(Sim) {
                 } else if (m.stub_rv) {                         // modo pines, RISC-V (G2')
                     m.stub_rv->set_verbose(g_traza_gdb);
                     m.stub_rv->set_enabled(true);
+                } else if (m.stub_chip) {                       // modo pines, el del chip (MSP430)
+                    m.stub_chip->set_verbose(g_traza_gdb);
+                    m.stub_chip->set_enabled(true);
                 } else if (m.mcu->tiene_gdb_interno()) {       // modo dap
                     m.mcu->gdb_interno(true, g_traza_gdb);
                 }

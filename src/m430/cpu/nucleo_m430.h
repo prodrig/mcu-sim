@@ -69,7 +69,16 @@ SC_MODULE(NucleoM430), public m430_mem_if, public m430_jtag_cpu_if {
         parada_ = v; ev_dbg_.notify(sc_core::SC_ZERO_TIME);
     }
     bool parado() const { return parado_; }
+    // La CPU, en manos de la depuración: parada (EEM o directa) o bajo JTAG
+    // (solo avanza con TCLK). Es lo que mira el control de relojes del EEM
+    // (GENCLKCTRL: qué relojes se paran con ella) [UG2 §28.2.4]
+    bool parada_dbg() const { return parado_ || tclk_; }
+    std::function<void(bool)> al_parada_dbg;
     bool parada_pedida() const { return parada_; }
+    // La CPU espera a un periférico (la Flash borrando o escribiendo, con el
+    // programa en ella): no ejecuta, pero NO está parada para la depuración
+    // (ni la suelta al acabar, si un depurador la había parado)
+    void espera(bool v) { espera_ = v; ev_dbg_.notify(sc_core::SC_ZERO_TIME); }
     // Una instrucción estando parado (el «single step» de la depuración)
     void pide_paso() { pasos_++; salta_bp_ = true; if (eem) eem->suelta(); ev_dbg_.notify(sc_core::SC_ZERO_TIME); }
     // El avance por TCLK
@@ -99,38 +108,61 @@ SC_MODULE(NucleoM430), public m430_mem_if, public m430_jtag_cpu_if {
     }
     // Por debajo de esta dirección, las escrituras se sincronizan (los periféricos)
     uint32_t perif_hi = 0x1000;
+    // [UG2 §2.1.2] (2xx): el vector de reset a 0xFFFF apaga el chip
+    bool vector_vacio_apaga = true;
 
     // --- m430_jtag_cpu_if: lo que pide el TAP ------------------------------
-    void jtag_control(bool tce1) override { tce1_ = tce1; if (!tce1) { tclk_ = false; halt_jtag_ = false; }
+    void jtag_control(bool tce1) override { tce1_ = tce1; if (!tce1) { tclk_ = false; halt_jtag_ = false; mira_dbg(); }
                                             ev_dbg_.notify(sc_core::SC_ZERO_TIME); ev_tclk_.notify(sc_core::SC_ZERO_TIME); }
     void jtag_halt(bool v) override { halt_jtag_ = v; ev_tclk_.notify(sc_core::SC_ZERO_TIME); }
     void jtag_tclk(bool nivel) override {
+        // Bajo JTAG, MCLK es TCLK: cada bajada es un ciclo de MCLK para quien
+        // lo cuente (el generador de tiempos de la Flash con FSSEL = MCLK)
+        if (!nivel && tclk_) { ++mclk_jtag_; ev_mclk_jtag_.notify(sc_core::SC_ZERO_TIME); }
         if (!nivel && tclk_ && !halt_jtag_) { ++bajadas_; ev_tclk_.notify(sc_core::SC_ZERO_TIME); }
     }
+    // Los ciclos de MCLK que ha dado TCLK (y su evento)
+    uint64_t ciclos_mclk_jtag() const { return mclk_jtag_; }
+    const sc_core::sc_event& ev_mclk_jtag() const { return ev_mclk_jtag_; }
     bool jtag_sincronizado() const override { return tclk_; }
     bool jtag_instr_load() const override { return tclk_ && espera_instr_; }
     void jtag_por(bool v) override { if (al_por) al_por(v); }
     uint32_t jtag_mab() const override { return tclk_ && espera_instr_ ? cpu.pc() : mab_; }
+    uint32_t jtag_ultima_busqueda() const override { return busqueda_; }
+    // Un acceso de JTAG es un acceso de bus como los de la CPU: la Flash pasa
+    // por su controlador (por eso se programa con FCTL y TCLK [JTAG §2.4.7])
     uint16_t jtag_lee(uint32_t a, bool byte) override {
         uint32_t v = 0;
-        acceso_bus(false, a & (byte ? ~0u : ~1u), byte ? 1 : 2, v, M430Acceso::Lectura, true);
+        acceso_bus(false, a & (byte ? ~0u : ~1u), byte ? 1 : 2, v, M430Acceso::Lectura, true, false);
         return uint16_t(v);
     }
     void jtag_escribe(uint32_t a, uint16_t v, bool byte) override {
         uint32_t x = byte ? (v & 0xFFu) : v;
-        acceso_bus(true, a & (byte ? ~0u : ~1u), byte ? 1 : 2, x, M430Acceso::Escritura, true);
+        acceso_bus(true, a & (byte ? ~0u : ~1u), byte ? 1 : 2, x, M430Acceso::Escritura, true, false);
     }
-    // Para la depuración directa (--gdb-dap): la memoria sin efectos ni tiempo
-    uint16_t lee_dbg(uint32_t a, bool byte) { return jtag_lee(a, byte); }
-    void escribe_dbg(uint32_t a, uint16_t v, bool byte) { jtag_escribe(a, v, byte); }
+    // Para la depuración directa (--gdb-dap) y los bancos: la memoria sin
+    // efectos ni tiempo; la Flash se escribe sin el controlador
+    uint16_t lee_dbg(uint32_t a, bool byte) {
+        uint32_t v = 0;
+        acceso_bus(false, a & (byte ? ~0u : ~1u), byte ? 1 : 2, v, M430Acceso::Lectura, true, true);
+        return uint16_t(v);
+    }
+    void escribe_dbg(uint32_t a, uint16_t v, bool byte) {
+        uint32_t x = byte ? (v & 0xFFu) : v;
+        acceso_bus(true, a & (byte ? ~0u : ~1u), byte ? 1 : 2, x, M430Acceso::Escritura, true, true);
+    }
+    // Una escritura de la depuración directa que SÍ pasa por el controlador
+    // (el programador de la Flash por --gdb-dap)
+    void escribe_bus(uint32_t a, uint16_t v, bool byte) { jtag_escribe(a, v, byte); }
     bool en_tclk() const { return tclk_; }
 
 private:
     bool tce1_ = false, tclk_ = false, halt_jtag_ = false, espera_instr_ = false, salta_bp_ = false,
          para_tras_ = false;
-    uint64_t bajadas_ = 0, vistas_ = 0;
+    uint64_t bajadas_ = 0, vistas_ = 0, mclk_jtag_ = 0;
+    sc_core::sc_event ev_mclk_jtag_;
     unsigned accesos_paso_ = 0, deuda_ = 0;
-    uint32_t mab_ = 0;
+    uint32_t mab_ = 0, busqueda_ = 0;
     // Una bajada de TCLK para la CPU (antes, las que deba la instrucción anterior)
     void espera_bajada(bool instr) {
         for (;;) {
@@ -149,6 +181,12 @@ private:
     sc_core::sc_time local_{sc_core::SC_ZERO_TIME};
     tlm::tlm_generic_payload gp_;
     sc_core::sc_event ev_irq_, ev_dbg_, ev_parado_, ev_tclk_;
+    bool dbg_ant_ = false;
+    void mira_dbg() {
+        const bool p = parado_ || tclk_;
+        if (p != dbg_ant_) { dbg_ant_ = p; if (al_parada_dbg) al_parada_dbg(p); }
+    }
+    bool espera_ = false;
     bool en_reset_ = true, rst_bajo_ = false, parada_ = false, parado_ = false, tclk_m1_ = false;
     unsigned pasos_ = 0;
     int64_t credito_ = 0;
@@ -161,22 +199,26 @@ private:
             // lo da el MDB de JTAG con IR_DATA_16BIT [JTAG §2.2.4.2.2]
             ++accesos_paso_;
             espera_bajada(t == M430Acceso::Instruccion);
+            if (t == M430Acceso::Instruccion) busqueda_ = a;   // la búsqueda, hecha en su bajada
             if (!escr && tap && tap->da_mdb()) {
                 v = n == 1 ? tap->mdb_jtag() & 0xFFu : tap->mdb_jtag();
                 return true;
             }
         }
+        else if (t == M430Acceso::Instruccion) busqueda_ = a;
         if (eem && eem->activo() && !tclk_ && t != M430Acceso::Instruccion && t != M430Acceso::Busqueda) {
             // los datos (los disparadores de búsqueda se miran antes de ejecutar)
             if (escr && eem->acceso(M430Bus::Escritura, a, v)) para_tras_ = true;
         }
-        const bool r = acceso_bus(escr, a, n, v, t, false);
+        const bool r = acceso_bus(escr, a, n, v, t, false, false);
         if (tap) tap->pon_mdb(uint16_t(v));
         if (eem && eem->activo() && !tclk_ && !escr && t != M430Acceso::Instruccion && t != M430Acceso::Busqueda
             && eem->acceso(M430Bus::Lectura, a, v)) para_tras_ = true;
         return r;
     }
-    bool acceso_bus(bool escr, uint32_t a, unsigned n, uint32_t& v, M430Acceso t, bool dbg) {
+    // `sin_tiempo`: no suma latencia (JTAG y depuración); `dbg`: lo marca como
+    // del depurador (la Flash, sin el controlador)
+    bool acceso_bus(bool escr, uint32_t a, unsigned n, uint32_t& v, M430Acceso t, bool sin_tiempo, bool dbg) {
         unsigned char buf[2];
         if (escr) for (unsigned i = 0; i < n; ++i) buf[i] = uint8_t(v >> (8 * i));
         tlm::tlm_generic_payload& gp = gp_;
@@ -195,7 +237,7 @@ private:
         sc_core::sc_time d = sc_core::SC_ZERO_TIME;
         bus->b_transport(gp, d);
         gp.clear_extension(&ext);
-        if (!dbg && !tclk_) local_ += d;
+        if (!sin_tiempo && !tclk_) local_ += d;
         if (gp.get_response_status() != tlm::TLM_OK_RESPONSE) { if (!escr) v = 0; return false; }
         if (!escr) {
             v = 0;
@@ -218,22 +260,33 @@ private:
             while (!rst_n.read()) wait(rst_n.value_changed_event());
             rst_bajo_ = false;
             if (tce1_) { tclk_ = true; deuda_ = 0; vistas_ = bajadas_; }
+            mira_dbg();
+            // Con el vector borrado, el chip se apaga (LPM4) si arranca solo;
+            // bajo JTAG, la CPU queda en la búsqueda de instrucción y manda
+            // la herramienta [de modelo: JTAG §2.3.2.2, ExecutePOR sigue con
+            // la CPU sincronizada sea cual sea el contenido de la Flash]
+            cpu.vector_vacio_apaga = vector_vacio_apaga && !tce1_;
             cpu.reset();
             en_reset_ = false;
             for (;;) {
                 if (!rst_n.read() || rst_bajo_) { sincroniza(); break; }
                 // JTAG toma la CPU entre dos instrucciones; la suelta igual
-                if (tce1_ && !tclk_) { sincroniza(); tclk_ = true; deuda_ = 0; vistas_ = bajadas_; }
-                if (!tce1_ && tclk_) tclk_ = false;
+                if (tce1_ && !tclk_) { sincroniza(); tclk_ = true; deuda_ = 0; vistas_ = bajadas_; mira_dbg(); }
+                if (!tce1_ && tclk_) { tclk_ = false; mira_dbg(); }
                 // Parada por la depuración directa o por el EEM: quieta, salvo un paso
                 const bool parar = !tclk_ && (parada_ || (eem && eem->parado()));
                 if (parar && !pasos_) {
                     sincroniza();
-                    if (!parado_) { parado_ = true; ev_parado_.notify(sc_core::SC_ZERO_TIME); }
+                    if (!parado_) { parado_ = true; ev_parado_.notify(sc_core::SC_ZERO_TIME); mira_dbg(); }
                     wait(ev_dbg_ | rst_n.value_changed_event());
                     continue;
                 }
-                parado_ = false;
+                if (parado_) { parado_ = false; mira_dbg(); }
+                if (espera_ && !tclk_) {
+                    sincroniza();
+                    wait(ev_dbg_ | rst_n.value_changed_event());
+                    continue;
+                }
                 // El avance por TCLK de M1 (sin TAP)
                 if (tclk_m1_ && credito_ <= 0) {
                     sincroniza();

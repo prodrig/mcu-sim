@@ -70,6 +70,7 @@ SC_MODULE(SocLabM430), public m430_irq_if {
         nucleo.tap = &tap;
         nucleo.eem = &eem;
         tap.pon_cpu(&nucleo);
+        tap.tension_test = [this] { return double(sbw_test.voltage()); };   // VPP del fusible
         nucleo.al_por = [this](bool v) { rst_n.write(!v); };
         bus.register_b_transport(this, &SocLabM430::b_transport);
         bus.register_transport_dbg(this, &SocLabM430::transport_dbg);

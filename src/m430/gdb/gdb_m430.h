@@ -26,6 +26,8 @@
 
 #include <systemc>
 #include <map>
+#include <memory>
+#include <vector>
 #include <string>
 #include "../../common/gdb_rsp.h"
 #include "../cpu/nucleo_m430.h"
@@ -49,6 +51,10 @@ struct m430_dbg_if {
     virtual void eem_escribe(uint8_t dir, uint16_t v) = 0;
     virtual unsigned disparadores() const = 0;
     virtual void reset(bool parar) = 0;
+    // La Flash (el `load`, P-20): borrar un segmento o la principal entera y
+    // programar palabras. Por omisión, no se sabe
+    virtual bool flash_borra(uint32_t, bool /*masivo*/) { return false; }
+    virtual bool flash_escribe(uint32_t, const uint16_t*, unsigned) { return false; }
 };
 
 // --- --gdb-dap: el núcleo en directo --------------------------------------------
@@ -77,6 +83,19 @@ public:
     void reset(bool parar) override { if (al_reset) al_reset(); if (parar) n_.pide_parada(true);
                                       sc_core::wait(10, sc_core::SC_US); if (parar) this->parar(); }
     std::function<void()> al_reset;
+    // --gdb-dap: la Flash se escribe por debajo del controlador (sin tiempo),
+    // como la memoria; el segmento es el que diga el programador
+    unsigned tam_segmento = 512;
+    bool flash_borra(uint32_t a, bool masivo) override {
+        if (masivo) return false;
+        const uint32_t b = a & ~(tam_segmento - 1u);
+        for (uint32_t x = b; x < b + tam_segmento; x += 2) n_.escribe_dbg(x, 0xFFFF, false);
+        return true;
+    }
+    bool flash_escribe(uint32_t a, const uint16_t* w, unsigned n) override {
+        for (unsigned i = 0; i < n; ++i) n_.escribe_dbg(a + 2 * i, uint16_t(n_.lee_dbg(a + 2 * i, false) & w[i]), false);
+        return true;
+    }
 private:
     NucleoM430& n_;
     EemM430& e_;
@@ -132,6 +151,17 @@ public:
     uint16_t eem_lee(uint8_t d) override { return s_.lee_eem(d); }
     void eem_escribe(uint8_t d, uint16_t v) override { s_.escribe_eem(d, v); }
     unsigned disparadores() const override { return n_tb_; }
+    // --gdb: la Flash por JTAG, con el controlador y TCLK (como el Replicator)
+    bool flash_borra(uint32_t a, bool masivo) override {
+        if (!bajo_jtag_) parar_();
+        s_.borra_flash(masivo ? SondaM430::BORRA_PRINCIPAL : SondaM430::BORRA_SEGMENTO, uint16_t(a));
+        return true;
+    }
+    bool flash_escribe(uint32_t a, const uint16_t* w, unsigned n) override {
+        if (!bajo_jtag_) parar_();
+        s_.escribe_flash(uint16_t(a), w, n);
+        return true;
+    }
     void reset(bool parar) override {
         s_.sincroniza(true);
         bajo_jtag_ = true;
@@ -154,12 +184,65 @@ private:
     }
 };
 
+// --- El programador de la Flash de 1xx/2xx/4xx (FLASH2) ---------------------------
+// Segmentos de 512 B en la principal y de 64 B en la información (sin el A,
+// que guarda la calibración: LOCKA). Lo hace el camino de depuración que haya
+// detrás (la sonda, por JTAG y TCLK; el directo, por debajo del controlador).
+class ProgramadorF2xx : public programador_nv_if {
+public:
+    ProgramadorF2xx(m430_dbg_if& d, uint32_t principal_ini, uint32_t info_ini, uint32_t info_a_ini)
+        : d_(d), p_ini_(principal_ini), i_ini_(info_ini), a_ini_(info_a_ini) {}
+    const char* nombre() const override { return "MSP430 FLASH2 (1xx/2xx/4xx)"; }
+    int sector_de(uint32_t a) const override {
+        if (a >= p_ini_ && a <= 0xFFFFu) return int((a - p_ini_) / 512u);
+        if (a >= i_ini_ && a < a_ini_) return int(n_principal() + (a - i_ini_) / 64u);
+        return -1;
+    }
+    uint32_t tam_sector(int s) const override { return unsigned(s) < n_principal() ? 512u : 64u; }
+    unsigned n_sectores() const override { return n_principal() + (a_ini_ - i_ini_) / 64u; }
+    bool borrar(acceso_nv_if&, uint32_t a, uint32_t n) override {
+        for (uint32_t x = a; x < a + (n ? n : 1u); ) {
+            const int s = sector_de(x);
+            if (s < 0) return false;
+            const uint32_t t = tam_sector(s);
+            if (!d_.flash_borra(x & ~(t - 1u), false)) return false;
+            x = (x & ~(t - 1u)) + t;
+        }
+        return true;
+    }
+    bool programar(acceso_nv_if&, uint32_t a, const uint8_t* dat, unsigned n, unsigned& palabras) override {
+        // De palabra en palabra, con los extremos impares rellenos de 0xFF
+        std::vector<uint16_t> w;
+        const uint32_t ini = a & ~1u;
+        for (uint32_t x = ini; x < a + n; x += 2) {
+            auto b = [&](uint32_t y) -> uint16_t { return (y >= a && y < a + n) ? dat[y - a] : 0xFF; };
+            w.push_back(uint16_t(b(x) | (b(x + 1) << 8)));
+        }
+        if (!d_.flash_escribe(ini, w.data(), unsigned(w.size()))) return false;
+        palabras += unsigned(w.size());
+        return true;
+    }
+    void terminar(acceso_nv_if&) override {}
+private:
+    m430_dbg_if& d_;
+    uint32_t p_ini_, i_ini_, a_ini_;
+    unsigned n_principal() const { return (0x10000u - p_ini_) / 512u; }
+};
+
 // --- El protocolo ------------------------------------------------------------------
 class GdbRspM430 : public GdbRspBase {
 protected:
     GdbRspM430(m430_dbg_if& d, unsigned puerto, const char* etiqueta) : GdbRspBase(puerto, etiqueta), d_(d) {
         pon_programador(&ProgramadorNinguno430::el());
     }
+public:
+    // La Flash del chip (FLASH2): el programador, sobre el mismo camino de depuración
+    void pon_flash_2xx(uint32_t principal_ini, uint32_t info_ini, uint32_t info_a_ini) {
+        prog_.reset(new ProgramadorF2xx(d_, principal_ini, info_ini, info_a_ini));
+        pon_programador(prog_.get());
+    }
+protected:
+    std::unique_ptr<ProgramadorF2xx> prog_;
     class ProgramadorNinguno430 : public programador_nv_if {
     public:
         static ProgramadorNinguno430& el() { static ProgramadorNinguno430 p; return p; }
@@ -194,8 +277,8 @@ protected:
             const uint16_t f = d_.eem_lee(0x8E);
             if (f) d_.eem_escribe(0x8E, f);
             if (sw_.count(pc)) s += "swbreak:;";
-            else for (unsigned i = 1; i < tb_.size(); ++i) {
-                if (!tb_[i].usado || !((f >> i) & 1u)) continue;
+            else for (unsigned i = 0; i < tb_.size(); ++i) {
+                if (!tb_[i].usado || tb_[i].tipo == 0 || !((f >> i) & 1u)) continue;
                 if (tb_[i].tipo == 1) s += "hwbreak:;";
                 else s += std::string(tb_[i].tipo == 2 ? "watch" : tb_[i].tipo == 3 ? "rwatch" : "awatch") +
                           ":" + hex_be(tb_[i].dir) + ";";
@@ -213,11 +296,19 @@ protected:
     bool arq_poner_bp(uint32_t a, unsigned tipo, unsigned) override {
         if (tipo == 1) return pon_tb(a, 1);
         if (sw_.count(a)) return true;
-        sw_[a] = d_.lee16(a);
+        if (programador().sector_de(a) >= 0) return pon_tb(a, 1);   // en la Flash, de hardware
+        const uint16_t orig = d_.lee16(a);
         d_.escribe16(a, 0x4343);                               // CLR.B R3
-        // El disparador 0: búsqueda con MDB = 0x4343
+        // En la Flash no se puede escribir así: un disparador de búsqueda en
+        // su lugar (lo que hace la herramienta con «software breakpoints» en
+        // Flash cuando no los emula)
+        if (d_.lee16(a) != 0x4343) return pon_tb(a, 1);
+        // El disparador 0: búsqueda con MDB = 0x4343 (si una ruptura de
+        // hardware no lo tiene ya: con el EEM XS solo hay dos)
+        if (!tb_.empty() && tb_[0].usado && tb_[0].tipo != 0) { d_.escribe16(a, orig); return false; }
+        sw_[a] = orig;
         if (!tb_.empty() && !tb_[0].usado) {
-            tb_[0].usado = true;
+            tb_[0] = Tb{true, 0, 0};
             d_.eem_escribe(0x00, 0x4343);
             d_.eem_escribe(0x02, 0x0001);                      // MDB, TRIG_0, =
             d_.eem_escribe(0x04, 0x0000);
@@ -229,20 +320,18 @@ protected:
     bool arq_quitar_bp(uint32_t a, unsigned tipo, unsigned) override {
         if (tipo == 1) return quita_tb(a, 1);
         auto it = sw_.find(a);
-        if (it == sw_.end()) return true;
+        if (it == sw_.end()) return quita_tb(a, 1);
         d_.escribe16(a, it->second);
         sw_.erase(it);
-        if (sw_.empty() && !tb_.empty()) { tb_[0].usado = false; d_.eem_escribe(0x06, 0); react(); }
+        if (sw_.empty() && !tb_.empty() && tb_[0].tipo == 0) { tb_[0].usado = false; d_.eem_escribe(0x06, 0); react(); }
         return true;
     }
     bool arq_poner_wp(uint32_t a, unsigned tipo, unsigned) override { return pon_tb(a, tipo); }
     bool arq_quitar_wp(uint32_t a, unsigned tipo, unsigned) override { return quita_tb(a, tipo); }
-    void arq_reset() override { d_.reset(false); }
-    bool arq_monitor(const std::string& o) override {
-        if (o == "reset halt") { d_.reset(true); return true; }
-        if (o == "reset") { d_.reset(false); return true; }
-        return false;
-    }
+    // `monitor reset` y `monitor reset halt` llegan aquí (la base los atiende
+    // por el prefijo y deja el núcleo PARADO): el POR por JTAG y la CPU quieta
+    // en el vector de reset, como `reset halt` de la herramienta
+    void arq_reset() override { d_.reset(true); }
     const char* arq_nombre_xml() const override { return "msp430"; }
     const char* arq_nombre_humano() const override { return "MSP430"; }
     const char* arq_gdb_recomendado() const override { return "msp430-elf-gdb"; }
@@ -272,9 +361,12 @@ private:
         d_.eem_escribe(0x80, r);
     }
     // tipo: 1 búsqueda, 2 escritura, 3 lectura, 4 lectura o escritura
+    // El 0 se guarda para las rupturas de software en RAM; si no hay
+    // ninguna, también vale (el EEM XS del G2553 tiene dos disparadores)
     bool pon_tb(uint32_t a, unsigned tipo) {
-        for (unsigned i = 1; i < tb_.size(); ++i) {
-            if (tb_[i].usado) continue;
+        for (unsigned j = 1; j <= tb_.size(); ++j) {
+            const unsigned i = j % unsigned(tb_.size());
+            if (tb_[i].usado || (i == 0 && !sw_.empty())) continue;
             tb_[i] = Tb{true, tipo, a};
             const uint16_t trig = tipo == 1 ? 0x0000 : tipo == 2 ? 0x0026 : tipo == 3 ? 0x0024 : 0x0004;
             d_.eem_escribe(uint8_t(8 * i), uint16_t(a));
@@ -287,7 +379,7 @@ private:
         return false;
     }
     bool quita_tb(uint32_t a, unsigned tipo) {
-        for (unsigned i = 1; i < tb_.size(); ++i)
+        for (unsigned i = 0; i < tb_.size(); ++i)
             if (tb_[i].usado && tb_[i].dir == a && tb_[i].tipo == tipo) {
                 tb_[i] = Tb();
                 d_.eem_escribe(uint8_t(8 * i + 6), 0);

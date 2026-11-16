@@ -249,7 +249,8 @@ HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.
                    periph/msp432p4/*.h periph/ti/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
                    periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc \
                    soc/stm32f3/*.h soc/stm32f3/*.inc \
-                   rv/*/*.h soc/esp/*.h soc/esp32c3/*.h soc/esp32c6/*.h soc/esp32c6/*.inc periph/esp/*.h)
+                   rv/*/*.h soc/esp/*.h soc/esp32c3/*.h soc/esp32c6/*.h soc/esp32c6/*.inc periph/esp/*.h \
+                   m430/*/*.h soc/msp430/*/*.h)
 
 TEST407 := $(B)/test407$(EXE)
 MCUSIM  := $(B)/mcu-sim$(EXE)
@@ -283,7 +284,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -467,7 +468,7 @@ asan430: $(ASAN430)
 endif
 
 # LA SUITE DEL MSP430G2553 (fase M3): make testg2
-$(TESTG2): top/sc_main_g2.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/g2553/*.h periph/ti/*.h)
+$(TESTG2): top/sc_main_g2.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/g2553/*.h periph/ti/*.h verif/m430/replicator/*.h verif/m430/replicator/430/*)
 	@mkdir -p $(B)
 	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_g2.cpp $(LDFLAGS) $(LDLIBS)
 
@@ -475,6 +476,20 @@ testg2-build: $(TESTG2)
 
 testg2: $(TESTG2)
 	$(TESTG2)
+
+# msp430-elf-gdb DE VERDAD contra la MSP-EXP430G2ET (P-20): load, rupturas
+# de software y de hardware, watch, paso, Ctrl-C y monitor reset halt, por
+# --gdb-dap y por --gdb (Spy-Bi-Wire). Sin msp430-elf-gdb se omite; no toca
+# ningun invariante. (El de TI pide libncurses5: LD_LIBRARY_PATH si falta.)
+#   make -f Makefile.mcu-sim gdb-g2 [GDB430=/ruta/msp430-elf-gdb]
+gdb-g2: $(MCUSIM)
+	$(PYTHON) verif/g2553/gdb_g2.py --sim $(MCUSIM) $(if $(GDB430),--gdb $(GDB430))
+
+# SLAA754 (P-20): la MSP-EXP432P401R con el ejemplo de TI tal cual viene
+# compilado programa a la G2ET por Spy-Bi-Wire; el backchannel del MSP432,
+# a memoria, acaba en «MSP430 Programmed Successfully». Un minuto de pared.
+g2-slaa754: $(MCUSIM)
+	$(MCUSIM) placas/msp432_programa_g2553.xml --serie P4/BCL=memoria --ms=3000
 
 m430fw:
 	cd verif/m430 && python3 gen_dif.py && python3 gen_ciclos.py && $(MAKE) -f Makefile.m430 && python3 gen_dec.py

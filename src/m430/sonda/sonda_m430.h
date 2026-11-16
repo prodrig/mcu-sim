@@ -231,12 +231,127 @@ public:
         ir_shift(IR430_ADDR_CAPTURE);
     }
 
+    // --- La Flash de 1xx/2xx/4xx por JTAG (WriteFLASH y EraseFLASH de
+    // JTAGfunc430.c del Replicator430 1.22, BSD-3 [JTAG §2.4.7 y §2.4.8]) -----
+    // El generador de tiempos con MCLK (que bajo JTAG es TCLK) y FN = 0: cada
+    // palabra, 35 flancos de TCLK; el borrado, 4820 (segmento) o 10600
+    // (masivo, Flash rápida). `fctl3` es 0xA500, o 0xA540 para cambiar LOCKA.
+    static constexpr uint16_t BORRA_SEGMENTO = 0xA502, BORRA_PRINCIPAL = 0xA504, BORRA_MASIVO = 0xA506;
+    void escribe_flash(uint16_t dir, const uint16_t* w, unsigned n, uint16_t fctl3 = 0xA500) {
+        halt_cpu();
+        tclk(false);
+        ir_shift(IR430_CNTRL_SIG_16BIT); dr_shift(16, 0x2408);
+        escribe_reg_flash(0x0128, 0xA540);                    // FCTL1: WRT
+        escribe_reg_flash(0x012A, 0xA540);                    // FCTL2: MCLK, /1
+        escribe_reg_flash(0x012C, fctl3);                     // FCTL3: sin LOCK
+        ir_shift(IR430_CNTRL_SIG_16BIT);
+        for (unsigned i = 0; i < n; ++i) {
+            dr_shift(16, 0x2408);
+            ir_shift(IR430_ADDR_16BIT); dr_shift(16, uint16_t(dir + 2 * i));
+            ir_shift(IR430_DATA_TO_ADDR); dr_shift(16, w[i]);
+            tclk(true); tclk(false);
+            ir_shift(IR430_CNTRL_SIG_16BIT); dr_shift(16, 0x2409);
+            tclk_strobes(35);
+        }
+        ir_shift(IR430_CNTRL_SIG_16BIT); dr_shift(16, 0x2408);
+        escribe_reg_flash(0x0128, 0xA500);
+        ir_shift(IR430_ADDR_16BIT); dr_shift(16, 0x012C);
+        ir_shift(IR430_DATA_TO_ADDR); dr_shift(16, uint16_t(fctl3 | 0x0010));   // LOCK otra vez
+        tclk(true);
+        release_cpu();
+        instr_load();
+    }
+    void borra_flash(uint16_t modo, uint16_t dir, uint16_t fctl3 = 0xA500) {
+        const unsigned n = modo == BORRA_SEGMENTO ? 4820 : 10600;
+        halt_cpu();
+        tclk(false);
+        ir_shift(IR430_CNTRL_SIG_16BIT); dr_shift(16, 0x2408);
+        escribe_reg_flash(0x0128, modo);
+        escribe_reg_flash(0x012A, 0xA540);
+        escribe_reg_flash(0x012C, fctl3);
+        escribe_reg_flash(dir, 0x55AA);                       // la escritura que borra
+        ir_shift(IR430_CNTRL_SIG_16BIT); dr_shift(16, 0x2409);
+        tclk_strobes(n);
+        ir_shift(IR430_CNTRL_SIG_16BIT); dr_shift(16, 0x2408);
+        ir_shift(IR430_ADDR_16BIT); dr_shift(16, 0x0128);
+        ir_shift(IR430_DATA_TO_ADDR); dr_shift(16, 0xA500);
+        tclk(true);
+        tclk(false);
+        ir_shift(IR430_ADDR_16BIT); dr_shift(16, 0x012C);
+        ir_shift(IR430_DATA_TO_ADDR); dr_shift(16, uint16_t(fctl3 | 0x0010));
+        tclk(true);
+        release_cpu();
+        instr_load();
+    }
+    // TCLKstrobes: n bajadas de TCLK sin pasar por la máquina de JTAG. Por
+    // SBW, dentro de la franja de TDI, con SBWTDIO y SBWTCK arriba (como
+    // LowLevelFunc430.c); por 4 hilos, en TDI. Acaba con TCLK arriba.
+    void tclk_strobes(unsigned n) {
+        if (traza) traza->push_back(hex("S", 0, n));
+        const sc_core::sc_time alto(1500, sc_core::SC_NS), bajo(1000, sc_core::SC_NS);   // ~400 kHz
+        if (modo_ == Modo::Jtag4) {
+            for (unsigned i = 0; i < n; ++i) { pon(p_.tdi, id_tdi_, false); sc_core::wait(bajo); pon(p_.tdi, id_tdi_, true); sc_core::wait(alto); }
+            tclk_ = true;
+            return;
+        }
+        franja(false, tclk_);                           // la de TMS (TMSLDH si TCLK estaba arriba)
+        for (unsigned i = 0; i < n; ++i) { pon(p_.rst, id_rst_, false); sc_core::wait(bajo); pon(p_.rst, id_rst_, true); sc_core::wait(alto); }
+        franja(true, false);                            // TDIH
+        franja_tdo();
+        tclk_ = true;
+    }
+
+    // --- El fusible (BlowFuse de JTAGfunc430.c del Replicator430, BSD-3) -------
+    // VPP en TEST: por 4 hilos, PREPARE_BLOW, VPP y EX_BLOW; por SBW, la IR
+    // con EX_BLOW acabando con SBWTDIO abajo, la franja de TMS, VPP en TEST y
+    // SBWTDIO arriba (IR_Ex_Blow_SBW_Shift). Pide el pin TEST.
+    void funde_fusible(double vpp = 6.5) {
+        ir_shift(IR430_PREPARE_BLOW);
+        espera_us(1000);
+        if (modo_ == Modo::Jtag4) {
+            if (p_.test) p_.test->set_drive(id_test_, float(vpp), 30.0f);
+            espera_us(5000);
+            ir_shift(IR430_EX_BLOW);
+            espera_us(1000);
+            if (p_.test) pon(p_.test, id_test_, true);
+            return;
+        }
+        if (traza) traza->push_back("I24>blow");
+        tck_ciclo(true, tclk_); tck_ciclo(true, true); tck_ciclo(false, true); tck_ciclo(false, true);
+        uint32_t d = 0x24;                              // IR_EX_BLOW de JTAGfunc430.h (0x24 al revés es 0x24)
+        for (unsigned i = 8; i > 0; --i) { tck_ciclo(i == 1, (d >> 7) & 1u); d <<= 1; }
+        tck_ciclo(true, false);                         // Update-IR, SBWTDIO abajo
+        tck_ciclo(false, false);                        // Run-Test/Idle
+        tclk_ = false;
+        franja(false, false);                           // la franja de TMS: ahora, la de TDI
+        espera_us(1000);
+        p_.test->set_drive(id_test_, float(vpp), 30.0f);
+        espera_us(3000);
+        pon(p_.rst, id_rst_, true);                     // SBWTDIO arriba: se funde
+        espera_us(1000);
+        pon(p_.test, id_test_, true);
+        franja(true, false);                            // se acaba la franja de TDI (TDIH)
+        franja_tdo();
+        tclk_ = true;
+    }
+    // IsFuseBlown: DR_Shift16(0xAAAA) en CNTRL_SIG_CAPTURE da 0x5555 si está fundido
+    bool fusible_fundido() {
+        for (int i = 0; i < 3; ++i) {
+            ir_shift(IR430_CNTRL_SIG_CAPTURE);
+            if (dr_shift(16, 0xAAAA) == 0x5555) return true;
+        }
+        return false;
+    }
+
     // ==== El HIL ============================================================
     uint32_t ir_shift(uint8_t ir) {
         if (traza) traza->push_back(hex("I", 2, ir));
         // RTI -> Select-DR -> Select-IR -> Capture-IR -> Shift-IR
         tck_ciclo(true, tclk_); tck_ciclo(true, tclk_); tck_ciclo(false, tclk_); tck_ciclo(false, tclk_);
-        const uint32_t r = desplaza(8, ir);
+        // El código, con el LSB primero (como JTAG_defs.h: los bits al revés)
+        uint32_t rev = 0;
+        for (unsigned i = 0; i < 8; ++i) if ((ir >> i) & 1u) rev |= 0x80u >> i;
+        const uint32_t r = desplaza(8, rev);
         if (traza) traza->back() += hex(">", 2, r);
         return r;
     }
@@ -272,6 +387,11 @@ private:
         if (!dig) std::snprintf(b, sizeof b, "%s%u", pre, unsigned(v));
         else std::snprintf(b, sizeof b, "%s%0*X", pre, int(dig), unsigned(v));
         return b;
+    }
+    void escribe_reg_flash(uint16_t a, uint16_t v) {
+        ir_shift(IR430_ADDR_16BIT); dr_shift(16, a);
+        ir_shift(IR430_DATA_TO_ADDR); dr_shift(16, v);
+        tclk(true); tclk(false);
     }
     void pon(analog_net_if* n, int id, bool v) { if (n) n->set_drive(id, v ? float(vdd_) : 0.0f, 30.0f); }
     bool lee(analog_net_if* n) const { return n && !n->floating() && n->voltage() > 0.5f * float(vdd_); }

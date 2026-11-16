@@ -30,7 +30,7 @@
 //   N8  la sonda de bancada (el port de las macros HAL de la MSP Debug
 //       Stack) por JTAG de 4 hilos: el JTAG ID, la sincronización, memoria,
 //       registros, el PC, un paso, soltar, el EEM, el POR y el fusible
-//   N9  lo mismo por Spy-Bi-Wire, y su salida por el tope de 7 µs
+//   N9  lo mismo por Spy-Bi-Wire, y su salida por el tope de 100 µs
 //   N10 el EEM en el núcleo: un disparador de búsqueda para la CPU, el de
 //       escritura la para tras la instrucción; GENCLKCTRL
 //   N11-N12 GDB por --gdb-dap (directo) y por --gdb (la sonda, en 4 hilos y
@@ -372,7 +372,7 @@ SC_MODULE(TbM430) {
         wait(200, SC_US);
         SondaM430::Pines pp;
         if (modo == SondaM430::Modo::Jtag4) { pp.tck = &cpu.jtag_tck; pp.tms = &cpu.jtag_tms; pp.tdi = &cpu.jtag_tdi;
-                                              pp.tdo = &cpu.jtag_tdo; }
+                                              pp.tdo = &cpu.jtag_tdo; pp.test = &cpu.sbw_test; }   // TEST: la VPP
         else { pp.test = &cpu.sbw_test; pp.rst = &cpu.sbw_rst; }
         SondaM430 s(pp, modo);
         const std::string p = std::string(q) + ": ";
@@ -411,16 +411,21 @@ SC_MODULE(TbM430) {
         const uint16_t vpc = s.lee_pc(), vec = cpu.ram16(0xFFFE);
         check(por && vpc >= vec && vpc <= vec + 6, p + "POR por el registro de control: la CPU, en el vector de reset");
         s.suelta_cpu();
-        // El fusible: IR_PREPARE_BLOW y IR_EX_BLOW; después solo hay BYPASS
+        // El fusible: sin VPP no se funde; con VPP en TEST (BlowFuse del
+        // Replicator430), sí, y después todos los registros son de 1 bit
         s.ir_shift(IR430_PREPARE_BLOW);
         s.ir_shift(IR430_EX_BLOW);
-        const uint8_t id2 = uint8_t(s.ir_shift(IR430_CNTRL_SIG_16BIT));
-        check(cpu.tap.fusible() && id2 != 0x89, p + "el fusible fundido: el TAP ya no da su ID (0x" + hex2(id2) + ")");
+        const bool sin_vpp = !cpu.tap.fusible() && !s.fusible_fundido();
+        s.funde_fusible();
+        const uint8_t id2 = uint8_t(s.ir_shift(IR430_BYPASS));
+        check(sin_vpp && cpu.tap.fusible() && s.fusible_fundido() && id2 == 0x89,
+              p + "el fusible: sin VPP no; con VPP en TEST, sí, y el TAP da su ID (0x" + hex2(id2) +
+              ") con registros de 1 bit (IsFuseBlown)");
         cpu.tap.restaura_fusible();
         s.desconecta();
         wait(100, SC_US);
         if (modo == SondaM430::Modo::Sbw) {
-            check(!cpu.pines.en_sbw(), p + "SBWTCK bajo más de 7 µs: fuera de Spy-Bi-Wire");
+            check(!cpu.pines.en_sbw(), p + "SBWTCK bajo más de 100 µs: fuera de Spy-Bi-Wire");
         }
     }
     static std::string hex2(unsigned v) { char b[8]; std::snprintf(b, sizeof b, "%02X", v); return b; }

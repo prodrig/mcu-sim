@@ -82,11 +82,27 @@ public:
     // El reset (POR, BOR o PUC): SR a 0 y el PC del vector de reset [UG2 §2.2.1]
     void reset() {
         const uint16_t antes = e.sr();
-        for (unsigned i = 0; i < 16; ++i) e.r[i] = 0;
-        e.r[0] = lee16(0xFFFE, M430Acceso::Vector) & 0xFFFEu;
+        // Solo SR y PC [UG2 §2.1.2]: los demás registros no tienen reset y
+        // conservan lo que tenían (al encender, cero) [de modelo]. Hay código
+        // que lo usa sin saberlo: el «blinky» de SLAA754 arranca un mov #SP
+        // más allá y vive del SP que quedó del programa anterior
+        if (!conserva_registros) for (unsigned i = 0; i < 16; ++i) e.r[i] = 0;
+        e.r[2] = 0; e.r[3] = 0;
+        const uint16_t v = lee16(0xFFFE, M430Acceso::Vector);
+        e.r[0] = v & 0xFFFEu;
         retraso_gie_ = false;
         if (al_cambiar_sr && antes) al_cambiar_sr(antes, 0);
+        // «If the reset vector's content is 0FFFFh the device will be disabled
+        // for minimum power consumption» [UG2 §2.1.2]: con la Flash borrada,
+        // el chip se queda en LPM4 en vez de ejecutar basura
+        if (v == 0xFFFFu && vector_vacio_apaga) pon_sr(0x00F0);
     }
+    // Ver reset(): el comportamiento de 2xx con el vector de reset borrado
+    bool vector_vacio_apaga = true;
+    // Ver reset(): los registros de trabajo no se reinician (los SoC de chip lo
+    // activan; el laboratorio, no, para que las pruebas diferenciales empiecen
+    // de cero como msp430-elf-run y mspdebug)
+    bool conserva_registros = false;
 
     uint32_t pc() const { return e.r[0]; }
     uint16_t sr() const { return uint16_t(e.r[2]); }
@@ -462,6 +478,11 @@ private:
             return cic_.f2_rot[mo];
         }
         case F2_PUSH: {
+            // CPU4: PUSH #4 / PUSH #8 por el generador de constantes (R2, As
+            // = 10 u 11) da un valor equivocado en la CPU de 2xx; los
+            // compiladores lo evitan. AVISA una vez y empuja lo que dice la
+            // guía [SLAZ440K CPU4; declarado: TI no dice qué empuja]
+            if (in.dst == 2 && in.as >= 2) errata.avisa(m430::ERR_CPU4, "CPU4 (PUSH #4 o #8 por el CG)", e.r[0]);
             const uint32_t v = valor(o, t);
             push(v, t);
             if (in.ext) {
