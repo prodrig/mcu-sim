@@ -59,6 +59,7 @@
 #include "../../../m430/cpu/nucleo_m430.h"
 #include "../../../m430/debug/pines_m430.h"
 #include "../../../periph/ti/timer_a.h"
+#include "../../../periph/ti/usci.h"
 #include "../../../common/analog_net.h"
 #include "../../../pins/pin_mux.h"
 #include "../../../common/imagen_fw.h"
@@ -94,10 +95,14 @@ SC_MODULE(SocG2553), public m430_irq_if {
     double temperatura = 25.0;           // °C, para el sensor del ADC10
     bool cristal_32k = false;            // la G2ET lo trae sin montar
 
-    TimerAP4 ta0{"timer0_a3", 0x0160, TimerACaps{3, 0x0A, false}, 0x20};
-    TimerAP4 ta1{"timer1_a3", 0x0180, TimerACaps{3, 0x0A, false}, 0x20};
+    // La ventana llega a +0x2E, donde el modelo (el del MSP432) tiene TAxIV: en
+    // el 2xx, TA0IV y TA1IV están en 0x012E y 0x011E y el SoC los reenvía ahí
+    TimerAP4 ta0{"timer0_a3", 0x0160, TimerACaps{3, 0x0A, false}, 0x30};
+    TimerAP4 ta1{"timer1_a3", 0x0180, TimerACaps{3, 0x0A, false}, 0x30};
     tlm_utils::simple_initiator_socket<SocG2553> a_ta0{"a_ta0"}, a_ta1{"a_ta1"};
     sc_core::sc_signal<bool> irq_ta0_0, irq_ta0_n, irq_ta1_0, irq_ta1_n;
+    // USCI_B0: SPI e I2C (la A0 es la UART de abajo) [UG2 cap. 16-17]
+    UsciTi ucb0{"usci_b0", true};
 
     // Lo que sale por la UART (la G2ET lo lleva al eZ-FET: el «backchannel»)
     std::string uart_tx;
@@ -133,10 +138,10 @@ SC_MODULE(SocG2553), public m430_irq_if {
         nucleo.tap = &tap;
         nucleo.eem = &eem;
         nucleo.perif_hi = 0x200;
-        nucleo.cpu.conserva_registros = true;
+        nucleo.cpu.conserva_registros = true;              // [UG2 §2.1.2]: solo PC y SR tienen reset
         // CPU4 está en SLAZ440K y no en devices.csv (CPU_Bugs = 0 en la fila del G2553)
         nucleo.cpu.errata.activas |= m430::ERR_CPU4;
-        nucleo.al_parada_dbg = [this](bool) { relojes(); };              // [UG2 §2.1.2]: solo PC y SR
+        nucleo.al_parada_dbg = [this](bool) { relojes(); };
         tap.pon_cpu(&nucleo);
         nucleo.al_por = [this](bool v) { if (v) puc(true); else { reset_regs(); rst_n.write(true); } };
         nucleo.cpu.al_cambiar_sr = [this](uint16_t, uint16_t) { relojes(); };
@@ -146,6 +151,8 @@ SC_MODULE(SocG2553), public m430_irq_if {
             t->f_fuente = [this](unsigned s) { return s == 1 ? f_aclk_ : s == 2 ? f_smclk_ : 0.0; };
         }
         a_ta0.bind(ta0.tsk); a_ta1.bind(ta1.tsk);
+        ucb0.clk(clk_dummy); ucb0.rst_n(rst_n); ucb0.clk_en(uno); ucb0.clk_hz(hz_smclk);
+        ucb0.f_brclk = [this](unsigned s) { return s == 1 ? f_aclk_ : s >= 2 ? f_smclk_ : 0.0; };
         ta0.irq0(irq_ta0_0); ta0.irqn(irq_ta0_n); ta1.irq0(irq_ta1_0); ta1.irqn(irq_ta1_n);
         uno.write(true);
         rst_n.write(false);
@@ -153,6 +160,10 @@ SC_MODULE(SocG2553), public m430_irq_if {
         SC_METHOD(irq_timers); sensitive << irq_ta0_0 << irq_ta0_n << irq_ta1_0 << irq_ta1_n; dont_initialize();
         SC_METHOD(salidas_ta); sensitive << ta0.out[0] << ta0.out[1] << ta0.out[2] << ta1.out[0] << ta1.out[1]
                                        << ta1.out[2]; dont_initialize();
+        SC_METHOD(usci_irq_proc); sensitive << ucb0.cambio(); dont_initialize();
+        SC_METHOD(salidas_usci); sensitive << ucb0.simo_out << ucb0.simo_oe << ucb0.somi_out << ucb0.somi_oe
+                                         << ucb0.clk_out << ucb0.clk_oe << ucb0.ste_out << ucb0.ste_oe;
+        dont_initialize();
         SC_THREAD(wdt_proc);
         SC_METHOD(puc_fin_proc); sensitive << ev_puc_fin_; dont_initialize();
         SC_THREAD(uart_tx_proc);
@@ -163,6 +174,7 @@ SC_MODULE(SocG2553), public m430_irq_if {
         SC_METHOD(rst_pin_proc); sensitive << rst.value_changed_event() << ev_rst_pin_; dont_initialize();
         SC_METHOD(entradas_proc);
         for (auto& p : pin) sensitive << p->value_changed_event();
+        sensitive << ev_ca_;
         dont_initialize();
         fabrica();
         reset_regs();
@@ -263,7 +275,15 @@ private:
     uint8_t adc_ae0_ = 0;
     bool adc_ifg_ = false;
     sc_core::sc_event ev_adc_;
-    // Comp_A+ y USCI_B0 (declarados)
+    // ADC10: la DTC [UG2 §22.2.7]
+    uint8_t adc_dtc0_ = 0, adc_dtc1_ = 0;
+    uint16_t adc_sa_ = 0x200;
+    unsigned adc_dtc_n_ = 0;            // transferencias hechas en el bloque
+    // Comp_A+ [UG2 cap. 21]
+    uint8_t cactl1_ = 0, cactl2_ = 0, capd_ = 0;
+    bool ca_out_ = false, ca_ifg_ = false;
+    sc_core::sc_event ev_ca_;
+    // Lo que queda sin máquina (BSL, P3 de 28 pines...)
     uint8_t declarado_[0x100] = {};
     bool avisado_ = false;
     unsigned ultimo_cal_ = 0;
@@ -306,6 +326,8 @@ private:
         uca_[0x61 - 0x5D] = 0x01;                     // UCSWRST
         tx_lleno_ = false; ucastat_ = 0;
         adc_ctl0_ = adc_ctl1_ = adc_mem_ = 0; adc_ae0_ = 0; adc_ifg_ = false;
+        adc_dtc0_ = adc_dtc1_ = 0; adc_sa_ = 0x200; adc_dtc_n_ = 0;
+        cactl1_ = cactl2_ = capd_ = 0; ca_out_ = false; ca_ifg_ = false;
         if (!cristal_32k) ifg1_ |= 0x02;              // OFIFG: sin cristal
         relojes();
         pines_salida();
@@ -372,7 +394,7 @@ private:
         }
         hz_mclk.write(f_mclk_);
         hz_smclk.write(f_smclk_);
-        ta0.recalcula(); ta1.recalcula();
+        ta0.recalcula(); ta1.recalcula(); ucb0.recalcula();
         ev_wdt_.notify(sc_core::SC_ZERO_TIME);
     }
 
@@ -385,6 +407,12 @@ private:
         if (adc_ifg_ && (adc_ctl0_ & 0x08)) pon(0xFFEA);
         if ((ifg2_ & 0x02) && (ie2_ & 0x02)) pon(0xFFEC);                 // UCA0TXIFG
         if ((ifg2_ & 0x01) && (ie2_ & 0x01)) pon(0xFFEE);                 // UCA0RXIFG
+        // USCI_B0 [UG2 §17.3.7]: en SPI, RX al vector RX y TX al TX; en I2C,
+        // RX y TX los dos al vector TX, y las de estado (STAT) al RX
+        if (ucb0.ifg_tx() && (ie2_ & 0x08)) pon(0xFFEC);
+        if (ucb0.ifg_rx() && (ie2_ & 0x04)) pon(ucb0.en_i2c() ? 0xFFEC : 0xFFEE);
+        if (ucb0.i2c_estado_pide()) pon(0xFFEE);
+        if (ca_ifg_ && (cactl1_ & 0x02)) pon(0xFFF6);                     // COMPARATORA
         if (irq_ta0_n.read()) pon(0xFFF0);
         if (irq_ta0_0.read()) pon(0xFFF2);
         if ((ifg1_ & 0x01) && (ie1_ & 0x01) && (wdtctl_ & 0x10)) pon(0xFFF4);
@@ -393,23 +421,71 @@ private:
         return f;
     }
     void irq_timers() { nucleo.nota_irq(); }
+    void usci_irq_proc() { nucleo.nota_irq(); }
+    void salidas_usci() { pines_salida(); }
     void avisa_irq() { nucleo.nota_irq(); }
 
     // --- Pines --------------------------------------------------------------------------
+    // Las funciones de los pines [DS SLAS735J, tablas «Port P1/P2 Pin
+    // Functions»]: con PxSEL = 1 y PxSEL2 = 0, el Timer_A (salida con PxDIR = 1,
+    // captura con PxDIR = 0), SMCLK en P1.4 y CAOUT en P1.7; con los dos a 1,
+    // la USCI (A0: RXD/TXD en P1.1/P1.2; B0: STE, CLK, SOMI/SCL y SIMO/SDA en
+    // P1.4-P1.7). CAPD desconecta el buffer de entrada (el pin es analógico).
+    // Devuelve: 0 GPIO; 1 salida de función (nivel en `v`); 2 función que no
+    // conduce (entrada o drenador abierto suelto); 3 conduce a 0 (I2C).
+    int funcion(unsigned i, bool& v) const {
+        const Puerto& x = pt_[i / 8];
+        const unsigned b = i % 8;
+        const bool sel = (x.sel >> b) & 1u, sel2 = (x.sel2 >> b) & 1u, dir = (x.dir >> b) & 1u;
+        if (!sel && !sel2) return 0;
+        if (i < 8 && sel && sel2) {                                   // la USCI
+            switch (b) {
+            case 1: return 2;                                         // UCA0RXD
+            case 2: v = tx_nivel_; return 1;                          // UCA0TXD
+            case 4: if (ucb0.ste_oe.read()) { v = ucb0.ste_out.read(); return 1; } return 2;
+            case 5: if (ucb0.clk_oe.read()) { v = ucb0.clk_out.read(); return 1; } return 2;
+            case 6: case 7: {
+                const bool simo = b == 7;
+                const bool oe = simo ? ucb0.simo_oe.read() : ucb0.somi_oe.read();
+                const bool o = simo ? ucb0.simo_out.read() : ucb0.somi_out.read();
+                if (ucb0.en_i2c()) return oe ? 3 : 2;                 // drenador abierto
+                if (oe) { v = o; return 1; }
+                return 2;
+            }
+            default: return 2;
+            }
+        }
+        if (sel && !sel2 && dir) {
+            if (i < 8) switch (b) {
+                case 1: case 5: v = ta0.out[0].read(); return 1;     // TA0.0
+                case 2: case 6: v = ta0.out[1].read(); return 1;     // TA0.1
+                case 4: v = false; return 2;                          // SMCLK (no se saca)
+                case 7: v = ca_out_; return 1;                        // CAOUT
+                default: return 2;
+            }
+            if (i < 16) switch (b) {
+                case 0: case 3: v = ta1.out[0].read(); return 1;     // TA1.0
+                case 1: case 2: v = ta1.out[1].read(); return 1;     // TA1.1
+                case 4: case 5: v = ta1.out[2].read(); return 1;     // TA1.2
+                default: return 2;                                    // XIN/XOUT
+            }
+        }
+        return 2;
+    }
     void pines_salida() {
         const bool jtag4 = pines_dbg && pines_dbg->jtag4_activo();
         for (unsigned i = 0; i < 24; ++i) {
             const Puerto& x = pt_[i / 8];
             const unsigned b = i % 8;
             if (jtag4 && i >= 4 && i <= 7) { pin[i]->set_hiz(id_pin_[i]); continue; }   // son del JTAG
-            const bool sel = (x.sel >> b) & 1u, sel2 = (x.sel2 >> b) & 1u, dir = (x.dir >> b) & 1u;
-            int fn = 0;                                               // 0 GPIO; 1 TA0.1; 2 TXD
-            if (i == 2 && sel && sel2) fn = 2;
-            else if ((i == 2 || i == 6) && sel && !sel2 && dir) fn = 1;
-            if (fn == 2) pin[i]->set_drive(id_pin_[i], tx_nivel_ ? float(vcc) : 0.0f, 50.0f);
-            else if (fn == 1) pin[i]->set_drive(id_pin_[i], ta0.out[1].read() ? float(vcc) : 0.0f, 50.0f);
-            else if (!sel && dir) pin[i]->set_drive(id_pin_[i], ((x.out >> b) & 1u) ? float(vcc) : 0.0f, 50.0f);
-            else if (!sel && ((x.ren >> b) & 1u))
+            const bool dir = (x.dir >> b) & 1u;
+            bool v = false;
+            const int fn = funcion(i, v);
+            if (fn == 1) pin[i]->set_drive(id_pin_[i], v ? float(vcc) : 0.0f, 50.0f);
+            else if (fn == 3) pin[i]->set_drive(id_pin_[i], 0.0f, 50.0f);
+            else if (fn == 2) pin[i]->set_hiz(id_pin_[i]);
+            else if (dir) pin[i]->set_drive(id_pin_[i], ((x.out >> b) & 1u) ? float(vcc) : 0.0f, 50.0f);
+            else if ((x.ren >> b) & 1u)
                 pin[i]->set_drive(id_pin_[i], ((x.out >> b) & 1u) ? float(vcc) : 0.0f, 35000.0f);  // 35 kΩ [DS]
             else pin[i]->set_hiz(id_pin_[i]);
         }
@@ -431,6 +507,44 @@ private:
                 if (x.ifg & x.ie) avisa_irq();
             }
             x.in = n;
+        }
+        // A los módulos: las entradas de captura, la USCI_B0 y el comparador
+        const uint8_t p1 = pt_[0].in, p2 = pt_[1].in;
+        auto b = [](uint8_t v, unsigned k) { return ((v >> k) & 1u) != 0; };
+        ta0.cci_a[0].write(b(p1, 1)); ta0.cci_a[1].write(b(p1, 2));
+        ta0.cci_b[1].write(ca_out_);                                   // CCI1B: CAOUT
+        ta1.cci_a[0].write(b(p2, 0)); ta1.cci_b[0].write(b(p2, 3));
+        ta1.cci_a[1].write(b(p2, 1)); ta1.cci_b[1].write(b(p2, 2));
+        ta1.cci_a[2].write(b(p2, 4)); ta1.cci_b[2].write(b(p2, 5));
+        ucb0.ste_in.write(b(p1, 4)); ucb0.clk_in.write(b(p1, 5));
+        ucb0.somi_in.write(b(p1, 6)); ucb0.simo_in.write(b(p1, 7));
+        comparador();
+    }
+
+    // --- Comp_A+ [UG2 cap. 21] -----------------------------------------------------------
+    // + : P2CA4/P2CA0 (CA0-CA2 o nada); - : P2CA3..1 (CA1-CA7 o nada); CAREF
+    // (0,25·Vcc, 0,5·Vcc o el diodo, ~0,55 V) a la entrada que dice CARSEL;
+    // CAEX cambia las entradas e invierte la salida; CAF no filtra (el filtro
+    // RC quita rebotes que aquí no hay). CAIFG en el flanco que dice CAIES.
+    double ca_pin(unsigned k) const { return pin[k]->floating() ? 0.0 : double(pin[k]->voltage()); }
+    void comparador() {
+        if (!(cactl1_ & 0x08)) { if (ca_out_) { ca_out_ = false; pines_salida(); } return; }   // CAON
+        const unsigned mas = ((cactl2_ >> 2) & 1u) | (((cactl2_ >> 6) & 1u) << 1);           // P2CA4:P2CA0
+        const unsigned menos = (cactl2_ >> 3) & 7u;                                          // P2CA3..1
+        double vp = mas ? ca_pin(mas - 1) : -1.0, vm = menos ? ca_pin(menos) : -1.0;
+        const unsigned ref = (cactl1_ >> 4) & 3u;
+        const double vref = ref == 1 ? 0.25 * vcc : ref == 2 ? 0.5 * vcc : ref == 3 ? 0.55 : -1.0;
+        const bool rsel = (cactl1_ & 0x40) != 0, ex = (cactl1_ & 0x80) != 0;
+        if (vref >= 0.0) { if (rsel != ex) vm = vref; else vp = vref; }
+        if (ex) std::swap(vp, vm);
+        bool o = vp > vm;
+        if (ex) o = !o;
+        if (o != ca_out_) {
+            const bool sube = o;
+            ca_out_ = o;
+            if (sube != ((cactl1_ & 0x04) != 0)) { ca_ifg_ = true; cactl1_ |= 0x01; avisa_irq(); }
+            ev_ca_.notify(sc_core::SC_ZERO_TIME);          // CCI1B de TA0, desde entradas_proc
+            pines_salida();
         }
     }
 
@@ -572,25 +686,75 @@ private:
         if (ch < 8) return pin[ch]->floating() ? 0.0 : pin[ch]->voltage();
         return 0.0;
     }
+    // Las secuencias (CONSEQx: canal único, secuencia de INCHx a A0, y las dos
+    // repetidas; con MSC, las repetidas siguen solas), y la DTC: cada
+    // resultado a ADC10SA + 2·n; ADC10IFG al acabar el bloque (en un bloque,
+    // ADC10B1 = 0) o cada bloque (dos bloques, ADC10TB, con ADC10B1 diciendo
+    // cuál se acaba de llenar); sin ADC10CT, la DTC para tras el primero
+    // [UG2 §22.2.6-22.2.7]. El disparo, ADC10SC (SHSx = 0); los del Timer_A se
+    // avisan una vez.
+    bool adc_busy_ = false, adc_dtc_parada_ = false, adc_avisado_shs_ = false;
+    void adc_resultado(uint16_t r) {
+        adc_mem_ = r;
+        if (adc_dtc1_ && !adc_dtc_parada_) {
+            const unsigned bloques = (adc_dtc0_ & 0x08) ? 2u : 1u;
+            const uint32_t a = uint32_t(adc_sa_ + 2u * adc_dtc_n_) & 0xFFFFu;
+            if (DESC.ram.contiene(a)) { mem_[a] = uint8_t(r); mem_[a + 1] = uint8_t(r >> 8); }
+            ++adc_dtc_n_;
+            if (adc_dtc_n_ % adc_dtc1_ == 0) {                         // un bloque lleno
+                if (bloques == 2) adc_dtc0_ = uint8_t(adc_dtc0_ ^ 0x04);  // ADC10B1
+                adc_ifg_ = true;
+                if (adc_ctl0_ & 0x08) avisa_irq();
+                if (adc_dtc_n_ >= bloques * adc_dtc1_) {
+                    adc_dtc_n_ = 0;
+                    if (!(adc_dtc0_ & 0x02)) adc_dtc_parada_ = true;     // sin ADC10CT, para
+                }
+            }
+            return;
+        }
+        adc_ifg_ = true;
+        if (adc_ctl0_ & 0x08) avisa_irq();
+    }
     void adc_proc() {
         for (;;) {
             wait(ev_adc_);
             if (!(adc_ctl0_ & 0x10) || !(adc_ctl0_ & 0x02)) continue;           // ADC10ON y ENC
-            const unsigned ssel = (adc_ctl1_ >> 3) & 3, div = ((adc_ctl1_ >> 5) & 7) + 1;
-            const double fclk = (ssel == 0 ? 5e6 : ssel == 1 ? f_aclk_ : ssel == 2 ? f_mclk_ : f_smclk_) / div;
-            static const unsigned sht[4] = {4, 8, 16, 64};
-            const unsigned n = sht[(adc_ctl0_ >> 11) & 3] + 13;
-            if (fclk > 0) wait(sc_core::sc_time(n / fclk, sc_core::SC_SEC));
-            const unsigned sref = (adc_ctl0_ >> 13) & 7;
-            const double vref = (sref & 1) ? ((adc_ctl0_ & 0x40) ? 2.5 : 1.5) : vcc;  // REF2_5V
-            const double v = adc_entrada(adc_ctl1_ >> 12);
-            long x = std::lround(v / vref * 1023.0);
-            if (x < 0) x = 0;
-            if (x > 1023) x = 1023;
-            adc_mem_ = (adc_ctl1_ & 0x0200) ? uint16_t(x << 6) : uint16_t(x);      // ADC10DF
-            adc_ctl0_ = uint16_t(adc_ctl0_ & ~0x0001);
-            adc_ifg_ = true;
-            if (adc_ctl0_ & 0x08) avisa_irq();
+            if (((adc_ctl1_ >> 10) & 3) && !adc_avisado_shs_) {
+                adc_avisado_shs_ = true;
+                std::fprintf(stderr, "[g2553] ADC10: el disparo por el Timer_A (SHSx) no se modela; vale ADC10SC\n");
+            }
+            adc_busy_ = true;
+            adc_dtc_parada_ = false;
+            const unsigned conseq = (adc_ctl1_ >> 1) & 3, inch = adc_ctl1_ >> 12;
+            unsigned ch = inch;
+            for (;;) {
+                const unsigned ssel = (adc_ctl1_ >> 3) & 3, div = ((adc_ctl1_ >> 5) & 7) + 1;
+                const double fclk = (ssel == 0 ? 5e6 : ssel == 1 ? f_aclk_ : ssel == 2 ? f_mclk_ : f_smclk_) / div;
+                static const unsigned sht[4] = {4, 8, 16, 64};
+                const unsigned n = sht[(adc_ctl0_ >> 11) & 3] + 13;
+                if (fclk > 0) wait(sc_core::sc_time(n / fclk, sc_core::SC_SEC));
+                const unsigned sref = (adc_ctl0_ >> 13) & 7;
+                const double vref = (sref & 1) ? ((adc_ctl0_ & 0x40) ? 2.5 : 1.5) : vcc;  // REF2_5V
+                const double v = adc_entrada(ch);
+                long x = std::lround(v / vref * 1023.0);
+                if (x < 0) x = 0;
+                if (x > 1023) x = 1023;
+                adc_ctl0_ = uint16_t(adc_ctl0_ & ~0x0001);                   // ADC10SC se borra solo
+                adc_resultado((adc_ctl1_ & 0x0200) ? uint16_t(x << 6) : uint16_t(x));   // ADC10DF
+                const bool enc = (adc_ctl0_ & 0x02) && (adc_ctl0_ & 0x10);
+                if (conseq == 0) break;
+                if (conseq == 1 || conseq == 3) {
+                    if (ch == 0) { if (conseq == 1) break; ch = inch; }
+                    else --ch;
+                }
+                if (!enc && conseq != 1) break;
+                // Sin MSC, cada conversión espera su disparo (ADC10SC otra vez)
+                if (!(adc_ctl0_ & 0x80)) {
+                    wait(ev_adc_);
+                    if (!(adc_ctl0_ & 0x10)) break;
+                }
+            }
+            adc_busy_ = false;
         }
     }
 
@@ -600,12 +764,24 @@ private:
         case 0x00: return ie1_;
         case 0x01: return ie2_;
         case 0x02: return uint8_t(ifg1_ | (acciv_ ? 0 : 0));
-        case 0x03: return ifg2_;
+        case 0x03: return uint8_t((ifg2_ & 0x03) | (ucb0.ifg_rx() ? 0x04 : 0) | (ucb0.ifg_tx() ? 0x08 : 0));
+        case 0x48: return adc_dtc0_;
+        case 0x49: return adc_dtc1_;
+        case 0x59: return cactl1_;
+        case 0x5A: return uint8_t((cactl2_ & 0xFE) | (ca_out_ ? 1 : 0));
+        case 0x5B: return capd_;
+        case 0x68: return ucb0.lee8_2xx(UsciTi::CTL0);
+        case 0x69: return ucb0.lee8_2xx(UsciTi::CTL1);
+        case 0x6A: return ucb0.lee8_2xx(UsciTi::BR0);
+        case 0x6B: return ucb0.lee8_2xx(UsciTi::BR1);
+        case 0x6C: return ucb0.lee8_2xx(UsciTi::I2CIE);
+        case 0x6D: return ucb0.lee8_2xx(UsciTi::STAT);
+        case 0x6E: return ucb0.lee8_2xx(UsciTi::RXBUF);
+        case 0x6F: return ucb0.lee8_2xx(UsciTi::TXBUF);
         case 0x53: return bcsctl3_;
         case 0x56: return dcoctl_;
         case 0x57: return bcsctl1_;
         case 0x58: return bcsctl2_;
-        case 0x48: case 0x49: return 0;
         case 0x4A: return adc_ae0_;
         case 0x66: { const uint8_t r = rxbuf_; ifg2_ = uint8_t(ifg2_ & ~0x01); ucastat_ = uint8_t(ucastat_ & ~0x20); return r; }
         case 0x67: return txbuf_;
@@ -623,7 +799,19 @@ private:
         case 0x00: ie1_ = v; avisa_irq(); return;
         case 0x01: ie2_ = v; avisa_irq(); return;
         case 0x02: ifg1_ = v; return;
-        case 0x03: ifg2_ = v; avisa_irq(); return;
+        case 0x03: ifg2_ = uint8_t(v & 0x03); ucb0.pon_ifg(v & 0x04, v & 0x08); avisa_irq(); return;
+        case 0x48: adc_dtc0_ = uint8_t(v & 0x0F); return;
+        case 0x49: adc_dtc1_ = v; adc_dtc_n_ = 0; return;
+        case 0x59: cactl1_ = v; ca_ifg_ = (v & 0x01) != 0; comparador(); avisa_irq(); return;
+        case 0x5A: cactl2_ = uint8_t(v & 0xFE); comparador(); return;
+        case 0x5B: capd_ = v; pines_salida(); return;
+        case 0x68: ucb0.escribe8_2xx(UsciTi::CTL0, v); return;
+        case 0x69: ucb0.escribe8_2xx(UsciTi::CTL1, v); return;
+        case 0x6A: ucb0.escribe8_2xx(UsciTi::BR0, v); return;
+        case 0x6B: ucb0.escribe8_2xx(UsciTi::BR1, v); return;
+        case 0x6C: ucb0.escribe8_2xx(UsciTi::I2CIE, v); avisa_irq(); return;
+        case 0x6D: ucb0.escribe8_2xx(UsciTi::STAT, v); avisa_irq(); return;
+        case 0x6F: ucb0.escribe8_2xx(UsciTi::TXBUF, v); return;
         case 0x53: bcsctl3_ = v; if (!cristal_32k && ((v >> 4) & 3) == 0) ifg1_ |= 0x02; relojes(); return;
         case 0x56: dcoctl_ = v; relojes(); return;
         case 0x57: bcsctl1_ = v; relojes(); return;
@@ -648,7 +836,7 @@ private:
     void aviso(uint32_t a) {
         if (avisado_) return;
         avisado_ = true;
-        std::fprintf(stderr, "[g2553] 0x%04X: módulo declarado (USCI_B0, Comp_A+, DTC) (aviso una vez)\n", unsigned(a));
+        std::fprintf(stderr, "[g2553] 0x%04X: registro sin módulo (aviso una vez)\n", unsigned(a));
     }
     // P1 0x20-0x27, P2 0x28-0x2F, P3 0x18-0x1B y P3REN 0x10
     Puerto* puerto_de(uint32_t a, unsigned& r) {
@@ -680,8 +868,11 @@ private:
         case 0x012A: return uint16_t(0x9600 | (fctl2_ & 0xFF));
         case 0x012C: return uint16_t(0x9600 | (fctl3_ & 0xFF));
         case 0x01B0: return adc_ctl0_ | (adc_ifg_ ? 0x0004 : 0);
-        case 0x01B2: return uint16_t(adc_ctl1_ | ((adc_ctl0_ & 0x01) ? 1 : 0));
+        case 0x01B2: return uint16_t(adc_ctl1_ | ((adc_busy_ || (adc_ctl0_ & 0x01)) ? 1 : 0));
         case 0x01B4: return adc_mem_;
+        case 0x01BC: return adc_sa_;
+        case 0x0118: return ucb0.i2coa();
+        case 0x011A: return ucb0.i2csa();
         default: return 0;
         }
     }
@@ -707,9 +898,13 @@ private:
             adc_ctl0_ = uint16_t(v & ~0x0004);
             if (!(v & 0x0004)) adc_ifg_ = false;
             if ((v & 0x03) == 0x03) ev_adc_.notify(sc_core::SC_ZERO_TIME); // ENC | ADC10SC
+            if (!(v & 0x02)) adc_dtc_n_ = 0;
             return;
         }
         case 0x01B2: adc_ctl1_ = uint16_t(v & ~1u); return;
+        case 0x01BC: adc_sa_ = uint16_t(v & ~1u); adc_dtc_n_ = 0; return;
+        case 0x0118: ucb0.pon_i2coa(v); return;
+        case 0x011A: ucb0.pon_i2csa(v); return;
         default: return;
         }
     }
@@ -728,7 +923,7 @@ private:
         if (a == 0x012E || a == 0x011E) {                      // TA0IV, TA1IV
             tlm::tlm_generic_payload g2;
             g2.deep_copy_from(gp);
-            g2.set_address(a == 0x012E ? 0x016E : 0x018E);
+            g2.set_address(a == 0x012E ? 0x018E : 0x01AE);          // base + 0x2E
             g2.set_data_ptr(d);
             sc_core::sc_time t = sc_core::SC_ZERO_TIME;
             if (dbg) (a == 0x012E ? a_ta0 : a_ta1)->transport_dbg(g2);
@@ -769,6 +964,7 @@ private:
     }
     uint8_t peek8(uint32_t a) {
         if (a == 0x66) return rxbuf_;
+        if (a == 0x6E) return ucb0.lee8_2xx(UsciTi::RXBUF, true);
         return lee8(a);
     }
     void b_transport(tlm::tlm_generic_payload& gp, sc_core::sc_time&) {

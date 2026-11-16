@@ -448,4 +448,7 @@ test430               776      8295630750000  resto
 # P-20 (16-11-2026): G5, el Replicator430 de TI como oraculo (SBW, JTAG de 4
 # hilos en P1.4-P1.7, PSA, DATA_QUICK y el fusible), anade 8 comprobaciones
 # y el tiempo que hablan; G1-G4 acaban donde antes (188894000000).
-testg2                 25       1363803568644        total
+# P-20 (2): G6 (USCI_B0 en SPI e I2C con un OPT3001, Comp_A+, la DTC del
+# ADC10, captura y PWM) y G7 (los ejemplos y la demo de fabrica) anaden 15
+# comprobaciones; G1-G5 acaban donde antes (1363803568644).
+testg2                 40       4948892901984        total

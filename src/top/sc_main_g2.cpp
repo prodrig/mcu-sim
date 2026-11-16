@@ -25,11 +25,15 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include "common/asan_opciones.h"
 #include "soc/msp430/g2553/soc_g2553.h"
 #include "m430/sonda/sonda_m430.h"
 #include "verif/m430/replicator/replicador430.h"
+#include "parts/ext_parts.h"
+#include "parts/boosterpack.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -45,7 +49,63 @@ static const char* const DIR = "verif/g2553/elf/";
 SC_MODULE(TbG2) {
     SocG2553 g2{"g2553"};
     int id_boton_ = -1;
-    SC_CTOR(TbG2) { SC_THREAD(run); id_boton_ = g2.p(1, 3).register_driver("boton_s2"); g2.p(1, 3).set_hiz(id_boton_); }
+    // G6: un OPT3001 en su propio par de líneas, unido a P1.6/P1.7 por dos
+    // hilos de bus con sus pull-up que solo se conectan en G6 (antes, P1.6 y
+    // P1.7 son también TDI y TDO del JTAG de 4 hilos)
+    AnalogNet scl_n{"opt_scl"}, sda_n{"opt_sda"};
+    Opt3001 opt{"opt3001", scl_n, sda_n, nullptr, 0x44, 300.0};
+    I2cWire h_scl{"h_scl", {&g2.p(1, 6), &scl_n}}, h_sda{"h_sda", {&g2.p(1, 7), &sda_n}};
+    int id_p10_ = -1, id_p13_ = -1, id_p20_ = -1, id_pu13_ = -1, id_rxd_ = -1;
+    bool onda_ = false;
+    // G7: lo que sale por P1.2 a 9600 8N1, leído en el PIN (la UART del
+    // Timer_A no pasa por la USCI), como lo vería el eZ-FET
+    std::string pin_tx_;
+    bool lee_pin_ = false;
+    void lector_proc() {
+        const double tb = 1e6 / 9600.0;
+        for (;;) {
+            wait(g2.p(1, 2).value_changed_event());
+            if (!lee_pin_ || g2.p(1, 2).voltage() > 1.6f) continue;
+            wait(sc_time(tb * 1.5, SC_US));
+            unsigned c = 0;
+            for (unsigned k = 0; k < 8; ++k) {
+                if (g2.p(1, 2).voltage() > 1.6f) c |= 1u << k;
+                wait(sc_time(tb, SC_US));
+            }
+            pin_tx_.push_back(char(c));
+        }
+    }
+    // Un carácter a 9600 8N1 por P1.1 (RXD), como el eZ-FET
+    void manda_pin(uint8_t c) {
+        const sc_time tb(1e6 / 9600.0, SC_US);
+        auto pon = [&](bool v) { g2.p(1, 1).set_drive(id_rxd_, v ? 3.3f : 0.0f, 50.0f); wait(tb); };
+        pon(false);
+        for (unsigned k = 0; k < 8; ++k) pon((c >> k) & 1u);
+        pon(true);
+        g2.p(1, 1).set_drive(id_rxd_, 3.3f, 50.0f);
+    }
+    SC_CTOR(TbG2) {
+        SC_THREAD(run);
+        SC_THREAD(onda_proc);
+        SC_THREAD(lector_proc);
+        id_boton_ = g2.p(1, 3).register_driver("boton_s2"); g2.p(1, 3).set_hiz(id_boton_);
+        id_p10_ = g2.p(1, 0).register_driver("tb_ca0"); g2.p(1, 0).set_hiz(id_p10_);
+        id_p13_ = g2.p(1, 3).register_driver("tb_a3"); g2.p(1, 3).set_hiz(id_p13_);
+        id_p20_ = g2.p(2, 0).register_driver("tb_1khz"); g2.p(2, 0).set_hiz(id_p20_);
+        h_scl.set_enabled(false); h_sda.set_enabled(false);
+        id_pu13_ = g2.p(1, 3).register_driver("tb_r6"); g2.p(1, 3).set_hiz(id_pu13_);
+        id_rxd_ = g2.p(1, 1).register_driver("tb_rxd"); g2.p(1, 1).set_hiz(id_rxd_);
+    }
+    // 1 kHz en P2.0 mientras onda_ (G6)
+    void onda_proc() {
+        bool v = false;
+        for (;;) {
+            wait(500, SC_US);
+            if (!onda_) { g2.p(2, 0).set_hiz(id_p20_); continue; }
+            v = !v;
+            g2.p(2, 0).set_drive(id_p20_, v ? 3.3f : 0.0f, 50.0f);
+        }
+    }
 
     // Los flancos de un pin
     struct Mide { std::vector<sc_time> t; std::vector<bool> v; };
@@ -273,12 +333,143 @@ SC_MODULE(TbG2) {
         }
     }
 
+    void g6() {
+        grupo("G6 g2_perif.c: USCI_B0 (SPI e I2C), Comp_A+, la DTC del ADC10, captura y PWM");
+        h_scl.set_enabled(true); h_sda.set_enabled(true);
+        g2.p(1, 0).set_drive(id_p10_, 1.0f, 10.0f);              // CA0 por debajo de Vcc/2
+        g2.p(1, 3).set_drive(id_p13_, 2.0f, 10.0f);              // A3
+        onda_ = true;
+        corre("g2_perif.elf");
+        // CAOUT a 0; luego CA0 sube y el flanco pide la interrupción
+        for (int i = 0; i < 200 && g2.uart_tx.find("ca 0\n") == std::string::npos; ++i) wait(1, SC_MS);
+        g2.p(1, 0).set_drive(id_p10_, 2.5f, 10.0f);
+        for (int i = 0; i < 300 && g2.uart_tx.find("cap ") == std::string::npos; ++i) wait(1, SC_MS);
+        wait(10, SC_MS);
+        const std::string s = g2.uart_tx;
+        auto linea = [&](const char* c) {
+            const size_t i = s.find(c);
+            return i == std::string::npos ? std::string() : s.substr(i, s.find('\n', i) - i);
+        };
+        check(linea("spi") == "spi A5 3C 81", "SPI maestro con UCLISTEN: A5 3C 81 vuelven (" + linea("spi") + ")");
+        check(linea("i2c") == "i2c 5449 3001 nack", "I2C maestro: el OPT3001 da 0x5449 y 0x3001; 0x45 da NACK (" + linea("i2c") + ")");
+        check(opt.lecturas() == 2, "el OPT3001 ha servido dos registros");
+        check(linea("ca ") == "ca 0" && linea("ca irq") == "ca irq 1",
+              "Comp_A+: CA0 a 1 V contra Vcc/2 da 0; a 2,5 V, el flanco pide su interrupción y CAOUT = 1");
+        unsigned v[4] = {0, 0, 0, 0}; char mas = 0;
+        const std::string l = linea("adc");
+        std::sscanf(l.c_str(), "adc %u %u %u %u%c", &v[0], &v[1], &v[2], &v[3], &mas);
+        check(std::abs(int(v[0]) - 620) <= 2 && std::abs(int(v[3]) - 775) <= 2 && mas == '+',
+              "ADC10 + DTC: A3..A0 a la RAM en un bloque (A3 = 2 V: 620; A0 = 2,5 V: 775) y ADC10IFG (" + l + ")");
+        unsigned cap = 0;
+        std::sscanf(linea("cap").c_str(), "cap %u", &cap);
+        char t[160];
+        std::snprintf(t, sizeof t, "Timer1_A3 captura en CCI0A (P2.0) un 1 kHz: %u cuentas de SMCLK (1 MHz)", cap);
+        check(cap >= 995 && cap <= 1005, t);
+        const Mide m = mide(g2.p(1, 6), sc_time(4, SC_MS));
+        double alto = 0, per = 0;
+        for (size_t i = 0; i + 2 < m.t.size(); ++i)
+            if (m.v[i]) { alto = (m.t[i + 1] - m.t[i]).to_seconds() * 1e6; per = (m.t[i + 2] - m.t[i]).to_seconds() * 1e6; break; }
+        std::snprintf(t, sizeof t, "TA0.1 en P1.6 (OUTMOD_7, CCR1 = 250 de 1000): %.1f us de %.1f us", alto, per);
+        check(std::fabs(per - 1001.0) < 5.0 && std::fabs(alto / per - 0.25) < 0.01, t);
+        onda_ = false;
+        h_scl.set_enabled(false); h_sda.set_enabled(false);
+        g2.p(1, 0).set_hiz(id_p10_); g2.p(1, 3).set_hiz(id_p13_);
+    }
+
+    // La fracción del tiempo que un pin está arriba
+    double alto(analog_net_if& n, sc_time cuanto) {
+        const sc_time fin = sc_time_stamp() + cuanto;
+        sc_time t0 = sc_time_stamp(), a = SC_ZERO_TIME;
+        bool v = n.voltage() > 1.6f;
+        while (sc_time_stamp() < fin) {
+            wait(fin - sc_time_stamp(), n.value_changed_event());
+            if (v) a += sc_time_stamp() - t0;
+            t0 = sc_time_stamp();
+            v = n.voltage() > 1.6f;
+        }
+        return a.to_seconds() / cuanto.to_seconds();
+    }
+    void g7() {
+        grupo("G7 los ejemplos de la G2ET y la demo de fábrica (verif/g2553/ejemplos)");
+        // Blink
+        corre("ej_blink.elf");
+        const Mide b = mide(g2.p(1, 0), sc_time(300, SC_MS));
+        // el periodo, de los dos últimos semiperiodos (el primer flanco puede
+        // ser el del arranque)
+        const size_t nb = b.t.size();
+        double per = nb >= 4 ? (b.t[nb - 1] - b.t[nb - 3]).to_seconds() * 1e3 : 0.0;
+        char t[200];
+        std::snprintf(t, sizeof t, "ej_blink: P1.0 cambia en un bucle de 10000 vueltas: periodo %.1f ms con el DCO de reset (MCLK %.2f MHz)", per, g2.f_mclk() / 1e6);
+        check(nb >= 4 && per > 120.0 && per < 135.0, t);
+        // USCI: eco
+        corre("ej_uart_usci.elf");
+        wait(2, SC_MS);
+        for (char c : std::string("eco")) { g2.uart_rx(uint8_t(c)); wait(2, SC_MS); }
+        wait(3, SC_MS);
+        check(g2.uart_tx == "eco", "ej_uart_usci: USCI_A0 a 9600, eco con LPM0 y la interrupción de RX («" + g2.uart_tx + "»)");
+        // Timer_A UART
+        g2.p(1, 1).set_drive(id_rxd_, 3.3f, 50.0f);
+        lee_pin_ = true; pin_tx_.clear();
+        corre("ej_uart_ta.elf");
+        wait(15, SC_MS);
+        const std::string saludo = pin_tx_;
+        manda_pin('k'); wait(3, SC_MS); manda_pin('9'); wait(3, SC_MS);
+        check(saludo == "TA UART\r\n" && pin_tx_ == "TA UART\r\nk9",
+              "ej_uart_ta: la UART del Timer_A (TXD = TA0.1 en P1.2, RXD = CCI0A en P1.1): el saludo y el eco, leídos en los pines");
+        lee_pin_ = false;
+        g2.p(1, 1).set_hiz(id_rxd_);
+        // ADC10 y temperatura
+        g2.temperatura = 25.0;
+        corre("ej_adc_temp.elf");
+        wait(130, SC_MS);
+        g2.temperatura = 40.0;
+        wait(250, SC_MS);
+        const std::string at = g2.uart_tx;
+        g2.temperatura = 25.0;
+        check(at.rfind("T 24\r\n", 0) == 0 && at.find("T 39\r\n") != std::string::npos,
+              "ej_adc_temp: el sensor por el ADC10 con 1,5 V: 25 °C da «T 24» y 40 °C, «T 39» (la fórmula de TI, que trunca)");
+        // La demo de fábrica
+        g2.p(1, 3).set_drive(id_pu13_, 3.3f, 47000.0f);            // R6
+        lee_pin_ = true; pin_tx_.clear();
+        corre("oobe.elf");
+        const Mide l1 = mide(g2.p(1, 0), sc_time(800, SC_MS));
+        const double r0 = alto(g2.p(1, 6), sc_time(1, SC_MS));
+        check(l1.t.size() >= 4 && pin_tx_.empty(), "la demo: al arrancar, los dos LED se turnan cada 250 ms y la UART calla");
+        (void)r0;
+        g2.p(1, 3).set_drive(id_boton_, 0.0f, 10.0f);              // S1
+        wait(5, SC_MS);
+        g2.p(1, 3).set_hiz(id_boton_);
+        wait(700, SC_MS);
+        check(pin_tx_.find("24\r\n24\r\n") != std::string::npos,
+              "la demo: S1 pasa a «Live Temperature» y manda la temperatura por la UART del Timer_A (P1.2): «" +
+              pin_tx_.substr(0, 12) + "»");
+        g2.temperatura = 30.0;
+        wait(600, SC_MS);
+        const double v_alto = alto(g2.p(1, 0), sc_time(20, SC_MS)), r_alto = alto(g2.p(1, 6), sc_time(20, SC_MS));
+        std::snprintf(t, sizeof t, "la demo: a 30 °C (referencia 24) luce el verde (P1.0 %.0f %%) y no el rojo (%.0f %%)",
+                      v_alto * 100, r_alto * 100);
+        check(v_alto > 0.9 && r_alto < 0.01, t);
+        g2.temperatura = 20.0;
+        wait(600, SC_MS);
+        const double v2 = alto(g2.p(1, 0), sc_time(20, SC_MS)), r2 = alto(g2.p(1, 6), sc_time(20, SC_MS));
+        std::snprintf(t, sizeof t, "la demo: a 20 °C luce el rojo (P1.6 %.0f %%) y no el verde (%.0f %%)", r2 * 100, v2 * 100);
+        check(r2 > 0.9 && v2 < 0.01, t);
+        g2.temperatura = 25.0;
+        lee_pin_ = false;
+        g2.p(1, 3).set_hiz(id_pu13_);
+    }
+
     void run() {
-        g1();
-        g2_();
-        g3();
-        g4();
-        g5();
+        // TESTG2_SOLO=67 corre solo G6 y G7 (para depurar; el invariante es sin él)
+        const char* solo = std::getenv("TESTG2_SOLO");
+        auto va = [&](char g) { return !solo || std::strchr(solo, g); };
+        if (va('1')) g1();
+        if (va('2')) g2_();
+        if (va('3')) g3();
+        if (va('4')) g4();
+        if (va('5')) g5();
+        if (va('6')) g6();
+        if (va('7')) g7();
         std::printf("\nTOTAL G2: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

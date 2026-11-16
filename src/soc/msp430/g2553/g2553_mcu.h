@@ -111,7 +111,7 @@ public:
                  }}};
     }
     std::vector<std::string> limitaciones() const override {
-        return {"USCI_B0 (SPI e I2C), Comp_A+ y el DTC del ADC10 estan declarados: contestan y avisan",
+        return {"el disparo del ADC10 por el Timer_A (SHSx) y la deteccion de baudios de la USCI_A0 no se modelan",
                 "el BSL de ROM no esta (sin el codigo de TI se lee 0x3FFF); NMI por RST/NMI tampoco",
                 "la sonda de la placa (eZ-FET) es de M11: --gdb va por SBW en TEST/RST con la sonda de bancada"};
     }

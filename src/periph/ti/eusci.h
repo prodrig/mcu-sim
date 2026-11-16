@@ -87,6 +87,8 @@ public:
 
     // La frecuencia de BRCLK según UCSSEL (0 UCLK, 1 ACLK, 2-3 SMCLK). La da el SoC.
     std::function<double(unsigned)> f_brclk;
+    // Cambió una bandera de interrupción (lo usa la USCI de los MSP430, usci.h)
+    std::function<void()> al_cambiar_ifg;
 
     // --- Registros [H] ---------------------------------------------------------
     enum : uint16_t {
@@ -268,6 +270,7 @@ protected:
     // --- Interrupciones -------------------------------------------------------
     uint16_t pendientes() const { return uint16_t(ifg_ & ie_); }
     void actualiza_irq() {
+        if (al_cambiar_ifg) al_cambiar_ifg();
         const bool quiere = pendientes() != 0;
         o_irq_ = quiere;
         publica();

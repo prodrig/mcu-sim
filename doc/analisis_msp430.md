@@ -1117,9 +1117,10 @@ firmwares de prueba se versionan con su huella (T-22). Compilarlos pide
 `msp430-elf-gcc`; ejecutar las suites, no.
 
 **Estado (16-11-2026): M0, M1, M2 y M3 hechas**, en la rama `msp430`
-(`test430` 776 comprobaciones, `testg2` 17; las diez suites de antes, al
-picosegundo). Cada fase lleva debajo su «Hecho», con lo que entró y lo que
-no; lo pendiente está también en P-20 de `doc/todo.md`.
+(`test430` 776 comprobaciones, `testg2` 40; las diez suites de antes, al
+picosegundo), y cerrado lo que quedaba de M2 y M3 que no depende de fases
+posteriores (P-20, el mismo día). Cada fase lleva debajo su «Hecho», con lo
+que entró y lo que no; lo pendiente está también en P-20 de `doc/todo.md`.
 
 ### Vista de conjunto
 
@@ -1277,10 +1278,18 @@ Debug Stack con la atribución BSD-3) y `gdb_m430.h` (`--gdb-dap` y `--gdb`).
 `JTAG_defs.h`, la sonda por 4 hilos y por SBW, el EEM y GDB por los dos
 caminos; el invariante pasa a «resto».
 
-**No hecho, y apuntado en P-20:** el JMB, la «magic pattern» y el JSTATE
-(Xv2); el fusible y la firma de bloqueo; el Replicator430 como oráculo; PSA y
-DATA_QUICK; el guion con `msp430-elf-gdb` de verdad y el `load` (espera al
-programador de la Flash de 2xx).
+**Después (P-20, 16-11-2026):** DATA_QUICK, PSA y el fusible (VPP por TEST
+en 4 hilos y por SBW, con la secuencia de BlowFuse); el tope de SBW, de 7 a
+100 µs (la hoja de datos: 15-100); el **Replicator430 como oráculo**
+(`verif/m430/replicator`, el código de TI compilado para el anfitrión sobre
+los pines: G5 de `testg2`); el `load` por GDB con el programador de la Flash
+de 2xx; y el **guion con `msp430-elf-gdb` de verdad**, por `--gdb-dap` y por
+`--gdb` (`make gdb-g2`). De paso: `monitor reset halt` para la CPU, la espera
+de la Flash no es una parada de depuración, y GENCLKCTRL para los relojes con
+la CPU en manos del depurador.
+
+**Queda:** el JMB, la «magic pattern» y el JSTATE, que son de Xv2: van con el
+F5529 (M4); la firma de bloqueo de 5xx, también M4.
 
 ### M3 · G2553 y MSP-EXP430G2ET
 
@@ -1322,13 +1331,21 @@ perro y WDTIFG); G4 la sonda por SBW. Invariante: 17 comprobaciones,
 188894000000 ps, total. Los programas se compilan con
 `verif/g2553/Makefile.g2553`.
 
-**No hecho, y apuntado en P-20:** `msp_exp430g2et.xml` y su SVG; los
-ejemplos de TI y la demo de fábrica; el `programador_nv_if` de la Flash de
-2xx; SLAZ440K sin clasificar; USCI_B0, Comp_A+ y el DTC, declarados sin
-máquina; la placa de SLAA754 (está `slaa754.zip`, pero pide la placa del
-G2ET primero); el alta del G2553 en `mcu-sim` y en la GUI. Con eso, el
-cierre de M3 que pide la demo de fábrica y `--gdb` sobre la placa queda para
-cuando exista la placa.
+**Después (P-20, 16-11-2026):** `msp_exp430g2et.xml` y su SVG (C23 de
+`gui-sistema`) y el G2553 en el binario `mcu-sim` (`g2553_mcu.h`); USCI_B0
+(SPI e I2C: `periph/ti/usci.h`, la eUSCI con la cara de la USCI), Comp_A+,
+la DTC y las secuencias del ADC10, y todas las funciones de los pines (G6);
+los ejemplos y la demo de fábrica (G7; escritos aquí a partir de SLAU772A,
+porque los de TI no están en `doc/refs`); SLAA754 (`make g2-slaa754`: el
+ejemplo de TI tal cual, en la P401R, programa la G2ET por SBW y acaba en
+«MSP430 Programmed Successfully»); y SLAZ440K, clasificada en P-20. Para que
+SLAA754 funcione hicieron falta tres cosas del chip: con el vector de reset
+borrado, LPM4 [UG2 §2.1.2]; el POR por JTAG reinicia los periféricos; y solo
+PC y SR tienen reset. `testg2`: 40 comprobaciones.
+
+**Cierre de M3:** la demo de fábrica (G7), `--gdb-dap` y `--gdb` por SBW
+sobre la placa (`make gdb-g2`), SLAA754, y `testg2` con su invariante.
+**Queda para M9 y M12:** el BSL de ROM y el de `slaa450g`, y la GUI.
 
 ### M4 · F5529 sin USB
 

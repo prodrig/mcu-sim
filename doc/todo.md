@@ -1009,21 +1009,63 @@ la sonda de bancada portada de la MSP Debug Stack y el *backend* de GDB) y su
 SoC de laboratorio (`test430`); encima, la capa de familia en `src/periph/ti/`
 (compartida con el P4) y los chips.
 
-**Estado (2026-11-16):** **M0, M1, M2 y M3 hechas**; la siguiente es M4 (el
-F5529 sin USB). El detalle, en §11 del análisis. Lo que queda **pendiente** de
-esas cuatro fases, dicho una vez:
+**Estado (2026-11-16):** **M0, M1, M2 y M3 hechas, y cerrado lo que quedaba
+de ellas que no depende de fases posteriores**; sigue M4 (el F5529 sin USB).
+El detalle, en §11 del análisis. Lo cerrado:
 
-* **M2**: el JMB, la «magic pattern» y el JSTATE (Xv2/5xx/FR); el fusible y
-  la firma de bloqueo; el Replicator430 como oráculo de trazas; PSA y
-  DATA_QUICK; una sesión con `msp430-elf-gdb` de verdad (la de N11-N12 habla
-  RSP con un cliente propio); el `load` por GDB, que espera al programador de
-  la Flash de 2xx.
-* **M3**: `msp_exp430g2et.xml` y su SVG; los ejemplos de TI del G2553 y la
-  demo de fábrica; el `programador_nv_if` de la Flash de 2xx; las erratas de
-  SLAZ440K sin clasificar; USCI_B0, Comp_A+ y el DTC declarados sin máquina;
-  el BSL de ROM y el de usuario de `slaa450g` (M9); la LaunchPad del MSP432
-  cableada por SBW de `slaa754` (la placa de SLAA754); el G2553 sin dar de
-  alta en el binario `mcu-sim` (`REGISTRA_MCU`) ni en `mcu-sim-gui`.
+* **M2**: DATA_QUICK, PSA y el fusible (con VPP por TEST en 4 hilos y por
+  SBW); el **Replicator430 de TI como oráculo** (`verif/m430/replicator`,
+  compilado para el anfitrión sobre los pines: G5 de `testg2`); el **guion con
+  `msp430-elf-gdb` de verdad** por `--gdb-dap` y por `--gdb` (`make gdb-g2`:
+  load con compare-sections, break, `monitor reset halt`, next, hbreak,
+  watch, stepi, Ctrl-C y el perro parado con GENCLKCTRL); el `load` por GDB,
+  con el programador de la Flash de 2xx.
+* **M3**: `msp_exp430g2et.xml` y su SVG (C23 de `gui-sistema`); el G2553 en
+  el binario `mcu-sim`; USCI_B0 (SPI e I2C, sobre la eUSCI con la cara de la
+  USCI: `periph/ti/usci.h`), Comp_A+, la DTC y las secuencias del ADC10, y
+  todas las funciones de los pines (G6); cinco ejemplos y la demo de fábrica
+  (G7, `verif/g2553/ejemplos`); **SLAA754**: el ejemplo de TI tal cual, en la
+  P401R, programa la G2ET por SBW (`make g2-slaa754`); SLAZ440K clasificada
+  (abajo).
+
+**Lo que queda, con su fase**: el JMB, la «magic pattern» y el JSTATE, que
+son de Xv2 (**M4**, con el F5529, el primer chip Xv2); la firma de bloqueo de
+5xx (**M4**); el BSL de ROM y el de usuario de `slaa450g` (**M9**); el G2553
+en `mcu-sim-gui` (**M12**).
+
+**Dos cosas que se aprendieron en el camino**, dichas aquí porque no son del
+modelo:
+
+* los ejemplos de TI del G2553 (SLAC485) y la demo de fábrica de la G2ET no
+  están en `doc/refs`: los de `verif/g2553/ejemplos` están ESCRITOS AQUÍ a
+  partir de lo que cuentan SLAU772A y los ejemplos clásicos, y lo dicen en su
+  cabecera. Si llegan los de TI, se compilan tal cual y se comparan;
+* la imagen que SLAA754 escribe en el G2553 tiene el vector de reset en
+  0xC024, una palabra dentro de su `mov #0x400,SP`: el «blinky» solo arranca
+  si el SP que quedó del programa anterior está en la RAM. En el simulador,
+  al encender, es 0, y el LED no parpadea: el programa de TI, no el modelo.
+
+**SLAZ440K (MSP430G2553, revisión C), clasificada** [§10.4 del análisis]:
+
+| Errata | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| BCL12 | cambiar RSEL de >13 a <12 (o al revés) para el DCO unos 20 µs, o del todo | se documenta | el DCO cambia en el acto |
+| CPU4 | PUSH #4 / PUSH #8 por el generador de constantes | **se modela** | avisa una vez (el compilador lo evita); TI no dice qué empuja |
+| EEM20 | el depurador puede borrar banderas que se borran al leer | se documenta | las lecturas de depuración no tienen efectos |
+| SYS15 | más consumo en LPM3/4 si SMCLK cambia justo antes | se documenta | no hay consumo |
+| TA12 | se pierde la interrupción al sumar 1 a CCRx con un reloj lento | se documenta | — |
+| TA16 | el primer incremento de TAR tras TACLR no respeta IDx | se documenta | — |
+| TA21 | TAIFG de más al rearrancar en modo ascendente con TAR = CCR0 | se documenta | — |
+| TAB22 | registros del Timer cambiados tras un PUC del perro | se documenta | — |
+| USCI20, USCI26, USCI34 | I2C multimaestro | no aplica | no hay multimaestro |
+| USCI22 | I2C maestro receptor con direcciones de 10 bits | no aplica | no hay 10 bits |
+| USCI23, USCI24 | UART con detección de baudios | no aplica | no se modela la detección |
+| USCI25 | TXIFG no se borra con NACK y reinicio | se documenta | lo que dice la guía |
+| USCI29 | una interrupción del I2C puede ir al vector TRAPINT | se documenta | — |
+| USCI30 | I2C receptor: error si RXBUF no se lee a tiempo | se documenta | el receptor retiene SCL |
+| USCI35 | tiempos de START con SCL > 50 kHz | se documenta | sin tiempos analógicos |
+| USCI40 | SPI esclavo con UCCKPH = 1: los bytes se corren un bit | se documenta | — |
+| XOSC5 | el fallo del cristal LF puede no detectarse | se documenta | sin cristal, OFIFG siempre |
 
 ---
 

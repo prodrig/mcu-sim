@@ -5,8 +5,13 @@ MSPGCC ?= msp430-elf-
 TI     ?= ../../../doc/refs/msp430/ti/msp430/include_gcc
 CFLAGS := -mmcu=msp430g2553 -I$(TI) -L$(TI) -O1 -g
 
-all: elf/g2_basico.elf elf/g2_wdt.elf
+EJ := ej_blink ej_uart_usci ej_uart_ta ej_adc_temp oobe
+all: elf/g2_basico.elf elf/g2_wdt.elf elf/g2_perif.elf $(EJ:%=elf/%.elf)
 
 elf/%.elf: %.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -o $@ $<
+
+elf/%.elf: ejemplos/%.c ejemplos/ta_uart.h
 	@mkdir -p elf
 	$(MSPGCC)gcc $(CFLAGS) -o $@ $<
