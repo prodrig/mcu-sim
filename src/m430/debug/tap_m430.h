@@ -40,9 +40,31 @@
 //     sigue dando el JTAG ID, pero todos los registros de datos son de 1 bit
 //     (DR_Shift16(0xAAAA) da 0x5555: IsFuseBlown).
 //
-// Los registros de 5xx/FR (CNTRL de Xv2, JMB, JSTATE, DEVICE_ID, COREIP_ID)
-// son de M4 y M6. Las instrucciones se comprueban contra las de JTAG_defs.h
-// con sus bits invertidos (test430 N7).
+// Lo que añade M4, la CPUXv2 (JTAG ID 0x91; las secuencias de [JTAG] §2.3 y
+// del Replicator430Xv2):
+//
+//   * el registro de control de Xv2 [JTAG tabla 2-7]: READ (0), HALT_JTAG
+//     (3), BYTE (4), INSTR_LOAD (7), CPUSUSP (8), TCE0 (9), TCE1 (10), POR
+//     (11), RELEASE_LBYTE (12-13). Es el de 1xx con CPUSUSP donde estaba
+//     HALT_JTAG: con él la CPU queda suspendida en la búsqueda de la
+//     instrucción y el bus es de JTAG (DATA_TO_ADDR, DATA_QUICK, la PSA);
+//   * TCLK: en Xv2, la CPU avanza en las SUBIDAS (SetPC_430Xv2 mete la MOVA
+//     en IR_DATA_16BIT con TCLK abajo y la CPU la toma al subir); los
+//     accesos de JTAG con CPUSUSP siguen en las bajadas, como en 1xx;
+//   * DATA_QUICK empieza en el MAB (el PC de la búsqueda suspendida), sin
+//     el desfase de 1xx (ReadMemQuick_430Xv2 hace SetPC(Start));
+//   * JMB_EXCHANGE, el buzón de JTAG [JTAG §2.3.?; UG5 §1.14]: la primera
+//     palabra es el control (INREQ, OUTREQ, JMB32B) y su captura da el
+//     estado (IN0RDY, IN1RDY, OUT0RDY, OUT1RDY); detrás, una o dos palabras
+//     de entrada o de salida. El buzón es del SoC (`jmb_*`);
+//   * COREIP_ID (16 bits) y DEVICE_ID (20 bits: el puntero a la TLV);
+//   * TEST_REG con 0x0200 hace un BOR (ReleaseDevice_430Xv2(V_BOR)) y
+//     TEST_3V_REG se acepta;
+//   * la protección por firma de 5xx [UG5 §1.11]: la pone el SoC al
+//     arrancar (`pon_bloqueo`) y se ve como el fusible: registros de 1 bit.
+//
+// El JSTATE es de FRAM (M6). Las instrucciones se comprueban contra las de
+// JTAG_defs.h con sus bits invertidos (test430 N7).
 // =============================================================================
 #ifndef STM32_M430_DEBUG_TAP_M430_H
 #define STM32_M430_DEBUG_TAP_M430_H
@@ -66,6 +88,7 @@ enum : uint8_t {
     IR430_EMEX_WRITE_CONTROL = 0x0C,
     IR430_CNTRL_SIG_HIGH_BYTE = 0x11, IR430_CNTRL_SIG_LOW_BYTE = 0x12, IR430_CNTRL_SIG_16BIT = 0x13, IR430_CNTRL_SIG_CAPTURE = 0x14, IR430_CNTRL_SIG_RELEASE = 0x15,
     IR430_COREIP_ID = 0x17, IR430_PREPARE_BLOW = 0x22, IR430_EX_BLOW = 0x24,
+    IR430_TEST_REG = 0x2A, IR430_TEST_3V_REG = 0x2F,
     IR430_JMB_EXCHANGE = 0x61, IR430_JSTATE_ID = 0x62, IR430_TDO_EVENT = 0x64, IR430_TDO_EVENT_CTL = 0x65,
     IR430_BYPASS = 0xFF,
 };
@@ -100,7 +123,17 @@ public:
     enum Estado : uint8_t { TLR, RTI, SEL_DR, CAP_DR, SH_DR, EX1_DR, PAU_DR, EX2_DR, UPD_DR,
                             SEL_IR, CAP_IR, SH_IR, EX1_IR, PAU_IR, EX2_IR, UPD_IR };
 
-    TapM430(uint8_t jtag_id, bool cpux, EemM430* eem) : id_(jtag_id), cpux_(cpux), eem_(eem) { reset(); }
+    TapM430(uint8_t jtag_id, bool cpux, EemM430* eem) : id_(jtag_id), cpux_(cpux), xv2_(jtag_id == 0x91), eem_(eem) { reset(); }
+    bool xv2() const { return xv2_; }
+    // Lo que el TAP de Xv2 pide al SoC: el buzón (JMB) y el BOR
+    std::function<uint16_t()> jmb_estado;                  // IN0RDY 1, IN1RDY 2, OUT0RDY 4, OUT1RDY 8
+    std::function<void(unsigned, uint16_t)> jmb_entra;     // JMBIn0/1 desde JTAG
+    std::function<uint16_t(unsigned)> jmb_sale;            // JMBOut0/1 hacia JTAG (las vacía)
+    std::function<void()> al_bor;
+    uint16_t coreip_id = 0;
+    uint32_t device_id_ptr = 0;
+    // La firma de 5xx: bloqueado, como el fusible fundido
+    void pon_bloqueo(bool b) { bloqueo_ = b; }
     void pon_cpu(m430_jtag_cpu_if* c) { cpu_ = c; }
     uint8_t jtag_id() const { return id_; }
 
@@ -108,7 +141,7 @@ public:
         st_ = TLR;
         ir_ = IR430_BYPASS;
         cntrl_ = CS430_TAGFUNCSAT;
-        sr_ = 0; n_ = 0; tclk_ = true; emex_fase_ = 0;
+        sr_ = 0; n_ = 0; tclk_ = true; emex_fase_ = 0; jmb_fase_ = 0;
     }
     Estado estado() const { return st_; }
     uint8_t ir() const { return ir_; }
@@ -120,7 +153,7 @@ public:
     // Lo último que ha pasado por el MDB (lo que captura el TAP)
     void pon_mdb(uint16_t v) { mdb_ = v; }
     // El fusible: fundido, el TAP no deja entrar (solo BYPASS) [JTAG §2.3.6]
-    bool fusible() const { return fusible_; }
+    bool fusible() const { return fusible_ || bloqueo_; }
     void restaura_fusible() { fusible_ = false; }
     uint64_t ciclos_tck() const { return n_tck_; }
     // La tensión de TEST (para VPP), la pone quien tenga el pin
@@ -135,7 +168,7 @@ public:
         // El fusible por SBW: la subida de TCLK con EX_BLOW cargada y VPP
         if (nivel && ir_ == IR430_EX_BLOW && armado_ && hay_vpp()) { fusible_ = true; armado_ = false; }
         // DATA_QUICK: la subida hace el acceso; la bajada incrementa
-        if (ir_ == IR430_DATA_QUICK && (cntrl_ & CS430_HALT_JTAG) && (cntrl_ & CS430_TCE1)) {
+        if (ir_ == IR430_DATA_QUICK && (cntrl_ & bit_halt()) && (cntrl_ & CS430_TCE1)) {
             if (nivel) {
                 const bool byte = (cntrl_ & CS430_BYTE) != 0;
                 if (cntrl_ & CS430_RW) mdb_ = cpu_->jtag_lee(quick_, byte);
@@ -158,7 +191,7 @@ public:
         // WriteFLASH de SBW del Replicator llega a SetTCLK con TCLK ya arriba
         // (lo deja así TCLKstrobes) y la escritura solo puede ser al bajar
         // [JTAG §2.4.2: «SetTCLK; ClrTCLK» tras DATA_TO_ADDR]
-        if (!nivel && (cntrl_ & CS430_HALT_JTAG) && (cntrl_ & CS430_TCE1) && ir_ == IR430_DATA_TO_ADDR) {
+        if (!nivel && (cntrl_ & bit_halt()) && (cntrl_ & CS430_TCE1) && ir_ == IR430_DATA_TO_ADDR) {
             const bool byte = (cntrl_ & CS430_BYTE) != 0;
             if (cntrl_ & CS430_RW) mdb_ = cpu_->jtag_lee(mab_jtag_, byte);
             else { cpu_->jtag_escribe(mab_jtag_, mdb_jtag_, byte); mdb_ = mdb_jtag_; }
@@ -197,7 +230,11 @@ public:
 
 private:
     uint8_t id_;
-    bool cpux_;
+    bool cpux_, xv2_;
+    bool bloqueo_ = false;
+    unsigned jmb_fase_ = 0, jmb_n_ = 0;       // 0: el control; 1-2: entrada; 3-4: salida
+    // CPUSUSP en Xv2, HALT_JTAG en 1xx
+    uint16_t bit_halt() const { return xv2_ ? 0x0100 : CS430_HALT_JTAG; }
     EemM430* eem_;
     m430_jtag_cpu_if* cpu_ = nullptr;
     Estado st_ = TLR;
@@ -237,13 +274,14 @@ private:
         case IR430_ADDR_16BIT: case IR430_ADDR_CAPTURE: return cpux_ ? 20 : 16;
         case IR430_BYPASS: return 1;
         case IR430_CNTRL_SIG_HIGH_BYTE: case IR430_CNTRL_SIG_LOW_BYTE: return 8;
+        case IR430_DEVICE_ID: return xv2_ ? 20 : 16;
         default: return 16;
         }
     }
     void captura_dr() {
         n_ = largo_dr();
         uint32_t v = 0;
-        if (fusible_) { n_ = 1; sr_ = 0; return; }   // fundido: todo es BYPASS
+        if (fusible()) { n_ = 1; sr_ = 0; return; }  // fundido o con firma: todo es BYPASS
         switch (ir_) {
         case IR430_CNTRL_SIG_16BIT: case IR430_CNTRL_SIG_CAPTURE: v = estado_cntrl(); break;
         case IR430_CNTRL_SIG_HIGH_BYTE: v = estado_cntrl() >> 8; break;
@@ -255,6 +293,13 @@ private:
         case IR430_DATA_PSA: v = mdb_; break;
         case IR430_EMEX_DATA_EXCHANGE:
             v = (emex_fase_ == 1 && (emex_dir_ & 1u) && eem_) ? eem_->lee(uint8_t(emex_dir_ & ~1u)) : 0; break;
+        case IR430_COREIP_ID: v = xv2_ ? coreip_id : 0; break;
+        case IR430_DEVICE_ID: v = xv2_ ? device_id_ptr : 0; break;
+        case IR430_JMB_EXCHANGE:
+            if (!xv2_) v = 0;
+            else if (jmb_fase_ >= 3) v = jmb_sale ? jmb_sale(jmb_fase_ - 3) : 0;
+            else v = jmb_estado ? jmb_estado() : 0;
+            break;
         default: v = 0; break;
         }
         sr_ = invierte(v, n_);
@@ -269,17 +314,18 @@ private:
     }
     void actualiza_ir() {
         ir_ = uint8_t(valor_ir());
-        if (fusible_) { ir_ = IR430_BYPASS; return; }
-        if (cpu_ && ir_ == IR430_DATA_QUICK) quick_ = (cpu_->jtag_mab() + 4) & (cpux_ ? 0xFFFFFu : 0xFFFFu);
+        if (fusible()) { ir_ = IR430_BYPASS; return; }
+        if (cpu_ && ir_ == IR430_DATA_QUICK) quick_ = (cpu_->jtag_mab() + (xv2_ ? 0 : 4)) & (cpux_ ? 0xFFFFFu : 0xFFFFu);
+        if (ir_ == IR430_JMB_EXCHANGE) jmb_fase_ = 0;
         if (cpu_ && ir_ == IR430_DATA_PSA) {
-            psa_dir_ = (cntrl_ & CS430_HALT_JTAG) ? mdb_jtag_ : cpu_->jtag_ultima_busqueda();
+            psa_dir_ = (cntrl_ & bit_halt()) ? mdb_jtag_ : cpu_->jtag_ultima_busqueda();
             psa_ = uint16_t(psa_dir_);
         }
         if (ir_ == IR430_EMEX_DATA_EXCHANGE) emex_fase_ = 0;
         if (ir_ == IR430_CNTRL_SIG_RELEASE || ir_ == IR430_BYPASS) {
             // RELEASE (y BYPASS, que lo hace a la vez [JTAG §2.2.4.2.4]): la CPU, libre
             if (cpu_ && (cntrl_ & CS430_TCE1)) { cpu_->jtag_halt(false); cpu_->jtag_control(false); }
-            cntrl_ = uint16_t(cntrl_ & ~(CS430_TCE1 | CS430_HALT_JTAG));
+            cntrl_ = uint16_t(cntrl_ & ~(CS430_TCE1 | bit_halt()));
         }
         if (ir_ == IR430_PREPARE_BLOW) { preparado_ = true; armado_ = false; }
         else if (ir_ == IR430_EX_BLOW) {
@@ -293,7 +339,7 @@ private:
     // MSB primero (IR_CNTRL_SIG_16BIT = 0xC8 por 0x13). El registro, tal cual
     uint32_t valor_ir() const { return uint32_t(sr_ & 0xFFu); }
     void actualiza_dr() {
-        if (fusible_) return;
+        if (fusible()) return;
         const uint32_t v = valor_dr();
         switch (ir_) {
         case IR430_CNTRL_SIG_16BIT: pon_cntrl(uint16_t(v)); break;
@@ -305,15 +351,38 @@ private:
             if (emex_fase_ == 0) { emex_dir_ = uint8_t(v); emex_fase_ = 1; }
             else { if (!(emex_dir_ & 1u) && eem_) eem_->escribe(emex_dir_, uint16_t(v)); emex_fase_ = 0; }
             break;
+        case IR430_JMB_EXCHANGE: if (xv2_) jmb(uint16_t(v)); break;
+        case IR430_TEST_REG:
+            // 0x0200: el BOR [Replicator430Xv2, ReleaseDevice_430Xv2(V_BOR)]; suelta la CPU
+            if (xv2_ && (v & 0x0200)) {
+                if (cpu_ && (cntrl_ & CS430_TCE1)) { cpu_->jtag_halt(false); cpu_->jtag_control(false); }
+                cntrl_ = CS430_TAGFUNCSAT;
+                if (al_bor) al_bor();
+            }
+            break;
         default: break;
         }
+    }
+    // El buzón: el control y luego sus palabras [Replicator430Xv2: i_ReadJmbOut,
+    // i_WriteJmbIn16/32]
+    void jmb(uint16_t v) {
+        enum : uint16_t { INREQ = 0x0001, OUTREQ = 0x0004, B32 = 0x0010 };
+        if (jmb_fase_ == 0) {
+            const unsigned n = (v & B32) ? 2u : 1u;
+            if (v & INREQ) { jmb_fase_ = 1; jmb_n_ = n; }
+            else if (v & OUTREQ) { jmb_fase_ = 3; jmb_n_ = n; }
+            return;
+        }
+        if (jmb_fase_ <= 2 && jmb_entra) jmb_entra(jmb_fase_ - 1, v);
+        const unsigned k = jmb_fase_ <= 2 ? jmb_fase_ : jmb_fase_ - 2;   // la palabra que va
+        jmb_fase_ = k >= jmb_n_ ? 0 : jmb_fase_ + 1;
     }
     void pon_cntrl(uint16_t v) {
         const uint16_t ant = cntrl_;
         cntrl_ = uint16_t(v & ~(CS430_INSTR_LOAD | CS430_TCE));
         if (!cpu_) return;
         if ((cntrl_ ^ ant) & CS430_TCE1) cpu_->jtag_control((cntrl_ & CS430_TCE1) != 0);
-        if ((cntrl_ ^ ant) & CS430_HALT_JTAG) cpu_->jtag_halt((cntrl_ & CS430_HALT_JTAG) != 0);
+        if ((cntrl_ ^ ant) & bit_halt()) cpu_->jtag_halt((cntrl_ & bit_halt()) != 0);
         if ((cntrl_ ^ ant) & CS430_POR) cpu_->jtag_por((cntrl_ & CS430_POR) != 0);
     }
 };

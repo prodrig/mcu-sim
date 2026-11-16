@@ -17,6 +17,12 @@
 //     ciclo; una instrucción se ejecuta en el primero y consume los
 //     siguientes hasta completar sus ciclos.
 //   * la parada de depuración: un núcleo parado no ejecuta ni consume tiempo.
+//   * la CPUXv2 bajo JTAG (`xv2`, M4): avanza en las SUBIDAS de TCLK; con
+//     CPUSUSP (el `jtag_halt` de Xv2) acaba la instrucción en curso sin TCLK
+//     y se queda en la búsqueda de la siguiente; y tras el POR de JTAG espera
+//     en la búsqueda del vector de reset (el «retardo del POR» de
+//     ExecutePOR_430Xv2) hasta que la suspendan o la suelten [de modelo:
+//     así se cumplen SetPC_430Xv2 y ReadMemQuick_430Xv2 de TI].
 // =============================================================================
 #ifndef STM32_M430_CPU_NUCLEO_M430_H
 #define STM32_M430_CPU_NUCLEO_M430_H
@@ -49,6 +55,8 @@ SC_MODULE(NucleoM430), public m430_mem_if, public m430_jtag_cpu_if {
     TapM430* tap = nullptr;
     EemM430* eem = nullptr;
     std::function<void(bool)> al_por;          // el POR de JTAG (lo hace el SoC)
+    std::function<void(bool)> al_tce1;         // JTAG toma o suelta la CPU (el SoC)
+    bool xv2 = false;                          // la CPUXv2 (5xx/6xx, FR)
     uint64_t traza_limite = 0;
 
     NucleoM430(sc_core::sc_module_name nm, const M430Caps& caps) : sc_core::sc_module(nm), cpu(caps) {
@@ -121,10 +129,20 @@ SC_MODULE(NucleoM430), public m430_mem_if, public m430_jtag_cpu_if {
     bool vector_vacio_apaga = true;
 
     // --- m430_jtag_cpu_if: lo que pide el TAP ------------------------------
-    void jtag_control(bool tce1) override { tce1_ = tce1; if (!tce1) { tclk_ = false; halt_jtag_ = false; mira_dbg(); }
+    void jtag_control(bool tce1) override { tce1_ = tce1; if (!tce1) { tclk_ = false; halt_jtag_ = false; por_xv2_ = false; mira_dbg(); }
+                                            if (al_tce1) al_tce1(tce1);
                                             ev_dbg_.notify(sc_core::SC_ZERO_TIME); ev_tclk_.notify(sc_core::SC_ZERO_TIME); }
-    void jtag_halt(bool v) override { halt_jtag_ = v; ev_tclk_.notify(sc_core::SC_ZERO_TIME); }
+    void jtag_halt(bool v) override {
+        halt_jtag_ = v;
+        if (xv2 && v) por_xv2_ = false;
+        ev_tclk_.notify(sc_core::SC_ZERO_TIME);
+    }
     void jtag_tclk(bool nivel) override {
+        if (xv2) {
+            if (nivel && tclk_) { ++mclk_jtag_; ev_mclk_jtag_.notify(sc_core::SC_ZERO_TIME); }
+            if (nivel && tclk_ && !halt_jtag_ && !por_xv2_) { ++bajadas_; ev_tclk_.notify(sc_core::SC_ZERO_TIME); }
+            return;
+        }
         // Bajo JTAG, MCLK es TCLK: cada bajada es un ciclo de MCLK para quien
         // lo cuente (el generador de tiempos de la Flash con FSSEL = MCLK)
         if (!nivel && tclk_) { ++mclk_jtag_; ev_mclk_jtag_.notify(sc_core::SC_ZERO_TIME); }
@@ -135,7 +153,10 @@ SC_MODULE(NucleoM430), public m430_mem_if, public m430_jtag_cpu_if {
     const sc_core::sc_event& ev_mclk_jtag() const { return ev_mclk_jtag_; }
     bool jtag_sincronizado() const override { return tclk_; }
     bool jtag_instr_load() const override { return tclk_ && espera_instr_; }
-    void jtag_por(bool v) override { if (al_por) al_por(v); }
+    void jtag_por(bool v) override {
+        if (xv2 && !v && tce1_) por_xv2_ = true;
+        if (al_por) al_por(v);
+    }
     uint32_t jtag_mab() const override { return tclk_ && espera_instr_ ? cpu.pc() : mab_; }
     uint32_t jtag_ultima_busqueda() const override { return busqueda_; }
     // Un acceso de JTAG es un acceso de bus como los de la CPU: la Flash pasa
@@ -166,16 +187,20 @@ SC_MODULE(NucleoM430), public m430_mem_if, public m430_jtag_cpu_if {
     bool en_tclk() const { return tclk_; }
 
 private:
-    bool tce1_ = false, tclk_ = false, halt_jtag_ = false, espera_instr_ = false, salta_bp_ = false,
+    bool tce1_ = false, tclk_ = false, halt_jtag_ = false, espera_instr_ = false, salta_bp_ = false, por_xv2_ = false,
          para_tras_ = false;
     uint64_t bajadas_ = 0, vistas_ = 0, mclk_jtag_ = 0;
     sc_core::sc_event ev_mclk_jtag_;
     unsigned accesos_paso_ = 0, deuda_ = 0;
     uint32_t mab_ = 0, busqueda_ = 0;
-    // Una bajada de TCLK para la CPU (antes, las que deba la instrucción anterior)
+    // Una bajada de TCLK para la CPU (antes, las que deba la instrucción anterior);
+    // en Xv2, una subida
+    bool suspendida_xv2() const { return xv2 && (halt_jtag_ || por_xv2_); }
     void espera_bajada(bool instr) {
         for (;;) {
-            while (tclk_ && (halt_jtag_ || bajadas_ == vistas_)) {
+            while (tclk_ && (halt_jtag_ || por_xv2_ || bajadas_ == vistas_)) {
+                // Xv2 suspendida: lo que no es búsqueda va sin TCLK
+                if (suspendida_xv2() && !instr) { deuda_ = 0; espera_instr_ = false; return; }
                 espera_instr_ = instr && deuda_ == 0;
                 wait(ev_tclk_ | rst_n.value_changed_event());
                 if (!rst_n.read()) { espera_instr_ = false; return; }
@@ -293,7 +318,8 @@ private:
                 if (parado_) { parado_ = false; mira_dbg(); }
                 if (espera_ && !tclk_) {
                     sincroniza();
-                    wait(ev_dbg_ | rst_n.value_changed_event());
+                    // Lo que acaba la espera puede llegar mientras se sincroniza
+                    if (espera_) wait(ev_dbg_ | rst_n.value_changed_event());
                     continue;
                 }
                 // El avance por TCLK de M1 (sin TAP)
@@ -322,7 +348,7 @@ private:
                 }
                 if (traza_limite && cpu.instrucciones() <= traza_limite)
                     std::printf("[%s] pc=0x%05x\n", name(), unsigned(cpu.pc()));
-                if (tclk_) { if (p.ciclos > accesos_paso_) deuda_ += p.ciclos - accesos_paso_; }
+                if (tclk_) { if (p.ciclos > accesos_paso_ && !suspendida_xv2()) deuda_ += p.ciclos - accesos_paso_; }
                 else if (tclk_m1_) credito_ -= int64_t(p.ciclos);
                 else consume(ciclos_tiempo(p.ciclos));
             }

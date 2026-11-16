@@ -1009,9 +1009,9 @@ la sonda de bancada portada de la MSP Debug Stack y el *backend* de GDB) y su
 SoC de laboratorio (`test430`); encima, la capa de familia en `src/periph/ti/`
 (compartida con el P4) y los chips.
 
-**Estado (2026-11-16):** **M0, M1, M2 y M3 hechas, y cerrado lo que quedaba
-de ellas que no depende de fases posteriores**; sigue M4 (el F5529 sin USB).
-El detalle, en §11 del análisis. Lo cerrado:
+**Estado (2026-11-17):** **M0-M5 hechas, y cerrado lo que quedaba de M2 y M3
+que no depende de fases posteriores**; sigue M6 (las FR2xx/FR4xx). El
+detalle, en §11 del análisis. Lo cerrado:
 
 * **M2**: DATA_QUICK, PSA y el fusible (con VPP por TEST en 4 hilos y por
   SBW); el **Replicator430 de TI como oráculo** (`verif/m430/replicator`,
@@ -1028,10 +1028,18 @@ El detalle, en §11 del análisis. Lo cerrado:
   P401R, programa la G2ET por SBW (`make g2-slaa754`); SLAZ440K clasificada
   (abajo).
 
-**Lo que queda, con su fase**: el JMB, la «magic pattern» y el JSTATE, que
-son de Xv2 (**M4**, con el F5529, el primer chip Xv2); la firma de bloqueo de
-5xx (**M4**); el BSL de ROM y el de usuario de `slaa450g` (**M9**); el G2553
-en `mcu-sim-gui` (**M12**).
+* **M4** (`testf5`): el F5529 entero salvo el USB, con la F5529LP; el
+  Replicator430 en un F5529 programa un G2553 (SBW y JTAG) y el
+  **Replicator430Xv2** programa otro F5529 (SBW y JTAG): el JTAG de Xv2
+  con CPUSUSP, el JMB, el patrón mágico y la firma de JTAG de 5xx (F8).
+* **M5** (`testf5` F9): el módulo USB (`periph/ti/usb_ti.h`); el binario del
+  simpleUsbBackchannel de TI enumera por el puente CDC-ACM y lleva datos
+  entre el USB y el backchannel. `usb=`/`--usb` en la F5529LP.
+
+**Lo que queda, con su fase**: el JSTATE, que es de FRAM (**M6**); `--gdb`
+por los pines del F5529 (la sonda de bancada en Xv2; hoy, `--gdb-dap`); el
+modo contador del RTC_A y CBOUT hacia los pines; el BSL de ROM, el de
+`slaa450g` y el USB BSL (**M9**); el G2553 en `mcu-sim-gui` (**M12**).
 
 **Dos cosas que se aprendieron en el camino**, dichas aquí porque no son del
 modelo:
@@ -1083,10 +1091,11 @@ grupos, porque son 79:
 | MPY1 | guardar/restaurar del MPY32 | se documenta | — |
 | PMAP1, PORT15, PORT16, PORT19, PORT24 | el PMAP, PMALOCKED, los pines al arrancar, LPMx.5, consumo | se documenta | — |
 | PMM9-PMM20 | SVS/SVM, relojes rápidos al salir de LPM3/4, VCORE, la protección de sobretensión | se documenta | el PMM del modelo no tiene tensiones |
-| RTC3, RTC6 | RTC_A | no aplica | RTC_A declarado |
+| RTC3, RTC6 | RTC_A: leer el calendario sin RTCRDY; el contador con RTCHOLD | se documenta | el modelo no tiene esa carrera; el modo contador no está |
 | SYS10, SYS12, SYS14, SYS16, SYS18 | BSL, ACCVIFG con 2,4-2,6 V, consumo tras un PUC, la rampa de Vcc, el USB al arrancar | se documenta / M5 | — |
-| BSL6, BSL7, JTAG20, USB4-USB13 | el BSL y el USB | no aplica (M5, M9) | — |
-| COMP10 | la salida del comparador en LPM3/4 | no aplica | Comp_B declarado |
+| BSL6, BSL7, JTAG20 | el BSL | no aplica (M9) | — |
+| USB4-USB13 | el USB: PLL, suspensión, VBUS, búferes | se documenta | la UBM del modelo hace lo de la guía; la pila de TI ya trae los rodeos |
+| COMP10 | la salida del comparador en LPM3/4 | se documenta | CBOUT no sale a los pines |
 | TAB23 | leer TAR = CCR0 | se documenta | — |
 | USCI26, USCI30, USCI31 | I2C multimaestro, receptor, error de trama tras UCSWRST | se documenta | (las mismas que en el G2553) |
 

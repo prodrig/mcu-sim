@@ -474,4 +474,8 @@ testg2                 40       4948892901984        total
 # anade 4 comprobaciones; con el, las USCI de 5xx piden SMCLK en LPM3
 # mientras envian (SMCLKREQEN, UG5 5.2.10). F1-F4 acaban donde antes
 # (2008003000000). Igual en dos pasadas.
-testf5                 23       5048004000000        total
+# M4 (4) y M5 (17-11-2026): F6-F8, el Replicator430Xv2 de TI en un F5529
+# programando otro F5529 (SBW y JTAG), el patron magico y la firma, y F9, el
+# USB con el simpleUsbBackchannel de TI; anaden 16 comprobaciones. F1-F5
+# acaban donde antes (5048004000000). Igual en dos pasadas.
+testf5                 39       20005009000000       total

@@ -121,6 +121,10 @@ private:
         return n == 0 ? (ctl0_ & 0x1F) : n == 1 ? ((ctl0_ >> 8) & 0x1F) : (ctl1_ & 0x1F);
     }
     unsigned dt(const Canal& c) const { return (c.ctl >> 12) & 7u; }
+    bool hay_bloque_en_cola() const {
+        for (unsigned k : cola_) if ((ch_[k].ctl & EN) && (dt(ch_[k]) & 3u)) return true;
+        return false;
+    }
     void arma(Canal& c) { c.sa_t = c.sa; c.da_t = c.da; c.sz_t = c.sz; }
     // Un bloque para a la CPU desde el disparo: la instrucción que lo pide es
     // la última antes del bloque [UG5 §11.2.6]
@@ -172,7 +176,8 @@ private:
             while (cola_.empty()) wait(ev_);
             const unsigned n = cola_.front();
             cola_.pop_front();
-            if (!(ch_[n].ctl & EN)) continue;
+            // Desarmado mientras esperaba: la CPU no se queda esperándolo
+            if (!(ch_[n].ctl & EN)) { if (ocupado && !hay_bloque_en_cola()) ocupado(false); continue; }
             const double f = f_mclk ? f_mclk() : 1e6;
             const sc_core::sc_time t2(f > 0 ? 2.0 / f : 2e-6, sc_core::SC_SEC);
             const unsigned modo = dt(ch_[n]) & 3u;              // 0 único, 1 bloque, 2-3 ráfaga

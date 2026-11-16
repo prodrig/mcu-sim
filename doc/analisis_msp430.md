@@ -1116,10 +1116,10 @@ y su criterio de cierre. Cada banco tiene su invariante y su `asan*`:
 firmwares de prueba se versionan con su huella (T-22). Compilarlos pide
 `msp430-elf-gcc`; ejecutar las suites, no.
 
-**Estado (16-11-2026): M0, M1, M2 y M3 hechas**, en la rama `msp430`
-(`test430` 776 comprobaciones, `testg2` 40; las diez suites de antes, al
+**Estado (17-11-2026): M0-M5 hechas**, en la rama `msp430` (`test430` 776
+comprobaciones, `testg2` 40, `testf5` 39; las diez suites de antes, al
 picosegundo), y cerrado lo que quedaba de M2 y M3 que no depende de fases
-posteriores (P-20, el mismo día). Cada fase lleva debajo su «Hecho», con lo
+posteriores (P-20). Cada fase lleva debajo su «Hecho», con lo
 que entró y lo que no; lo pendiente está también en P-20 de `doc/todo.md`.
 
 ### Vista de conjunto
@@ -1371,6 +1371,46 @@ sobre la placa (`make gdb-g2`), SLAA754, y `testg2` con su invariante.
   Replicator del F5529 borra, programa y verifica el G2553 (con la PSA) y lo
   arranca.
 
+**Hecho (16/17-11-2026), en cuatro commits:** `soc/msp430/f5529/soc_f5529.h`
+(SFR, SYS con el JMB, PMM con VCORE, UCS con su FLL y los fallos de los
+cristales solo si se piden, la Flash de 5xx con sus bancos, CRC16, WDT_A,
+REF, P1-P8 y PJ con el PMAP de P4, TA0/TA1/TA2/TB0, cuatro USCI, ADC12_A,
+DMA, MPY32, la TLV, el RTC_A en calendario y el Comp_B), `f5529_mcu.h` (el
+F5529 en `mcu-sim`, con `--gdb-dap` y el programador de 5xx), la
+`msp_exp430f5529lp.xml` con su SVG, y `testf5`:
+
+* F1 el SoC contra el descriptor y la TLV; F2 `f5_basico.c` con la
+  DriverLib (25 MHz con VCORE 3, UART, Flash, ADC12_A, DMA, MPY32, CRC16,
+  Timer_A); F5 `f5_rtc_cb.c` (el RTC_A con el cambio de año, el evento y la
+  alarma por RTCIV, en LPM3; el Comp_B con CBIFG y CBIIFG). Con F5 entró la
+  petición de SMCLK de las USCI en LPM3 (SMCLKREQEN);
+* **un MSP430 simulado programa a otro con el código de TI**: F3 y F4, el
+  Replicator430 compilado para el F5529 (`verif/f5529/replicator`) programa
+  un G2553 por SBW y por JTAG de 4 hilos; F6 y F7, el **Replicator430Xv2**
+  (`verif/f5529/replicator_xv2`) programa OTRO F5529 por SBW y por el JTAG
+  de PJ: borra la principal y la información B-D, escribe, verifica con la
+  PSA y lo suelta. Las placas `replicator_f5529_g2553_{sbw,jtag}.xml`;
+* el JTAG de Xv2 (`tap_m430.h` y `nucleo_m430.h`): CPUSUSP, la CPU que
+  avanza en las subidas de TCLK y se suspende en la búsqueda, el «retardo
+  del POR», DATA_QUICK sin desfase, el JMB (JMB_EXCHANGE, con las rutinas de
+  Flash de TI corriendo en la RAM del objetivo), COREIP_ID, DEVICE_ID y el
+  BOR de TEST_REG;
+* F8: el **patrón mágico** (el arranque espera con TEST arriba y se para si
+  llega 0xA55A al JMB) y la **firma de JTAG** de 0x17FC (con SYSBSLPE): los
+  dos bloques de TI del Replicator430Xv2, activados; bloqueado, el
+  Replicator se para en GetDevice;
+* por GDB, una ruptura por encima de 0x10000 (`make gdb-g2`, `una_f5`);
+* SLAZ314AD, clasificada en P-20.
+
+Arreglos del núcleo que salieron aquí: una lectura de periférico sincroniza
+antes el tiempo local (el SBW del Replicator), la espera del núcleo ya no
+pierde el aviso que llega mientras se sincroniza, y R3 como origen de
+ADDA/SUBA/CMPA es #2 (el DECDA/INCDA de 2 bytes de CCS).
+
+**Queda:** `--gdb` por los pines para el F5529 (la sonda de bancada aún habla
+1xx; con `--gdb-dap` hay GDB), el modo contador del RTC_A y CBOUT hacia los
+pines y el Timer. El JSTATE es de FRAM (M6).
+
 ### M5 · F5529: USB
 
 **Entregas:** el módulo USB (endpoints, búferes en la RAM de USB, PLL y
@@ -1379,6 +1419,24 @@ el puente USB enumera el F5529 como enumera el F303.
 
 **Cierre:** el ejemplo CDC de la MSP430 USB Developers Package se ve como puerto
 serie en el PC; el *backchannel* sigue funcionando a la vez.
+
+**Hecho (17-11-2026):** `periph/ti/usb_ti.h`: los registros de 0x900, la PLL
+de 48 MHz desde XT2 (o XT1) con sus banderas, VBUS y el LDO, y la UBM sobre
+la RAM de USB del SoC (el SETUP en USBSUBLK, el EP0 de 8 bytes, los EP1-7
+con X/Y según TOGGLE, NAK, STALL, USBIIE) detrás de `usb_dev_if`; el reset
+del bus, la suspensión y la reanudación por las tensiones de D+/D-; el
+1,5 kOhm de PUR a D+; USBVECINT con su prioridad. En `mcu-sim`, `usb=` o
+`--usb` en la F5529LP. **Cierre:** F9 de `testf5` carga el binario TI-TXT
+del simpleUsbBackchannel de TI tal cual (`verif/fw/f5529`): el puente lo
+enumera (2047:0403, «F5529LP simpleUsbBackchannel»), lo que manda el PC por
+el CDC sale por la UART del backchannel, y lo que entra por la UART llega al
+PC por el IN de bulk, a la vez. Para ello, el SoC avisa al puente de cada IN
+listo (un PC pide IN sin parar), y dos arreglos de fuera del USB: un canal
+de DMA desarmado ya no deja la CPU esperando, y el núcleo no pierde el fin
+de una espera.
+
+**Queda [de modelo]:** los isócronos, el temporizador y la marca de tiempo
+de USB, la reanudación remota y el LDO con sus sobrecargas.
 
 **Además**, M5 es la base de dos cosas:
 * el BSL USB (M9);

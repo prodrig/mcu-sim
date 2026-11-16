@@ -20,7 +20,13 @@
                de pines de la F5529LP que usan Energia y el SDK (pins_energia.h)
                y se ha contrastado pin a pin con las funciones de la hoja de
                datos [de modelo: la figura no se puede leer como texto]
-         USB   el USB del F5529 (J3 de la placa): M5
+         USB   el USB del F5529 (por el concentrador de la placa) [M5]: con
+               usb= en el <mcu> (o --usb), el simulador hace de PC, enumera
+               el CDC-ACM del firmware (la pila USB de TI) y lo lleva a un
+               canal serie; la placa pone el 1,5 kohm de PUR a D+ y VBUS.
+               Por ejemplo, el simpleUsbBackchannel de TI:
+                   ./build/mcu-sim placas/msp_exp430f5529lp.xml \
+                       --fw verif/fw/f5529/SimpleUsbBackchannel.txt --usb rfc2217:3358
 
      El eZ-FET es de M11: --gdb-dap depura contra el núcleo.
 

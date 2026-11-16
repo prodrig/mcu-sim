@@ -13,7 +13,10 @@ PROGS  := f5_basico f5_rtc_cb
 REP    := replicator/Replicator430.c replicator/JTAGfunc430.c replicator/LowLevelFunc430.c replicator/Devices430.c replicator/target_code.c
 REPFLAGS := -mmcu=msp430f5529 -I$(TI) -L$(TI) -Ishim -O1 -g -D__interrupt= -w
 
-all: $(PROGS:%=elf/%.elf) elf/rep_sbw.elf elf/rep_jtag.elf
+# (FlashWrite.c y FlashErase.c los incluye JTAGfunc430Xv2.c)
+REPX   := replicator_xv2/Replicator430Xv2.c replicator_xv2/JTAGfunc430Xv2.c replicator_xv2/LowLevelFunc430Xv2.c replicator_xv2/JSBW.c replicator_xv2/target_code.c
+
+all: $(PROGS:%=elf/%.elf) elf/rep_sbw.elf elf/rep_jtag.elf elf/repx_sbw.elf elf/repx_jtag.elf elf/repx_firma.elf
 
 elf/%.elf: %.c
 	@mkdir -p elf
@@ -26,3 +29,17 @@ elf/rep_sbw.elf: $(REP) replicator/*.h
 elf/rep_jtag.elf: $(REP) replicator/*.h
 	@mkdir -p elf
 	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=1 -o $@ $(REP)
+
+# El Replicator430Xv2 de TI en el F5529, que programa otro F5529 (M4): por SBW
+# (INTERFACE 2) y por JTAG de 4 hilos (1, SPYBIWIREJTAG_IF)
+elf/repx_sbw.elf: $(REPX) replicator_xv2/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -o $@ $(REPX)
+elf/repx_jtag.elf: $(REPX) replicator_xv2/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=1 -o $@ $(REPX)
+# Y una variante por SBW con el patrón mágico al empezar y la firma de JTAG al
+# acabar (los dos bloques de TI, activados con MCUSIM_FIRMA): F8
+elf/repx_firma.elf: $(REPX) replicator_xv2/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -DMCUSIM_FIRMA -o $@ $(REPX)

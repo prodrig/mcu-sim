@@ -7,7 +7,10 @@
 //   * --gdb-dap: el stub contra el núcleo, con el programador de la Flash de
 //     5xx (512 B en la principal, hasta 0x243FF; 128 B en la información);
 //   * --gdb por los pines (el JTAG de Xv2) queda para cuando la sonda de
-//     bancada hable Xv2: hasta entonces, --gdb-dap.
+//     bancada hable Xv2: hasta entonces, --gdb-dap;
+//   * `usb=<destino>` (M5): un PC en PU.0/PU.1 que enumera el CDC-ACM del
+//     firmware (la pila USB de TI) y lo lleva a un canal serie, como en el
+//     F303 y el MSP432E4. Con él hay VBUS.
 //
 // La familia que despacha la factoría es "MSP430F5". [soc/mcu_if.h]
 // =============================================================================
@@ -22,6 +25,7 @@
 #include "../../../parts/netlist.h"
 #include "../../../common/nombres_nodo.h"
 #include "../../../m430/gdb/gdb_m430.h"
+#include "../../../parts/puente_usb.h"
 
 namespace stm32 {
 
@@ -86,7 +90,7 @@ public:
         }
     }
     ~McuF5529() override {
-        gdb_.reset(); directo_.reset();
+        puente_usb_.reset(); gdb_.reset(); directo_.reset();
         delete chip_;
         for (AnalogNet* n : propios_) delete n;
     }
@@ -102,7 +106,7 @@ public:
                  }}};
     }
     std::vector<std::string> limitaciones() const override {
-        return {"el USB (M5) esta declarado: contesta y avisa; el RTC_A, solo en modo calendario",
+        return {"el RTC_A, solo en modo calendario; el USB, sin isocronos ni reanudacion remota",
                 "el BSL de Flash no esta (M9); con el vector de reset borrado, el chip no arranca nada",
                 "--gdb por los pines (JTAG de Xv2) aun no: use --gdb-dap"};
     }
@@ -171,6 +175,25 @@ public:
     }
     std::string sin_firmware() override { aparca_en_wfe(); return "el nucleo para el perro y duerme en LPM4"; }
     void set_ondas_reloj(bool) override {}
+    bool admite_opcion(const std::string& clave) const override { return clave == "usb"; }
+    std::string opcion(const std::string& clave, const std::string& valor) override {
+        if (clave == "usb") {
+            const serie::Destino d = serie::parsea(valor);
+            if (!d.valido) return d.error;
+            if (puente_usb_) return "el USB ya tiene su puente";
+            puente_usb_.reset(new PuenteUsbCdc(chip_->pu0, chip_->pu1, &chip_->usb, d));
+            puente_usb_->controlador().pausa_control_us = 125.0;
+            puente_usb_->ev_in = &chip_->usb.ev_in();
+            chip_->usb.vbus(true);
+            return puente_usb_->error();
+        }
+        return mcu_if::opcion(clave, valor);
+    }
+    std::string describe_opcion(const std::string& clave) const override {
+        if (clave == "usb") return puente_usb_ ? puente_usb_->describir() : "";
+        return "";
+    }
+    PuenteUsbCdc* puente_usb() { return puente_usb_.get(); }
     bool tiene_gdb_interno() const override { return gdb_ != nullptr; }
     void gdb_interno(bool activo, bool traza) override {
         if (!gdb_) return;
@@ -188,6 +211,7 @@ private:
     bool externa_ = false;
     std::unique_ptr<DbgDirectoM430> directo_;
     std::unique_ptr<GdbStubM430> gdb_;
+    std::unique_ptr<PuenteUsbCdc> puente_usb_;
 
     void poke16(uint32_t a, uint16_t v) { chip_->poke(a, uint8_t(v)); chip_->poke(a + 1, uint8_t(v >> 8)); }
 };

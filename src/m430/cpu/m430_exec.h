@@ -569,7 +569,10 @@ private:
         }
         case 0xC: { pon(e.r[rs]); return cic_.mova[MO_RN][a_pc ? MD_PC : MD_RM]; }
         case 0xD: case 0xE: case 0xF:
-            alu_a(in.op - 0xC, e.r[rs] & 0xFFFFFu, rd);
+            // R3 de origen es el generador de constantes: #2 (INCDA y DECDA
+            // de 2 bytes: CCS abre y cierra marcos con 0x03F1/0x03E1, «DECDA
+            // SP»/«INCDA SP», en el simpleUsbBackchannel de TI) [UG5 tabla 6-15]
+            alu_a(in.op - 0xC, rs == 3 ? 2u : (e.r[rs] & 0xFFFFFu), rd);
             return cic_.cmpa[0][a_pc ? 1 : 0];
         default: return 1;
         }

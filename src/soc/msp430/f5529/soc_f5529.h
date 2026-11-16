@@ -27,7 +27,8 @@
 //   USCI (periph/ti/usci.h), el ADC12_A (periph/ti/adc12_a.h), el MPY32
 //   (periph/ti/mpy32.h) y el DMA de tres canales (periph/ti/dma5xx.h).
 //   El Comp_B (periph/ti/comp_b.h) y el RTC_A en modo calendario
-//   (periph/ti/rtc_a.h). El USB (M5), declarado: contesta y avisa una vez.
+//   (periph/ti/rtc_a.h). El USB (M5: periph/ti/usb_ti.h), con D+ y D- en los
+//   nodos PU.0 y PU.1 y la PLL desde XT2.
 //
 // La depuración: el EEM L (8 disparadores) y el TAP de Xv2 (JTAG ID 0x91).
 // =============================================================================
@@ -56,6 +57,7 @@
 #include "../../../periph/ti/dma5xx.h"
 #include "../../../periph/ti/comp_b.h"
 #include "../../../periph/ti/rtc_a.h"
+#include "../../../periph/ti/usb_ti.h"
 #include "../../../common/analog_net.h"
 #include "../../../pins/pin_mux.h"
 #include "../../../common/imagen_fw.h"
@@ -82,6 +84,10 @@ SC_MODULE(SocF5529), public m430_irq_if {
     std::vector<analog_net_if*> pin;          // P1.0..P8.7 (0-63), PJ.0-PJ.3 (64-67)
     analog_net_if& test;
     analog_net_if& rst;
+    // El USB (M5): D+ (PU.0) y D- (PU.1); la placa pone 1,5 kOhm de PUR a D+
+    analog_net_if& pu0;
+    analog_net_if& pu1;
+    UsbTi usb;
     std::unique_ptr<PinesM430> pines_dbg;
     double vcc = 3.3;
     double temperatura = 25.0;
@@ -113,7 +119,8 @@ SC_MODULE(SocF5529), public m430_irq_if {
 
     SocF5529(sc_core::sc_module_name nm, const Cableado* cab = nullptr)
         : sc_core::sc_module(nm), nucleo("nucleo", M430_F5529),
-          test(nodo_alim(cab, "TEST")), rst(nodo_alim(cab, "RST")), mem_(0x24400, 0xFF) {
+          test(nodo_alim(cab, "TEST")), rst(nodo_alim(cab, "RST")),
+          pu0(nodo_alim(cab, "PU.0")), pu1(nodo_alim(cab, "PU.1")), usb("usb", pu0, pu1), mem_(0x24400, 0xFF) {
         for (unsigned i = 0; i < NPIN; ++i) {
             char n[8];
             if (i < 64) std::snprintf(n, sizeof n, "P%u_%u", 1 + i / 8, i % 8);
@@ -144,7 +151,37 @@ SC_MODULE(SocF5529), public m430_irq_if {
         nucleo.eem = &eem;
         nucleo.perif_hi = 0x1000;
         nucleo.cpu.conserva_registros = true;
-        nucleo.vector_vacio_apaga = false;     // 5xx: con el vector borrado arranca el BSL [UG5 §1.2.1]
+        // 5xx: con el vector borrado arranca el BSL [UG5 §1.2.1]; el BSL es de
+        // M9, y hasta entonces el chip se duerme (LPM4), como un 2xx
+        nucleo.vector_vacio_apaga = true;
+        nucleo.xv2 = true;
+        usb.ram = [this](uint32_t a) -> uint8_t& { return mem_[a]; };
+        usb.f_ref = [this](unsigned s) { return s == 0 ? f_xt2_ : f_xt1_; };
+        usb.al_cambiar = [this] { avisa_irq(); };
+        usb.al_bus = [this] { avisa_irq(); };
+        // El TAP de Xv2: el buzón, el BOR, los ID y la firma [UG5 §1.11, §1.14]
+        tap.coreip_id = 0x4020;                // [de modelo: TI no lo publica; distinto de 0]
+        tap.device_id_ptr = 0x1A00;            // la TLV: el ID del chip en +4
+        tap.jmb_estado = [this] {
+            return uint16_t(((sysjmbc_ & 0x01) ? 0 : 0x01) | ((sysjmbc_ & 0x02) ? 0 : 0x02) |
+                            ((sysjmbc_ & 0x04) ? 0 : 0x04) | ((sysjmbc_ & 0x08) ? 0 : 0x08));
+        };
+        tap.jmb_entra = [this](unsigned i, uint16_t v) {
+            jmbi_[i & 1] = v;
+            sysjmbc_ = uint16_t(sysjmbc_ | (1u << (i & 1)));
+            sfrifg1_ |= 0x40;                                          // JMBINIFG
+            nucleo.nota_irq();
+            if (arranque_espera_ && i == 0) mira_patron();
+        };
+        tap.jmb_sale = [this](unsigned i) {
+            const uint16_t v = jmbo_[i & 1];
+            sysjmbc_ = uint16_t(sysjmbc_ | (4u << (i & 1)));
+            if ((sysjmbc_ & 0x0C) == 0x0C) { sfrifg1_ |= 0x80; nucleo.nota_irq(); }   // JMBOUTIFG
+            return v;
+        };
+        tap.al_bor = [this] { bor(); };
+        // El patrón mágico: lo que lo para es JTAG tomando la CPU, o el BOR
+        nucleo.al_tce1 = [this](bool) { if (magico_ || arranque_espera_) suelta_arranque(); };
         nucleo.al_parada_dbg = [this](bool) { relojes(); };
         tap.pon_cpu(&nucleo);
         nucleo.al_por = [this](bool v) { if (v) puc(true, 0x00); else { reset_regs(true); rst_n.write(true); } };
@@ -204,6 +241,8 @@ SC_MODULE(SocF5529), public m430_irq_if {
         SC_METHOD(pmm_proc); sensitive << ev_pmm_; dont_initialize();
         SC_METHOD(dly_proc); sensitive << ev_dly_; dont_initialize();
         SC_METHOD(puc_fin_proc); sensitive << ev_puc_fin_; dont_initialize();
+        SC_METHOD(bor_fin_proc); sensitive << ev_bor_fin_; dont_initialize();
+        SC_METHOD(test_bajo_proc); sensitive << ev_test_bajo_; dont_initialize();
         SC_METHOD(test_proc); sensitive << test.value_changed_event(); dont_initialize();
         SC_METHOD(rst_pin_proc); sensitive << rst.value_changed_event() << ev_rst_pin_; dont_initialize();
         SC_THREAD(uart_mon_proc);
@@ -230,7 +269,13 @@ SC_MODULE(SocF5529), public m430_irq_if {
             }
         return std::string();
     }
-    void reset(bool activo) { if (activo) rst_n.write(false); else { rstiv_.clear(); pon_rstiv(0x02); reset_regs(true); rst_n.write(true); } }
+    void reset(bool activo) {
+        if (activo) rst_n.write(false);
+        else { rstiv_.clear(); pon_rstiv(0x02); sysjmbc_ = 0x000C; reset_regs(true); arranque(); rst_n.write(true); }
+    }
+    bool bloqueado_por_firma() const { return tap.fusible(); }
+    bool parado_por_patron() const { return magico_; }
+    unsigned veces_patron() const { return n_magico_; }
     uint8_t mem8(uint32_t a) const { return a < mem_.size() ? mem_[a] : 0; }
     uint16_t mem16(uint32_t a) const { return uint16_t(mem8(a) | (mem8(a + 1) << 8)); }
     void poke(uint32_t a, uint8_t v) { if (a < mem_.size()) mem_[a] = v; }
@@ -285,7 +330,7 @@ private:
 
     // --- SFR y SYS ------------------------------------------------------------------
     uint16_t sfrie1_ = 0, sfrifg1_ = 0, sfrrpcr_ = 0x1C;
-    uint16_t sysctl_ = 0, sysbslc_ = 0x0003, sysjmbc_ = 0x000C, jmbi_[2] = {}, jmbo_[2] = {};
+    uint16_t sysctl_ = 0, sysbslc_ = 0x8003, sysjmbc_ = 0x000C, jmbi_[2] = {}, jmbo_[2] = {};
     std::vector<uint16_t> rstiv_;             // las causas de reset pendientes
     void pon_rstiv(uint16_t v) { if (v && std::find(rstiv_.begin(), rstiv_.end(), v) == rstiv_.end()) rstiv_.push_back(v); }
     uint16_t lee_rstiv(bool dbg) {
@@ -402,6 +447,7 @@ private:
         ta0.recalcula(); ta1.recalcula(); tb0.recalcula(); ta2.recalcula();
         for (UsciTi* u : {&ua0, &ub0, &ua1, &ub1}) u->recalcula();
         rtc.recalcula();
+        usb.relojes();
         ev_wdt_.notify(sc_core::SC_ZERO_TIME);
         comprueba_vcore();
     }
@@ -490,7 +536,9 @@ private:
     void acceso_mal() { fctl3_ |= 0x04; avisa_irq(); }                             // ACCVIFG
     void escribe_flash(uint32_t a, uint16_t v, bool byte) {
         if ((fctl3_ & 0x10) || (fctl3_ & 0x01)) { acceso_mal(); return; }         // LOCK o BUSY
-        if (info_bloqueada(a) || (a >= 0x1000 && a < 0x1800)) { acceso_mal(); return; }   // el BSL, protegido
+        // El BSL, protegido mientras SYSBSLPE [UG5 §1.15.3]: ProgramLockKey lo
+        // abre (SYSBSLC = 3) para escribir la firma de 0x17FC
+        if (info_bloqueada(a) || (a >= 0x1000 && a < 0x1800 && (sysbslc_ & 0x8000))) { acceso_mal(); return; }
         const uint16_t m = fctl1_ & 0xE6;
         if (m & 0x06) op_ = OpFlash{(m & 0x06) == 0x02 ? 1 : (m & 0x06) == 0x04 ? 2 : 4, a, v, byte};
         else if (m & 0x40) {
@@ -627,9 +675,13 @@ private:
     void reset_regs(bool bor) {
         sfrie1_ = 0;
         sfrifg1_ = uint16_t((sfrifg1_ & 0x11) | (bor ? 0 : 0));
-        if (bor) { pmmctl0_ = 0x9600; svsmhctl_ = svsmlctl_ = 0x4400; pmmifg_ = 0; avisado_vcore_ = false; vcore_obj_ = 0; }
+        if (bor) { sysbslc_ = 0x8003; pmmctl0_ = 0x9600; svsmhctl_ = svsmlctl_ = 0x4400; pmmifg_ = 0; avisado_vcore_ = false; vcore_obj_ = 0; }
         pmm_abierto_ = false;
-        sysctl_ = 0; sysjmbc_ = 0x000C;
+        sysctl_ = 0;
+        usb.reset();
+        // El JMB no se toca con el PUC ni con el pin RST: el patrón mágico se
+        // escribe con RST abajo y lo lee el arranque [de modelo; UG5 §1.14]
+        if (bor) sysjmbc_ = uint16_t(sysjmbc_ & 0x0F);
         wdtctl_ = 0x0004; wdt_t0_ = sc_core::sc_time_stamp(); wdt_pausa_ = false;
         ucsctl_[0] = 0x0000; ucsctl_[1] = 0x0020; ucsctl_[2] = 0x101F; ucsctl_[3] = 0x0000;
         ucsctl_[4] = 0x0044; ucsctl_[5] = 0x0000; ucsctl_[6] = 0xC1CD; ucsctl_[8] = 0x0707;
@@ -658,6 +710,53 @@ private:
         if (!mantener) ev_puc_fin_.notify(sc_core::sc_time(2, sc_core::SC_US));
     }
     void puc_fin_proc() { reset_regs(false); rst_n.write(true); }
+    // El BOR por JTAG (TEST_REG): como el pin RST
+    void bor() {
+        rst_n.write(false);
+        pon_rstiv(0x02);
+        reset_regs(true);
+        ev_bor_fin_.notify(sc_core::sc_time(2, sc_core::SC_US));
+    }
+    sc_core::sc_event ev_bor_fin_;
+    void bor_fin_proc() { arranque(); rst_n.write(true); }
+    // Lo que hace el código de arranque de 5xx al salir del BOR [UG5 §1.11,
+    // §1.14]: mira la firma de JTAG (0x17FC-0x17FF: ni 0 ni todo unos,
+    // bloqueado) y el patrón mágico (0xA55A en JMBI0: la CPU se queda
+    // parada en el arranque hasta que JTAG la tome)
+    // [de modelo] Con TEST arriba (la lógica de prueba activa: una herramienta
+    // está entrando), el arranque espera: así ve el patrón que llega por el
+    // JMB con RST ya suelto (magicPattern() de TI suelta RST antes de
+    // escribirlo); si TEST baja del todo (más que el tope de SBW) sin patrón,
+    // arranca
+    bool magico_ = false, arranque_espera_ = false;
+    unsigned n_magico_ = 0;
+    void arranque() {
+        const uint32_t f = uint32_t(mem16(0x17FC)) | (uint32_t(mem16(0x17FE)) << 16);
+        tap.pon_bloqueo(f != 0 && f != 0xFFFFFFFFu);
+        if (tap.fusible()) return;                                     // bloqueado: ni JMB ni espera
+        mira_patron();
+        if (!magico_ && !test.floating() && test.voltage() > 0.5f * float(vcc)) {
+            arranque_espera_ = true;
+            nucleo.espera(true);
+        }
+    }
+    void mira_patron() {
+        if ((sysjmbc_ & 0x01) && jmbi_[0] == 0xA55A) {
+            sysjmbc_ = uint16_t(sysjmbc_ & ~0x01);
+            magico_ = true;
+            arranque_espera_ = false;
+            ++n_magico_;
+            nucleo.espera(true);
+        }
+    }
+    void suelta_arranque() {
+        magico_ = arranque_espera_ = false;
+        nucleo.espera(flash_espera_ || dma_ocupado_);
+    }
+    sc_core::sc_event ev_test_bajo_;
+    void test_bajo_proc() {
+        if (arranque_espera_ && !magico_ && (test.floating() || test.voltage() < 0.5f * float(vcc))) suelta_arranque();
+    }
     sc_core::sc_event ev_rst_pin_;
     bool rst_pin_bajo_ = false;
     void rst_pin_proc() {
@@ -670,10 +769,15 @@ private:
             rst_pin_bajo_ = false;
             pon_rstiv(0x04);                                          // RST/NMI
             reset_regs(true);
+            arranque();
             rst_n.write(true);
         }
     }
-    void test_proc() { pines_salida(); }
+    void test_proc() {
+        pines_salida();
+        if (arranque_espera_ && (test.floating() || test.voltage() < 0.5f * float(vcc)))
+            ev_test_bajo_.notify(sc_core::sc_time(150, sc_core::SC_US));   // más que el tope de SBW
+    }
 
     // --- Interrupciones -------------------------------------------------------------
     // Una por vector: bit (v - 0xFF80)/2
@@ -699,6 +803,7 @@ private:
         if (pt_[1].ifg & pt_[1].ie) pon(0xFFD4);
         if (irq_rtc.read()) pon(0xFFD2);
         if (irq_cb.read()) pon(0xFFF8);
+        if (usb.pide()) pon(0xFFE6);                                    // USB_UBM
         return f;
     }
     void irq_timers() { nucleo.nota_irq(); dispara_dma_timers(); }
@@ -981,7 +1086,7 @@ private:
     void aviso(uint32_t a) {
         if (avisado_ || a < 0x900) return;
         avisado_ = true;
-        std::fprintf(stderr, "[f5529] 0x%04X: USB (M5) declarado (aviso una vez)\n", unsigned(a));
+        std::fprintf(stderr, "[f5529] 0x%04X: registro sin modulo (aviso una vez)\n", unsigned(a));
     }
     // Los registros de 16 bits (las palabras de los módulos de palabra)
     bool lee16(uint32_t a, uint16_t& v, bool dbg) {
@@ -1015,8 +1120,9 @@ private:
         case 0x180: v = sysctl_; return true;
         case 0x182: v = sysbslc_; return true;
         case 0x186: v = sysjmbc_; return true;
-        case 0x188: v = jmbi_[0]; if (!dbg) { sysjmbc_ = uint16_t(sysjmbc_ & ~0x01); } return true;
-        case 0x18A: v = jmbi_[1]; if (!dbg) { sysjmbc_ = uint16_t(sysjmbc_ & ~0x02); } return true;
+        // JMBCLR0OFF/JMBCLR1OFF: la lectura no borra la bandera
+        case 0x188: v = jmbi_[0]; if (!dbg && !(sysjmbc_ & 0x40)) { sysjmbc_ = uint16_t(sysjmbc_ & ~0x01); } if (!dbg) sfrifg1_ &= uint16_t(~0x40); return true;
+        case 0x18A: v = jmbi_[1]; if (!dbg && !(sysjmbc_ & 0x80)) { sysjmbc_ = uint16_t(sysjmbc_ & ~0x02); } return true;
         case 0x18C: v = jmbo_[0]; return true;
         case 0x18E: v = jmbo_[1]; return true;
         case 0x198: v = 0; return true;                               // SYSBERRIV
@@ -1107,9 +1213,12 @@ private:
             return;
         case 0x180: sysctl_ = mz(sysctl_); return;
         case 0x182: sysbslc_ = mz(sysbslc_); return;
-        case 0x186: sysjmbc_ = uint16_t((sysjmbc_ & 0x0F) | (mz(sysjmbc_) & 0xD0)); return;
-        case 0x18C: jmbo_[0] = mz(jmbo_[0]); sysjmbc_ = uint16_t(sysjmbc_ & ~0x04); return;
-        case 0x18E: jmbo_[1] = mz(jmbo_[1]); sysjmbc_ = uint16_t(sysjmbc_ & ~0x08); return;
+        // JMBIN0FG/JMBIN1FG se borran escribiendo 0 (con JMBCLRxOFF); las de
+        // salida son de solo lectura [UG5 §1.14.4]
+        case 0x186: { const uint16_t n = mz(sysjmbc_);
+                      sysjmbc_ = uint16_t((sysjmbc_ & 0x0C) | (sysjmbc_ & n & 0x03) | (n & 0xD0)); return; }
+        case 0x18C: jmbo_[0] = mz(jmbo_[0]); sysjmbc_ = uint16_t(sysjmbc_ & ~0x04); sfrifg1_ &= uint16_t(~0x80); return;
+        case 0x18E: jmbo_[1] = mz(jmbo_[1]); sysjmbc_ = uint16_t(sysjmbc_ & ~0x08); sfrifg1_ &= uint16_t(~0x80); return;
         case 0x1B0: refctl0_ = uint16_t(mz(refctl0_) & 0x00BB); return;
         case 0x1C0: if ((v & m) == (0x2D52 & m)) pmap_llave_ = true; else pmap_llave_ = false; return;
         case 0x1C2: if (pmap_llave_) pmapctl_ = uint16_t((mz(pmapctl_) & 0x0002) | 0x0001); return;
@@ -1168,6 +1277,13 @@ public:
         const unsigned n = gp.get_data_length();
         unsigned char* d = gp.get_data_ptr();
         gp.set_response_status(tlm::TLM_OK_RESPONSE);
+        if (a >= 0x900 && a < 0x940) {                                // el USB, por bytes
+            for (unsigned i = 0; i < n; ++i) {
+                if (gp.is_read()) d[i] = usb.lee8(a + i, dbg);
+                else usb.escribe8(a + i, d[i]);
+            }
+            return;
+        }
         const bool rtc_o_cb = (a >= 0x4A0 && a < 0x4C0) || (a >= 0x8C0 && a < 0x8D0);
         if ((a >= 0x340 && a < 0x440) || rtc_o_cb) {                  // los Timer, el RTC_A y el Comp_B
             tlm_utils::simple_initiator_socket<SocF5529>& s = a >= 0x8C0 ? a_cb : a >= 0x4A0 ? a_rtc :
@@ -1221,7 +1337,10 @@ public:
             return; }
         if (a + n <= mem_.size() && (es_ram(a) || es_flash(a))) {
             if (gp.is_read()) for (unsigned i = 0; i < n; ++i) d[i] = mem_[a + i];
-            else for (unsigned i = 0; i < n; ++i) mem_[a + i] = d[i];
+            else {
+                for (unsigned i = 0; i < n; ++i) mem_[a + i] = d[i];
+                if (a >= 0x23C8 && a < 0x2400) usb.nota_in();             // un IN de bulk listo
+            }
             return;
         }
         if (gp.is_read()) for (unsigned i = 0; i < n; ++i) d[i] = 0xFF;   // vacío [de modelo]

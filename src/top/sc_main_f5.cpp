@@ -15,6 +15,14 @@
 //   F5  f5_rtc_cb.c, con la DriverLib: el RTC_A en calendario (el cambio de
 //       año, el evento de minuto y la alarma, en LPM3) y el Comp_B (CB0 contra
 //       1,5 V, con P6.0 movido por el banco)
+//   F6  el Replicator430Xv2 de TI, compilado para el F5529, programa OTRO
+//       F5529 por Spy-Bi-Wire: el JTAG de Xv2 (CPUSUSP, la MOVA por TCLK, el
+//       buzón JMB con las rutinas de Flash en la RAM del objetivo, la PSA)
+//   F7  lo mismo por el JTAG de 4 hilos del objetivo (PJ.0-PJ.3)
+//   F8  el patrón mágico y la firma de JTAG (los bloques de TI, activados)
+//   F9  el USB (M5): el simpleUsbBackchannel de TI, su binario tal cual,
+//       enumera por el puente CDC-ACM y lleva datos entre el USB y el
+//       backchannel (UCA1) en los dos sentidos
 // =============================================================================
 #include <systemc>
 #include <cmath>
@@ -25,6 +33,7 @@
 #include "common/asan_opciones.h"
 #include "soc/msp430/f5529/soc_f5529.h"
 #include "soc/msp430/g2553/soc_g2553.h"
+#include "parts/puente_usb.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -56,17 +65,87 @@ static Cableado cab_jtag(SocF5529& f) {
     return c;
 }
 
+// Los del Replicator430Xv2: el objetivo es otro F5529, con SBW en TEST/RST y
+// el JTAG de 4 hilos en PJ.0-PJ.3 (TDO, TDI, TMS, TCK)
+static Cableado cab_xsbw(SocF5529& f) {
+    Cableado c;
+    c.une_alim("TEST", f.p(6, 2));
+    c.une_alim("RST", f.p(6, 5));
+    return c;
+}
+static Cableado cab_xjtag(SocF5529& f) {
+    Cableado c;
+    c.une_alim("TEST", f.p(6, 0));
+    c.une_alim("RST", f.p(6, 1));
+    c.une(10, 3, f.p(6, 2));                       // TCK
+    c.une(10, 2, f.p(6, 3));                       // TMS
+    c.une(10, 1, f.p(6, 5));                       // TDI
+    c.une(10, 0, f.p(6, 4));                       // TDO
+    return c;
+}
+
 SC_MODULE(TbF5) {
     SocF5529 f5{"f5529"};
     SocF5529 rs{"rep_sbw"}, rj{"rep_jtag"};
     Cableado c_sbw = cab_sbw(rs), c_jtag = cab_jtag(rj);
     SocG2553 gs{"g2_sbw", &c_sbw}, gj{"g2_jtag", &c_jtag};
-    int id_pu_s_ = -1, id_pu_j_ = -1;
+    SocF5529 xs{"repx_sbw"}, xj{"repx_jtag"};
+    Cableado c_xsbw = cab_xsbw(xs), c_xjtag = cab_xjtag(xj);
+    SocF5529 ts{"f5_sbw", &c_xsbw}, tj{"f5_jtag", &c_xjtag};
+    int id_pu_s_ = -1, id_pu_j_ = -1, id_pu_xs_ = -1, id_pu_xj_ = -1;
     SC_CTOR(TbF5) {
         SC_THREAD(run);
         // R10 de la G2ET: 47 kohm de RST a 3V3
         id_pu_s_ = gs.rst.register_driver("r10"); gs.rst.set_drive(id_pu_s_, 3.3f, 47000.0f);
         id_pu_j_ = gj.rst.register_driver("r10"); gj.rst.set_drive(id_pu_j_, 3.3f, 47000.0f);
+        // Y la de la F5529LP (R10, 47 kohm)
+        id_pu_xs_ = ts.rst.register_driver("r10"); ts.rst.set_drive(id_pu_xs_, 3.3f, 47000.0f);
+        id_pu_xj_ = tj.rst.register_driver("r10"); tj.rst.set_drive(id_pu_xj_, 3.3f, 47000.0f);
+        for (SocF5529* x : {&xs, &xj, &ts, &tj}) x->monitor_uart = x == &xs || x == &xj;
+    }
+    // El Replicator430Xv2 en un F5529 programa otro F5529
+    void repx(const char* nombre, SocF5529& f, SocF5529& t, const char* elf, const char* como) {
+        // El objetivo con f5_basico, y algo en la información B y A, que borrar o no
+        t.reset(true);
+        t.carga(std::string(DIR) + "f5_basico.elf");
+        t.poke(0x1800, 0x34); t.poke(0x1801, 0x12);
+        t.poke(0x1980, 0x78); t.poke(0x1981, 0x56);
+        t.reset(false);
+        f.reset(true);
+        wait(1, SC_US);
+        f.carga(std::string(DIR) + elf);
+        f.uart_tx.clear();
+        f.reset(false);
+        for (int i = 0; i < 60000 && f.uart_tx.find("REP OK") == std::string::npos &&
+                        f.uart_tx.find("REP ERROR") == std::string::npos; ++i) wait(1, SC_MS);
+        wait(10, SC_MS);
+        static const uint16_t EPROM[14] = {0x4031, 0x0280, 0x40B2, 0x5A80, 0x015C, 0xD3D2, 0x0204, 0xE3D2,
+                                           0x0202, 0x403F, 0xC350, 0x831F, 0x23FE, 0x3FF9};
+        unsigned mal = 0;
+        for (unsigned i = 0; i < 14; ++i) if (t.mem16(0xFC00 + 2 * i) != EPROM[i]) ++mal;
+        std::string s = f.uart_tx;
+        for (char& c : s) if (c == '\n') c = '|';
+        check(f.uart_tx.find("REP ACTIVO 00\nREP OK 00\n") != std::string::npos,
+              std::string(nombre) + ": el Replicator430Xv2 en el F5529 (" + como + "): «" + s + "»");
+        unsigned llenas = 0;
+        for (uint32_t a = 0x4400; a < 0x24400; a += 2) if (a < 0xFC00 || a >= 0x10000) if (t.mem16(a) != 0xFFFF) ++llenas;
+        check(!mal && t.mem16(0xFFFE) == 0xFC00 && !llenas,
+              std::string(nombre) + ": la principal borrada entera (f5_basico ya no está) y el programa de TI en 0xFC00");
+        check(t.mem16(0x1800) == 0xFFFF && t.mem16(0x1900) == 0xFFFF && t.mem16(0x1980) == 0x5678,
+              std::string(nombre) + ": la información D, C y B borrada; la A, con su LOCKA, intacta");
+        // Un cambio cada 50000 vueltas de 3 ciclos (DEC y JNZ en la CPUXv2) con
+        // MCLK de 1 MHz: unos 143 ms
+        unsigned flancos = 0;
+        bool ant = t.p(1, 0).voltage() > 1.6f;
+        const sc_time fin = sc_time_stamp() + sc_time(1000, SC_MS);
+        while (sc_time_stamp() < fin) {
+            wait(fin - sc_time_stamp(), t.p(1, 0).value_changed_event());
+            const bool v = t.p(1, 0).voltage() > 1.6f;
+            if (v != ant) { ++flancos; ant = v; }
+        }
+        char x[140];
+        std::snprintf(x, sizeof x, "%s: el F5529 objetivo, suelto, ejecuta el programa: P1.0 cambia (%u flancos en 1 s)", nombre, flancos);
+        check(flancos >= 6, x);
     }
     void rep(const char* nombre, SocF5529& f, SocG2553& g, const char* elf, const char* como) {
         // El G2553 con otro programa (g2_basico) que el Replicator tiene que borrar
@@ -177,6 +256,83 @@ SC_MODULE(TbF5) {
         check(s.find("ta0 10 ms") != std::string::npos, "Timer0_A5 a 1 ms con su interrupción");
     }
 
+    void f6() { grupo("F6 el Replicator430Xv2 de TI en el F5529 programa otro F5529 por Spy-Bi-Wire");
+                repx("SBW", xs, ts, "repx_sbw.elf", "SBW en P6.2/P6.5"); }
+    void f7() { grupo("F7 el Replicator430Xv2 de TI en el F5529 programa otro F5529 por JTAG de 4 hilos");
+                repx("JTAG", xj, tj, "repx_jtag.elf", "JTAG en P6.0-P6.5 a PJ.0-PJ.3"); }
+
+    // Corre un Replicator en `f` hasta su REP OK o REP ERROR; devuelve lo que dijo
+    std::string corre_rep(SocF5529& f, const char* elf) {
+        f.reset(true);
+        wait(1, SC_US);
+        f.carga(std::string(DIR) + elf);
+        f.uart_tx.clear();
+        f.reset(false);
+        for (int i = 0; i < 60000 && f.uart_tx.find("REP OK") == std::string::npos &&
+                        f.uart_tx.find("REP ERROR") == std::string::npos; ++i) wait(1, SC_MS);
+        wait(10, SC_MS);
+        std::string s = f.uart_tx;
+        for (char& c : s) if (c == '\n') c = '|';
+        return s;
+    }
+    void f8() {
+        grupo("F8 el patrón mágico y la firma de JTAG de 5xx, con los bloques de TI del Replicator430Xv2");
+        // El objetivo de F6, con el programa de TI corriendo
+        SocF5529& t = ts;
+        t.reset(true);
+        t.carga(std::string(DIR) + "f5_basico.elf");
+        t.reset(false);
+        wait(20, SC_MS);
+        const unsigned antes = t.veces_patron();
+        const std::string s = corre_rep(xs, "repx_firma.elf");
+        check(s.find("REP ACTIVO 00|REP OK 00|") != std::string::npos,
+              "magicPattern() da el JTAG ID 0x91 y ProgramLockKey() acaba con el chip bloqueado: «" + s + "»");
+        check(t.veces_patron() == antes + 1,
+              "el patrón mágico: 0xA55A en JMBI0 durante la entrada (TEST arriba) y el arranque deja la CPU parada hasta que JTAG la toma");
+        check(t.mem16(0x17FC) == 0xDEAD && t.mem16(0x17FE) == 0xBABE && t.bloqueado_por_firma(),
+              "la firma 0xDEADBABE en 0x17FC (con SYSBSLPE abierto por SYSBSLC = 3) y, tras el BOR de TEST_REG, el JTAG bloqueado");
+        // Bloqueado, el Replicator normal no entra: GetDevice da STATUS_FUSEBLOWN
+        const std::string s2 = corre_rep(xs, "repx_sbw.elf");
+        check(s2.find("REP ERROR 01") != std::string::npos && t.mem16(0xFC00) == 0x4031,
+              "con la firma, el Replicator430Xv2 se para en GetDevice (registros de 1 bit, como el fusible) y no toca la Flash: «" + s2 + "»");
+    }
+
+    // M5: el ejemplo USB de TI (su binario, tal cual) con el puente CDC-ACM
+    void f9() {
+        grupo("F9 el USB: simpleUsbBackchannel de TI (su binario) enumera como CDC-ACM y lleva el backchannel");
+        f5.reset(true);
+        wait(1, SC_US);
+        const std::string e = f5.carga("verif/fw/f5529/SimpleUsbBackchannel.txt");
+        if (!e.empty()) std::printf("  %s\n", e.c_str());
+        f5.uart_tx.clear();
+        f5.usb.vbus(true);                             // el cable: VBUS
+        f5.reset(false);
+        PuenteUsbCdc pu(f5.pu0, f5.pu1, &f5.usb, serie::parsea("memoria"));
+        pu.controlador().pausa_control_us = 125.0;
+        pu.ev_in = &f5.usb.ev_in();                    // el PC pide IN sin parar
+        for (int i = 0; i < 3000 && !pu.listo(); ++i) wait(1, SC_MS);
+        char t[200];
+        std::snprintf(t, sizeof t, "enumerado %04X:%04X «%s» en %s (VID de TI, PID del ejemplo CDC)",
+                      pu.vid(), pu.pid(), pu.producto().c_str(), sc_time_stamp().to_string().c_str());
+        check(pu.listo() && pu.vid() == 0x2047 && pu.pid() == 0x0403, t);
+        CanalMemoria& m = *pu.memoria();
+        m.empuja("hola por USB\n");
+        espera_uart("hola por USB", 500);
+        check(linea(f5.uart_tx, "hola") == "hola por USB",
+              "del PC al chip: lo del CDC sale por la UART del backchannel (UCA1, P4.4): «" + linea(f5.uart_tx, "hola") + "»");
+        for (char c : std::string("desde la UART\n")) f5.uart_rx(uint8_t(c));
+        for (int i = 0; i < 500 && m.recibido().find('\n') == std::string::npos; ++i) wait(1, SC_MS);
+        check(m.recibido() == "desde la UART\n",
+              "del backchannel al PC: lo que entra por P4.5 sale por el IN de bulk del CDC: «" +
+              m.recibido().substr(0, m.recibido().find('\n')) + "»");
+        std::snprintf(t, sizeof t, "la PLL de USB enganchada desde XT2 (4 MHz) y %llu paquetes contestados",
+                      (unsigned long long)f5.usb.paquetes());
+        check(f5.usb.pll_enganchada() && f5.usb.paquetes() > 20, t);
+        pu.enchufa(false);
+        f5.usb.vbus(false);
+        wait(5, SC_MS);
+    }
+
     // Espera a que salga `c` por la UART, como mucho `ms`
     // (y el resto de su línea)
     bool espera_uart(const char* c, int ms) {
@@ -216,6 +372,10 @@ SC_MODULE(TbF5) {
         if (va('3')) f3();
         if (va('4')) f4();
         if (va('5')) f5_();
+        if (va('6')) f6();
+        if (va('7')) f7();
+        if (va('8')) f8();
+        if (va('9')) f9();
         std::printf("\nTOTAL F5: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }
