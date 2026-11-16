@@ -431,3 +431,11 @@ testc6                 202      53173701458348        resto
 # hablan por un socket y su tiempo no cuenta: el invariante pasa a «resto».
 # Igual en dos pasadas.
 test430               776      8282166500000  resto
+
+# testg2: el MSP430G2553 (M3 de doc/analisis_msp430.md). G1 el SoC contra el
+# descriptor generado y las constantes de fabrica del DCO; G2 g2_basico.c
+# (DCO a 1 MHz, UART a 9600 en P1.2, Flash INFO D, sensor de temperatura del
+# ADC10, Timer0_A3, LPM0, S2 y eco de RX); G3 g2_wdt.c (PUC del perro y
+# WDTIFG); G4 la sonda de bancada por SBW en TEST/RST. Sin sockets: total.
+# Igual en dos pasadas.
+testg2                 17       188894000000         total

@@ -59,6 +59,10 @@ trace/
 !src/verif/rv/elf/*.elf
 # Y los del ESP32-C3 sin ROM (E3), por lo mismo; su huella, en huellas.txt
 !src/verif/fw/esp32c3/*.elf
+# Y los del MSP430 (M1-M3 de doc/analisis_msp430.md): test430 y testg2 los
+# cargan como ELF y no deben pedir la cadena de MSP430 para ejecutarse
+!src/verif/m430/elf/*.elf
+!src/verif/g2553/elf/*.elf
 # Las tablas de la ROM R1: las genera rom_r1/gen_tablas.py a partir de rom.h
 src/verif/fw/msp432p4/rom_r1/tablas.c
 src/verif/fw/msp432e4/rom_r1/tablas.c

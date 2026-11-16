@@ -1,0 +1,12 @@
+# Los programas de testg2 (fase M3). Los ELF se versionan en elf/: regenerarlos
+# pide msp430-elf-gcc y las cabeceras de TI (doc/refs/msp430/ti/msp430/include_gcc).
+#   make -f Makefile.g2553 [MSPGCC=<bin>] [TI=<include_gcc>]
+MSPGCC ?= msp430-elf-
+TI     ?= ../../../doc/refs/msp430/ti/msp430/include_gcc
+CFLAGS := -mmcu=msp430g2553 -I$(TI) -L$(TI) -O1 -g
+
+all: elf/g2_basico.elf elf/g2_wdt.elf
+
+elf/%.elf: %.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -o $@ $<

@@ -1116,6 +1116,11 @@ y su criterio de cierre. Cada banco tiene su invariante y su `asan*`:
 firmwares de prueba se versionan con su huella (T-22). Compilarlos pide
 `msp430-elf-gcc`; ejecutar las suites, no.
 
+**Estado (16-11-2026): M0, M1, M2 y M3 hechas**, en la rama `msp430`
+(`test430` 776 comprobaciones, `testg2` 17; las diez suites de antes, al
+picosegundo). Cada fase lleva debajo su «Hecho», con lo que entró y lo que
+no; lo pendiente está también en P-20 de `doc/todo.md`.
+
 ### Vista de conjunto
 
 | Fase | Qué | Banco | Depende de | Tamaño |
@@ -1170,6 +1175,17 @@ M12 en paralelo desde M3
 * el generador saca los diez descriptores sin discrepancias por resolver, y su
   mapa de memoria coincide con la tabla de §2.2.
 
+**Hecho (16-11-2026), en tres commits:**
+* los módulos de TI del P4 movidos a `src/periph/ti/` sin cambiarlos, y
+  parametrizados después (`TimerACaps`: número de CCR, posición de TAIFG en el
+  IV, base y tamaño); `bus16.h` con `Bus16` (el `Bus16P4` de antes es un alias)
+  y la regla de bytes de 2xx (`ModoByte::Palabra2xx`), y `Bus8`;
+* `herramientas/gen_msp430.py` y los diez descriptores en
+  `src/soc/msp430/desc/` con su `INFORME.txt`; `ELF_MSP430` (105) en
+  `common/imagen_fw.h`;
+* la rama ya tenía `esp32rv` dentro (el *merge* a `main` de los dos
+  repositorios se hizo el mismo día). `testp4` y las demás, sin moverse.
+
 ### M1 · El núcleo y el laboratorio
 
 **Entregas:**
@@ -1197,6 +1213,18 @@ M12 en paralelo desde M3
 * el `printf` de newlib por la UART de pega, compilado con `-mlarge` y sin él.
 
 **Tamaño:** grande. Es el corazón de todo lo demás.
+
+**Hecho (16-11-2026):** `src/m430/cpu/` completo (caps, estado,
+decodificador con palabra de extensión, ejecución de CPU/CPUX/CPUXV2, las
+tres tablas de ciclos, interrupciones y erratas), `NucleoM430`, el SoC de
+laboratorio y `make test430` / `asan430`. `verif/m430/` tiene el generador de
+diferenciales (`gen_dif.py`, contra `mspdebug sim` para CPU y contra
+`msp430-elf-run` para CPUX y `-mlarge`), el de ciclos (`gen_ciclos.py`) y el
+de decodificación contra binutils (`gen_dec.py`). Los fallos del simulador de
+GDB que salen al compararlo (V en el bit 7, `@Rn+` de formato II, `MOV.B
+@SP+`, SXT, SWPBX.A, DADDX.A, JL/JGE, el V de SUB/SUBA, CALLA X(Rn)) quedan
+escritos en `gen_dif.py` y no se copian; donde mspdebug y la guía coinciden,
+manda la guía. `printf` de newlib con y sin `-mlarge`, y TI-TXT.
 
 ### M2 · La depuración, en el laboratorio
 
@@ -1239,6 +1267,21 @@ M12 en paralelo desde M3
 escribir la sonda desde [JTAG] ahora es portar código probado, y eso lo hace
 más corto y menos arriesgado que en la primera versión.
 
+**Hecho (16-11-2026):** el TAP (`tap_m430.h`: IR de 8 bits con la
+captura invertida, el registro de control y el avance por TCLK), SBW con su
+tope de 7 µs (`pines_m430.h`), el EEM (`eem.h`: disparadores, CMB,
+BREAKREACT, GENCTRL, GENCLKCTRL, MODCLKCTRL0 y TRIGFLAG, tamaños XS-L), la
+sonda de bancada (`src/m430/sonda/sonda_m430.h`, *port* de `edt.h` de la MSP
+Debug Stack con la atribución BSD-3) y `gdb_m430.h` (`--gdb-dap` y `--gdb`).
+`test430` gana N7-N12: los códigos de IR contra los invertidos de
+`JTAG_defs.h`, la sonda por 4 hilos y por SBW, el EEM y GDB por los dos
+caminos; el invariante pasa a «resto».
+
+**No hecho, y apuntado en P-20:** el JMB, la «magic pattern» y el JSTATE
+(Xv2); el fusible y la firma de bloqueo; el Replicator430 como oráculo; PSA y
+DATA_QUICK; el guion con `msp430-elf-gdb` de verdad y el `load` (espera al
+programador de la Flash de 2xx).
+
 ### M3 · G2553 y MSP-EXP430G2ET
 
 **Entregas:**
@@ -1264,6 +1307,28 @@ más corto y menos arriesgado que en la primera versión.
 * las comprobaciones de `testg2` y su invariante.
 
 **Tamaño:** medio. Es el chip de prácticas más extendido y el primero que entra.
+
+**Hecho (16-11-2026):** `src/soc/msp430/g2553/soc_g2553.h` con el BCS+
+(el DCO como 1,4 MHz · 1,35^(RSEL−7) · 1,08^(DCO−3) con la mezcla de MOD, y
+la calibración de fábrica buscada y escrita en INFO A, que da 1, 8, 12 y
+16 MHz al 1 %), el WDT+ con su PUC, FLASH2 (el depurador escribe por debajo
+del controlador), los dos Timer_A3 de `periph/ti/` con sus IV, P1-P3 con
+SEL/SEL2 y REN, USCI_A0 en UART (el bit en el pin P1.2), el ADC10 con el
+sensor de temperatura, y la sonda por SBW en TEST/RST. `make testg2`
+(`top/sc_main_g2.cpp`): G1 el SoC contra el descriptor y las constantes de
+fábrica; G2 `g2_basico.c` (DCO, UART a 9600 medida en el pin, Flash INFO D,
+ADC10, Timer0_A3 cada 1 ms, LPM0, S2 y eco de RX); G3 `g2_wdt.c` (el PUC del
+perro y WDTIFG); G4 la sonda por SBW. Invariante: 17 comprobaciones,
+188894000000 ps, total. Los programas se compilan con
+`verif/g2553/Makefile.g2553`.
+
+**No hecho, y apuntado en P-20:** `msp_exp430g2et.xml` y su SVG; los
+ejemplos de TI y la demo de fábrica; el `programador_nv_if` de la Flash de
+2xx; SLAZ440K sin clasificar; USCI_B0, Comp_A+ y el DTC, declarados sin
+máquina; la placa de SLAA754 (está `slaa754.zip`, pero pide la placa del
+G2ET primero); el alta del G2553 en `mcu-sim` y en la GUI. Con eso, el
+cierre de M3 que pide la demo de fábrica y `--gdb` sobre la placa queda para
+cuando exista la placa.
 
 ### M4 · F5529 sin USB
 

@@ -1000,6 +1000,31 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   | **E6** · La fuente del JTAG | DIS_PAD_JTAG, SOFT_DIS_JTAG (impar), JTAG_SEL_ENABLE + GPIO10, DIS_USB_JTAG, al soltar CHIP_PU | TRM-C3 §7.3 y `efuse_reg.h` |
   | **E5** · El reinicio por RFC 2217 (`reinicio="esp"` del puente) | el puente reconoce el principio de la secuencia de esptool y la hace en tiempo simulado (100 ms + 50 ms) | `esp_rfc2217_server` (esp_port_manager.py): lo mismo con una placa de verdad |
 
+### P-20 — Los MSP430: un núcleo de 16 bits reutilizable y diez chips
+
+**Analizado en `doc/analisis_msp430.md`, con un plan de trece fases
+(M0-M12)**, en la rama `msp430`. El núcleo (CPU, CPUX y CPUXV2) va separado
+del chip en `src/m430/`, con su depuración (TAP de 8 bits, Spy-Bi-Wire, EEM,
+la sonda de bancada portada de la MSP Debug Stack y el *backend* de GDB) y su
+SoC de laboratorio (`test430`); encima, la capa de familia en `src/periph/ti/`
+(compartida con el P4) y los chips.
+
+**Estado (2026-11-16):** **M0, M1, M2 y M3 hechas**; la siguiente es M4 (el
+F5529 sin USB). El detalle, en §11 del análisis. Lo que queda **pendiente** de
+esas cuatro fases, dicho una vez:
+
+* **M2**: el JMB, la «magic pattern» y el JSTATE (Xv2/5xx/FR); el fusible y
+  la firma de bloqueo; el Replicator430 como oráculo de trazas; PSA y
+  DATA_QUICK; una sesión con `msp430-elf-gdb` de verdad (la de N11-N12 habla
+  RSP con un cliente propio); el `load` por GDB, que espera al programador de
+  la Flash de 2xx.
+* **M3**: `msp_exp430g2et.xml` y su SVG; los ejemplos de TI del G2553 y la
+  demo de fábrica; el `programador_nv_if` de la Flash de 2xx; las erratas de
+  SLAZ440K sin clasificar; USCI_B0, Comp_A+ y el DTC declarados sin máquina;
+  el BSL de ROM y el de usuario de `slaa450g` (M9); la LaunchPad del MSP432
+  cableada por SBW de `slaa754` (la placa de SLAA754); el G2553 sin dar de
+  alta en el binario `mcu-sim` (`REGISTRA_MCU`) ni en `mcu-sim-gui`.
+
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)
@@ -1340,16 +1365,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 19 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
+| **P** — Pendientes de plan | 20 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
 | **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 25 *(cuatro cerradas: T-22, T-23, T-24 y T-25)* |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 12 |
 | **I** — Deuda de instrumentación y proyecto | 52 *(treinta y cinco cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-23, I-24, I-25, I-26, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-50, I-51, I-53 e I-54)* |
-| **Total** | **187** |
+| **Total** | **188** |
 
-De los 187, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 188, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
@@ -1374,3 +1399,6 @@ en el informe que la originó.
 >
 > **Y la quinta (2026-11-07), al dar de alta P-19.** Una P más:
 > 19 + 51 + 25 + 14 + 14 + 11 + 52 = **186**.
+>
+> **Y la sexta (2026-11-16), al dar de alta P-20 (los MSP430).** Una P más
+> (la V-12 de `asanc6` ya estaba contada): 20 + 51 + 25 + 14 + 14 + 12 + 52 = **188**.
