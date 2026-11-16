@@ -48,7 +48,8 @@ struct m430_dbg_if {
     virtual uint16_t lee16(uint32_t a) = 0;
     virtual void escribe16(uint32_t a, uint16_t v) = 0;
     virtual uint16_t eem_lee(uint8_t dir) = 0;
-    virtual void eem_escribe(uint8_t dir, uint16_t v) = 0;
+    // 32 bits: los valores de los disparadores llegan a 20 bits en CPUX/Xv2
+    virtual void eem_escribe(uint8_t dir, uint32_t v) = 0;
     virtual unsigned disparadores() const = 0;
     virtual void reset(bool parar) = 0;
     // La Flash (el `load`, P-20): borrar un segmento o la principal entera y
@@ -78,7 +79,7 @@ public:
     uint16_t lee16(uint32_t a) override { return n_.lee_dbg(a, false); }
     void escribe16(uint32_t a, uint16_t v) override { n_.escribe_dbg(a, v, false); }
     uint16_t eem_lee(uint8_t d) override { return e_.lee(d); }
-    void eem_escribe(uint8_t d, uint16_t v) override { e_.escribe(d, v); }
+    void eem_escribe(uint8_t d, uint32_t v) override { e_.escribe(d, v); }
     unsigned disparadores() const override { return e_.disparadores(); }
     void reset(bool parar) override { if (al_reset) al_reset(); if (parar) n_.pide_parada(true);
                                       sc_core::wait(10, sc_core::SC_US); if (parar) this->parar(); }
@@ -86,8 +87,12 @@ public:
     // --gdb-dap: la Flash se escribe por debajo del controlador (sin tiempo),
     // como la memoria; el segmento es el que diga el programador
     unsigned tam_segmento = 512;
+    // El tamaño del segmento de una dirección, si no es siempre el mismo (5xx:
+    // 512 B en la principal y 128 B en la información)
+    std::function<unsigned(uint32_t)> tam_de;
     bool flash_borra(uint32_t a, bool masivo) override {
         if (masivo) return false;
+        const unsigned tam_segmento = tam_de ? tam_de(a) : this->tam_segmento;
         const uint32_t b = a & ~(tam_segmento - 1u);
         for (uint32_t x = b; x < b + tam_segmento; x += 2) n_.escribe_dbg(x, 0xFFFF, false);
         return true;
@@ -149,7 +154,7 @@ public:
     uint16_t lee16(uint32_t a) override { return s_.lee_palabra(uint16_t(a)); }
     void escribe16(uint32_t a, uint16_t v) override { s_.escribe_palabra(uint16_t(a), v); }
     uint16_t eem_lee(uint8_t d) override { return s_.lee_eem(d); }
-    void eem_escribe(uint8_t d, uint16_t v) override { s_.escribe_eem(d, v); }
+    void eem_escribe(uint8_t d, uint32_t v) override { s_.escribe_eem(d, uint16_t(v)); }
     unsigned disparadores() const override { return n_tb_; }
     // --gdb: la Flash por JTAG, con el controlador y TCLK (como el Replicator)
     bool flash_borra(uint32_t a, bool masivo) override {
@@ -229,6 +234,50 @@ private:
     unsigned n_principal() const { return (0x10000u - p_ini_) / 512u; }
 };
 
+// --- El programador de la Flash de 5xx/6xx -----------------------------------------
+// Segmentos de 512 B en la principal (hasta 0x243FF en el F5529, por encima de
+// 0x10000) y de 128 B en la información (A-D; A, como en el chip, solo si se
+// pide). Por el camino de depuración que haya detrás.
+class ProgramadorF5xx : public programador_nv_if {
+public:
+    ProgramadorF5xx(m430_dbg_if& d, uint32_t p_ini, uint32_t p_fin, uint32_t i_ini, uint32_t i_fin)
+        : d_(d), p_ini_(p_ini), p_fin_(p_fin), i_ini_(i_ini), i_fin_(i_fin) {}
+    const char* nombre() const override { return "MSP430 FLASH (5xx/6xx)"; }
+    int sector_de(uint32_t a) const override {
+        if (a >= p_ini_ && a <= p_fin_) return int((a - p_ini_) / 512u);
+        if (a >= i_ini_ && a <= i_fin_) return int(n_principal() + (a - i_ini_) / 128u);
+        return -1;
+    }
+    uint32_t tam_sector(int s) const override { return unsigned(s) < n_principal() ? 512u : 128u; }
+    unsigned n_sectores() const override { return n_principal() + (i_fin_ + 1 - i_ini_) / 128u; }
+    bool borrar(acceso_nv_if&, uint32_t a, uint32_t n) override {
+        for (uint32_t x = a; x < a + (n ? n : 1u); ) {
+            const int s = sector_de(x);
+            if (s < 0) return false;
+            const uint32_t t = tam_sector(s);
+            if (!d_.flash_borra(x & ~(t - 1u), false)) return false;
+            x = (x & ~(t - 1u)) + t;
+        }
+        return true;
+    }
+    bool programar(acceso_nv_if&, uint32_t a, const uint8_t* dat, unsigned n, unsigned& palabras) override {
+        std::vector<uint16_t> w;
+        const uint32_t ini = a & ~1u;
+        for (uint32_t x = ini; x < a + n; x += 2) {
+            auto b = [&](uint32_t y) -> uint16_t { return (y >= a && y < a + n) ? dat[y - a] : 0xFF; };
+            w.push_back(uint16_t(b(x) | (b(x + 1) << 8)));
+        }
+        if (!d_.flash_escribe(ini, w.data(), unsigned(w.size()))) return false;
+        palabras += unsigned(w.size());
+        return true;
+    }
+    void terminar(acceso_nv_if&) override {}
+private:
+    m430_dbg_if& d_;
+    uint32_t p_ini_, p_fin_, i_ini_, i_fin_;
+    unsigned n_principal() const { return (p_fin_ + 1 - p_ini_) / 512u; }
+};
+
 // --- El protocolo ------------------------------------------------------------------
 class GdbRspM430 : public GdbRspBase {
 protected:
@@ -241,8 +290,12 @@ public:
         prog_.reset(new ProgramadorF2xx(d_, principal_ini, info_ini, info_a_ini));
         pon_programador(prog_.get());
     }
+    void pon_flash_5xx(uint32_t p_ini, uint32_t p_fin, uint32_t i_ini, uint32_t i_fin) {
+        prog_.reset(new ProgramadorF5xx(d_, p_ini, p_fin, i_ini, i_fin));
+        pon_programador(prog_.get());
+    }
 protected:
-    std::unique_ptr<ProgramadorF2xx> prog_;
+    std::unique_ptr<programador_nv_if> prog_;
     class ProgramadorNinguno430 : public programador_nv_if {
     public:
         static ProgramadorNinguno430& el() { static ProgramadorNinguno430 p; return p; }
@@ -369,7 +422,7 @@ private:
             if (tb_[i].usado || (i == 0 && !sw_.empty())) continue;
             tb_[i] = Tb{true, tipo, a};
             const uint16_t trig = tipo == 1 ? 0x0000 : tipo == 2 ? 0x0026 : tipo == 3 ? 0x0024 : 0x0004;
-            d_.eem_escribe(uint8_t(8 * i), uint16_t(a));
+            d_.eem_escribe(uint8_t(8 * i), a);
             d_.eem_escribe(uint8_t(8 * i + 2), trig);           // MAB, el tipo, =
             d_.eem_escribe(uint8_t(8 * i + 4), 0);
             d_.eem_escribe(uint8_t(8 * i + 6), uint16_t(1u << i));

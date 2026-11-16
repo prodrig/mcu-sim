@@ -490,7 +490,8 @@ testf5: $(TESTF5)
 
 # msp430-elf-gdb DE VERDAD contra la MSP-EXP430G2ET (P-20): load, rupturas
 # de software y de hardware, watch, paso, Ctrl-C y monitor reset halt, por
-# --gdb-dap y por --gdb (Spy-Bi-Wire). Sin msp430-elf-gdb se omite; no toca
+# --gdb-dap y por --gdb (Spy-Bi-Wire); y la F5529LP por --gdb-dap, con una
+# ruptura por encima de 0x10000 (M4). Sin msp430-elf-gdb se omite; no toca
 # ningun invariante. (El de TI pide libncurses5: LD_LIBRARY_PATH si falta.)
 #   make -f Makefile.mcu-sim gdb-g2 [GDB430=/ruta/msp430-elf-gdb]
 gdb-g2: $(MCUSIM)

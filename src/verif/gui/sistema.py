@@ -1605,13 +1605,19 @@ def c22_esp(sim, cp):
 
 
 def c23_msp430(sim, cp):
-    grupo("C23 La MSP-EXP430G2ET con su dibujo, y el sistema de SLAA754 (P-20)")
+    grupo("C23 Las LaunchPad de MSP430 con su dibujo (G2ET y F5529LP) y el sistema de SLAA754")
     rc, out, err = corre(sim, ["placas/msp_exp430g2et.xml", "--valida"])
     check(rc == 0 and "placa 'msp-exp430g2et': 1 MCU(s), 15 componentes" in out and "0 avisos" in out and
           "dibujo: msp_exp430g2et.svg (" in out and "J8 1-2+3-4+5-6)" in out,
           "placas/msp_exp430g2et.xml valida sin un aviso, con su dibujo y sus puentes")
     f = piezas_sin_dibujo("msp_exp430g2et")
     check(not f, "msp_exp430g2et.svg: cada pieza visible y cada pin de conector, con su id (faltan: %s)" % f)
+    rc, out, err = corre(sim, ["placas/msp_exp430f5529lp.xml", "--valida"])
+    check(rc == 0 and "placa 'msp-exp430f5529lp': 1 MCU(s), 13 componentes" in out and "0 avisos" in out and
+          "dibujo: msp_exp430f5529lp.svg (" in out,
+          "placas/msp_exp430f5529lp.xml valida sin un aviso, con su dibujo (M4)")
+    f = piezas_sin_dibujo("msp_exp430f5529lp")
+    check(not f, "msp_exp430f5529lp.svg: cada pieza visible y cada pin de conector, con su id (faltan: %s)" % f)
     rc, out, err = corre(sim, ["placas/msp432_programa_g2553.xml", "--valida"])
     check(rc == 0 and "en total: 2 MCU(s), 40 componentes" in out and "0 avisos" in out,
           "placas/msp432_programa_g2553.xml (la P401R programa a la G2ET por SBW) valida")

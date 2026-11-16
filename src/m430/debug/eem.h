@@ -70,22 +70,22 @@ public:
         default: return 0;
         }
     }
-    void escribe(uint8_t dir, uint16_t v) {
+    void escribe(uint8_t dir, uint32_t v) {
         if (dir < 8 * n_ && dir / 8u < MAX_TB) {
             Tb& t = tb_[dir / 8];
-            switch (dir & 7) { case 0: t.val = v; break; case 2: t.ctl = v; break;
-                               case 4: t.msk = v; break; case 6: t.cmb = v; break; default: break; }
+            switch (dir & 7) { case 0: t.val = v & 0xFFFFFu; break; case 2: t.ctl = uint16_t(v); break;
+                               case 4: t.msk = v & 0xFFFFFu; break; case 6: t.cmb = uint16_t(v); break; default: break; }
             return;
         }
         switch (dir) {
-        case 0x80: breakreact_ = v; break;
+        case 0x80: breakreact_ = uint16_t(v); break;
         case 0x82:
             if (v & CLEAR_STOP) parado_ = false;
             if (v & EEM_RST) { const uint16_t c = genclkctrl_, m = modclkctrl0_; reset(); genclkctrl_ = c; modclkctrl0_ = m; }
             genctrl_ = uint16_t(v & ~(CLEAR_STOP | EEM_RST | E_STOPPED));
             break;
-        case 0x88: genclkctrl_ = v; break;
-        case 0x8A: modclkctrl0_ = v; break;
+        case 0x88: genclkctrl_ = uint16_t(v); break;
+        case 0x8A: modclkctrl0_ = uint16_t(v); break;
         case 0x8E: trigflag_ = uint16_t(trigflag_ & ~v); break;
         default:
             if (!avisado_) { avisado_ = true; std::fprintf(stderr, "[eem] registro 0x%02X declarado (aviso una vez)\n", dir); }

@@ -98,8 +98,11 @@ SC_MODULE(SocF5529), public m430_irq_if {
     Dma5xx dma{"dma"};
     Mpy32 mpy;
 
-    // Lo que sale por la UCA1 (la F5529LP la lleva al eZ-FET: el backchannel)
+    // Lo que sale por la UCA1 (la F5529LP la lleva al eZ-FET: el backchannel),
+    // leído en P4.4 por un monitor propio que también mete lo de `uart_rx`
+    // por P4.5. En una placa lo hace su PuenteSerie: `monitor_uart = false`
     std::string uart_tx;
+    bool monitor_uart = true;
 
     SocF5529(sc_core::sc_module_name nm, const Cableado* cab = nullptr)
         : sc_core::sc_module(nm), nucleo("nucleo", M430_F5529),
@@ -890,6 +893,7 @@ private:
     sc_core::sc_event ev_rx_;
     int id_rx_ = -1;
     void uart_mon_proc() {
+        if (!monitor_uart) return;
         // Lo que sale por P4.4 (UCA1TXD con el PMAP de reset), a los baudios de
         // la UCA1; y lo que entra por P4.5 (UCA1RXD), del eZ-FET
         id_rx_ = pin[29]->register_driver("ezfet_txd");

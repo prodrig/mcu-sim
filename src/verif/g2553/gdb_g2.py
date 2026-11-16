@@ -159,6 +159,29 @@ def una(sim, modo, prog, elf, xml):
         check(vivo, "%s: el simulador sigue en pie tras las dos sesiones" % modo)
 
 
+def una_f5(sim, prog):
+    """El F5529LP por --gdb-dap: load en la Flash de 5xx (por encima de 0x10000
+    también) y una ruptura en una función de 0x10000 (modelo grande)"""
+    elf = os.path.join("verif", "f5529", "elf", "f5_basico.elf")
+    pu = puerto_libre()
+    s = Sim(sim, [os.path.join("placas", "msp_exp430f5529lp.xml"), "--gdb-dap"], pu)
+    try:
+        if not check(s.listo, "F5529 --gdb-dap: el stub escucha"):
+            return
+        o = gdb(prog, pu, ["load", "compare-sections", "break arriba", "monitor reset halt", "continue",
+                           "p/x $pc", "p x", "finish"], elf)
+        check("Start address" in o and "MIS-MATCHED" not in o and o.count("matched.") >= 4,
+              "F5529 --gdb-dap: load en la Flash de 5xx (también la de 0x10000) y compare-sections")
+        check(re.search(r"Breakpoint 1, (0x[0-9a-f]+ in )?arriba \(x=41\)", o) is not None and
+              re.search(r"\$1 = 0x10000", o) is not None,
+              "F5529 --gdb-dap: ruptura en arriba(), en 0x10000 (modelo grande), con x = 41")
+        check("Value returned is $3 = 124" in o, "F5529 --gdb-dap: finish devuelve 124")
+        if fallos:
+            print(o[-2500:])
+    finally:
+        s.fin()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sim", default="build/mcu-sim")
@@ -173,6 +196,8 @@ def main():
     for modo in ("--gdb-dap", "--gdb"):
         print("\n--- %s ---" % modo)
         una(a.sim, modo, prog, elf, xml)
+    print("\n--- F5529 ---")
+    una_f5(a.sim, prog)
     print("\nTOTAL GDB G2: %s" % ("0 fallos" if not fallos else "%d fallos" % fallos))
     return 1 if fallos else 0
 
