@@ -1,0 +1,17 @@
+# Los programas de testf5 (M4). Los ELF se versionan en elf/: regenerarlos pide
+# msp430-elf-gcc, las cabeceras de TI y la DriverLib de 5xx/6xx que trae el
+# paquete de software de la MSP-EXP430F5529LP (BSD-3), todo en doc/refs.
+#   make -f Makefile.f5529 [MSPGCC=<bin>]
+MSPGCC ?= msp430-elf-
+REFS   ?= ../../../doc/refs/msp430
+TI     ?= $(REFS)/ti/msp430/include_gcc
+DL     ?= $(REFS)/launchpads/MSP-EXP430F5529LP/sw/MSP-EXP430F5529LP_Software_Examples_linux/Firmware/Source/SimpleUsbBackchannel/driverlib/MSP430F5xx_6xx
+CFLAGS := -mmcu=msp430f5529 -mlarge -mcode-region=either -mdata-region=lower -I$(TI) -L$(TI) -I$(DL) -I$(DL)/deprecated/CCS -Ishim -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
+DLSRC  := pmm.c ucs.c usci_a_uart.c flashctl.c adc12_a.c dma.c gpio.c wdt_a.c ref.c crc.c timer_a.c sfr.c
+PROGS  := f5_basico
+
+all: $(PROGS:%=elf/%.elf)
+
+elf/%.elf: %.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -o $@ $< $(DLSRC:%=$(DL)/%)

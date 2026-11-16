@@ -269,6 +269,7 @@ ASANC6    := $(B)/asanc6$(EXE)
 ASANRV    := $(B)/asanrv$(EXE)
 TEST430   := $(B)/test430$(EXE)
 TESTG2    := $(B)/testg2$(EXE)
+TESTF5    := $(B)/testf5$(EXE)
 ASAN430   := $(B)/asan430$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
@@ -284,7 +285,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 testf5 testf5-build rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -476,6 +477,16 @@ testg2-build: $(TESTG2)
 
 testg2: $(TESTG2)
 	$(TESTG2)
+
+# LA SUITE DEL MSP430F5529 (fase M4): make testf5
+$(TESTF5): top/sc_main_f5.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/f5529/*.h periph/ti/*.h)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_f5.cpp $(LDFLAGS) $(LDLIBS)
+
+testf5-build: $(TESTF5)
+
+testf5: $(TESTF5)
+	$(TESTF5)
 
 # msp430-elf-gdb DE VERDAD contra la MSP-EXP430G2ET (P-20): load, rupturas
 # de software y de hardware, watch, paso, Ctrl-C y monitor reset halt, por

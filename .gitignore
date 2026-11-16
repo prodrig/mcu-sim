@@ -63,6 +63,7 @@ trace/
 # cargan como ELF y no deben pedir la cadena de MSP430 para ejecutarse
 !src/verif/m430/elf/*.elf
 !src/verif/g2553/elf/*.elf
+!src/verif/f5529/elf/*.elf
 # Las tablas de la ROM R1: las genera rom_r1/gen_tablas.py a partir de rom.h
 src/verif/fw/msp432p4/rom_r1/tablas.c
 src/verif/fw/msp432e4/rom_r1/tablas.c

@@ -452,3 +452,10 @@ test430               776      8295630750000  resto
 # ADC10, captura y PWM) y G7 (los ejemplos y la demo de fabrica) anaden 15
 # comprobaciones; G1-G5 acaban donde antes (1363803568644).
 testg2                 40       4948892901984        total
+
+# testf5: el MSP430F5529 (M4 de doc/analisis_msp430.md). F1 el SoC contra el
+# descriptor y la TLV de fabrica; F2 f5_basico.c con la DriverLib de TI
+# (VCORE 3 y el FLL a 25 MHz, la UCA1 a 115200 leida en P4.4, la Flash de
+# 5xx, el ADC12_A con el REF, el DMA, el MPY32, el CRC16, una funcion en
+# 0x10000 y Timer0_A5). Sin sockets: total. Igual en dos pasadas.
+testf5                 13       419001000000         total
