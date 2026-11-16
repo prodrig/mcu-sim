@@ -7,6 +7,14 @@
 //       UCA1 a 115200 (el backchannel, leído en P4.4), la Flash de 5xx, el
 //       sensor del ADC12_A con el REF, el DMA, el MPY32, el CRC16, una
 //       función por encima de 0x10000 y Timer0_A5
+//   F3  el Replicator430 de TI compilado para el F5529 (verif/f5529/replicator)
+//       programa un G2553 por Spy-Bi-Wire: P6.2 -> TEST, P6.5 -> RST; borra,
+//       escribe el programa de ejemplo de TI, lo verifica con la PSA y lo
+//       suelta: «REP OK» por el backchannel y P1.0 del G2553 parpadea
+//   F4  lo mismo por JTAG de 4 hilos (P6.0-P6.5 -> TEST, RST, P1.4-P1.7)
+//   F5  f5_rtc_cb.c, con la DriverLib: el RTC_A en calendario (el cambio de
+//       año, el evento de minuto y la alarma, en LPM3) y el Comp_B (CB0 contra
+//       1,5 V, con P6.0 movido por el banco)
 // =============================================================================
 #include <systemc>
 #include <cmath>
@@ -16,6 +24,7 @@
 #include <string>
 #include "common/asan_opciones.h"
 #include "soc/msp430/f5529/soc_f5529.h"
+#include "soc/msp430/g2553/soc_g2553.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -28,9 +37,78 @@ static bool check(bool c, const std::string& q) {
 }
 static const char* const DIR = "verif/f5529/elf/";
 
+// Los hilos entre la F5529 del Replicator y su G2553: el G2553 usa los nodos
+// de los pines del F5529 (un Cableado, como un <hilo> de un sistema)
+static Cableado cab_sbw(SocF5529& f) {
+    Cableado c;
+    c.une_alim("TEST", f.p(6, 2));                 // SBWTCK
+    c.une_alim("RST", f.p(6, 5));                  // SBWTDIO
+    return c;
+}
+static Cableado cab_jtag(SocF5529& f) {
+    Cableado c;
+    c.une_alim("TEST", f.p(6, 0));
+    c.une_alim("RST", f.p(6, 1));
+    c.une(0, 4, f.p(6, 2));                        // TCK
+    c.une(0, 5, f.p(6, 3));                        // TMS
+    c.une(0, 6, f.p(6, 5));                        // TDI
+    c.une(0, 7, f.p(6, 4));                        // TDO
+    return c;
+}
+
 SC_MODULE(TbF5) {
     SocF5529 f5{"f5529"};
-    SC_CTOR(TbF5) { SC_THREAD(run); }
+    SocF5529 rs{"rep_sbw"}, rj{"rep_jtag"};
+    Cableado c_sbw = cab_sbw(rs), c_jtag = cab_jtag(rj);
+    SocG2553 gs{"g2_sbw", &c_sbw}, gj{"g2_jtag", &c_jtag};
+    int id_pu_s_ = -1, id_pu_j_ = -1;
+    SC_CTOR(TbF5) {
+        SC_THREAD(run);
+        // R10 de la G2ET: 47 kohm de RST a 3V3
+        id_pu_s_ = gs.rst.register_driver("r10"); gs.rst.set_drive(id_pu_s_, 3.3f, 47000.0f);
+        id_pu_j_ = gj.rst.register_driver("r10"); gj.rst.set_drive(id_pu_j_, 3.3f, 47000.0f);
+    }
+    void rep(const char* nombre, SocF5529& f, SocG2553& g, const char* elf, const char* como) {
+        // El G2553 con otro programa (g2_basico) que el Replicator tiene que borrar
+        g.reset(true);
+        g.carga("verif/g2553/elf/g2_basico.elf");
+        g.reset(false);
+        f.reset(true);
+        wait(1, SC_US);
+        f.carga(std::string(DIR) + elf);
+        f.uart_tx.clear();
+        f.reset(false);
+        for (int i = 0; i < 6000 && f.uart_tx.find("REP OK") == std::string::npos &&
+                        f.uart_tx.find("REP ERROR") == std::string::npos; ++i) wait(1, SC_MS);
+        wait(10, SC_MS);                               // el resto de la línea (9600)
+        static const uint16_t EPROM[18] = {0x4031, 0x0300, 0x40B2, 0x5A80, 0x0120, 0xD3D2, 0x0022, 0xD3E2,
+                                           0x0032, 0x403F, 0x9C40, 0x831F, 0x23FE, 0xE3D2, 0x0021, 0xE3E2,
+                                           0x0031, 0x3FF7};
+        unsigned mal = 0;
+        for (unsigned i = 0; i < 18; ++i) if (g.mem16(0xFF00 + 2 * i) != EPROM[i]) ++mal;
+        std::string s = f.uart_tx;
+        for (char& c : s) if (c == '\n') c = '|';
+        check(f.uart_tx.find("REP ACTIVO 00\nREP OK 00\n") != std::string::npos,
+              std::string(nombre) + ": el Replicator430 en el F5529 (" + como + "): «" + s + "»");
+        check(!mal && g.mem16(0xFFFE) == 0xFF00 && g.mem16(0xC000) == 0xFFFF,
+              std::string(nombre) + ": el G2553 borrado (g2_basico ya no está) y con el programa de TI en 0xFF00");
+        // Suelto, el programa del objetivo hace parpadear P1.0
+        unsigned flancos = 0;
+        bool ant = g.p(1, 0).voltage() > 1.6f;
+        const sc_time fin = sc_time_stamp() + sc_time(500, SC_MS);
+        while (sc_time_stamp() < fin) {
+            wait(fin - sc_time_stamp(), g.p(1, 0).value_changed_event());
+            const bool v = g.p(1, 0).voltage() > 1.6f;
+            if (v != ant) { ++flancos; ant = v; }
+        }
+        char t[120];
+        std::snprintf(t, sizeof t, "%s: el G2553, suelto, ejecuta el programa: P1.0 cambia (%u flancos en 500 ms)", nombre, flancos);
+        check(flancos >= 4, t);
+    }
+    void f3() { grupo("F3 el Replicator430 de TI en el F5529 programa un G2553 por Spy-Bi-Wire");
+                rep("SBW", rs, gs, "rep_sbw.elf", "SBW en P6.2/P6.5"); }
+    void f4() { grupo("F4 el Replicator430 de TI en el F5529 programa un G2553 por JTAG de 4 hilos");
+                rep("JTAG", rj, gj, "rep_jtag.elf", "JTAG en P6.0-P6.5"); }
 
     void corre(const char* elf) {
         f5.reset(true);
@@ -56,10 +134,10 @@ SC_MODULE(TbF5) {
                        {"USCI_B1", 0xFFDA}, {"USCI_A1", 0xFFDC}, {"PORT1", 0xFFDE}, {"TIMER1_A1", 0xFFE0},
                        {"TIMER1_A0", 0xFFE2}, {"DMA", 0xFFE4}, {"TIMER0_A1", 0xFFE8}, {"TIMER0_A0", 0xFFEA},
                        {"ADC12", 0xFFEC}, {"USCI_B0", 0xFFEE}, {"USCI_A0", 0xFFF0}, {"WDT", 0xFFF2},
-                       {"TIMER0_B1", 0xFFF4}, {"TIMER0_B0", 0xFFF6}, {"UNMI", 0xFFFA}, {"SYSNMI", 0xFFFC}, {"RESET", 0xFFFE}};
+                       {"TIMER0_B1", 0xFFF4}, {"TIMER0_B0", 0xFFF6}, {"COMP_B", 0xFFF8}, {"UNMI", 0xFFFA}, {"SYSNMI", 0xFFFC}, {"RESET", 0xFFFE}};
         unsigned mal = 0;
         for (const V& x : v) { const m430::Vector* p = d.vector(x.n); if (!p || p->dir != x.usa) ++mal; }
-        check(!mal, "los 21 vectores que usa el SoC, como en msp430f5529.h");
+        check(!mal, "los 22 vectores que usa el SoC, como en msp430f5529.h");
         check(f5.mem16(0x1A04) == 0x2955 && d.id_dispositivo == 0x2955, "la TLV: el ID del chip en 0x1A04 (0x2955, el de devicedb)");
         uint16_t c = 0xFFFF;
         for (unsigned a = 0x1A04; a < 0x1B00; ++a) {
@@ -99,11 +177,45 @@ SC_MODULE(TbF5) {
         check(s.find("ta0 10 ms") != std::string::npos, "Timer0_A5 a 1 ms con su interrupción");
     }
 
+    // Espera a que salga `c` por la UART, como mucho `ms`
+    // (y el resto de su línea)
+    bool espera_uart(const char* c, int ms) {
+        auto entera = [&] { const size_t i = f5.uart_tx.find(c); return i != std::string::npos && f5.uart_tx.find('\n', i) != std::string::npos; };
+        for (int i = 0; i < ms && !entera(); ++i) wait(1, SC_MS);
+        return entera();
+    }
+    void f5_() {
+        grupo("F5 f5_rtc_cb.c con la DriverLib: el RTC_A en calendario y el Comp_B");
+        corre("f5_rtc_cb.elf");
+        AnalogNet* cb0 = dynamic_cast<AnalogNet*>(&f5.p(6, 0));
+        const int d = cb0->register_driver("banco_cb0");
+        cb0->set_drive(d, 1.0f, 10.0f);
+        const bool listo = espera_uart("listo cb", 200);
+        check(listo && linea(f5.uart_tx, "listo") == "listo cb 0", "Comp_B: CB0 a 1,0 V contra 1,5 V, CBOUT = 0 (" + linea(f5.uart_tx, "listo") + ")");
+        cb0->set_drive(d, 2.0f, 10.0f);
+        const bool sube = espera_uart("cb sube", 50);
+        cb0->set_drive(d, 1.0f, 10.0f);
+        const bool baja = espera_uart("cb baja", 50);
+        check(sube && baja && linea(f5.uart_tx, "cb sube") == "cb sube 1" && linea(f5.uart_tx, "cb baja") == "cb baja 0",
+              "Comp_B: P6.0 a 2,0 V y a 1,0 V: CBIFG y CBIIFG por CBIV, con CBOUT a 1 y a 0");
+        cb0->set_hiz(d);
+        const bool rtc = espera_uart("rtc ", 5000);
+        check(rtc && linea(f5.uart_tx, "rtc") == "rtc 2026-01-01 00:00:00 4 tev+alarma",
+              "RTC_A: de 31-12-2025 23:59:57 al cambio de año en LPM3; RTCIV da el evento y luego la alarma (" +
+              linea(f5.uart_tx, "rtc") + ")");
+        char t[120];
+        std::snprintf(t, sizeof t, "RTC_A: tres segundos de ACLK (REFO): %u segundos contados", unsigned(f5.rtc.segundos_contados()));
+        check(f5.rtc.segundos_contados() == 3, t);
+    }
+
     void run() {
         const char* solo = std::getenv("TESTF5_SOLO");
         auto va = [&](char g) { return !solo || std::strchr(solo, g); };
         if (va('1')) f1();
         if (va('2')) f2();
+        if (va('3')) f3();
+        if (va('4')) f4();
+        if (va('5')) f5_();
         std::printf("\nTOTAL F5: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

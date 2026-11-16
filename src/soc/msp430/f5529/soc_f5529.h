@@ -26,7 +26,8 @@
 //   Timer_A de 7: sin los registros de comparación agrupados), las cuatro
 //   USCI (periph/ti/usci.h), el ADC12_A (periph/ti/adc12_a.h), el MPY32
 //   (periph/ti/mpy32.h) y el DMA de tres canales (periph/ti/dma5xx.h).
-//   Comp_B, RTC_A y el USB (M5), declarados: contestan y avisan una vez.
+//   El Comp_B (periph/ti/comp_b.h) y el RTC_A en modo calendario
+//   (periph/ti/rtc_a.h). El USB (M5), declarado: contesta y avisa una vez.
 //
 // La depuración: el EEM L (8 disparadores) y el TAP de Xv2 (JTAG ID 0x91).
 // =============================================================================
@@ -53,6 +54,8 @@
 #include "../../../periph/ti/adc12_a.h"
 #include "../../../periph/ti/mpy32.h"
 #include "../../../periph/ti/dma5xx.h"
+#include "../../../periph/ti/comp_b.h"
+#include "../../../periph/ti/rtc_a.h"
 #include "../../../common/analog_net.h"
 #include "../../../pins/pin_mux.h"
 #include "../../../common/imagen_fw.h"
@@ -97,6 +100,10 @@ SC_MODULE(SocF5529), public m430_irq_if {
     Adc12A adc{"adc12_a"};
     Dma5xx dma{"dma"};
     Mpy32 mpy;
+    RtcA rtc{"rtc_a", 0x04A0};
+    CompB cb{"comp_b", 0x08C0};
+    tlm_utils::simple_initiator_socket<SocF5529> a_rtc{"a_rtc"}, a_cb{"a_cb"};
+    sc_core::sc_signal<bool> irq_rtc{"irq_rtc"}, irq_cb{"irq_cb"};
 
     // Lo que sale por la UCA1 (la F5529LP la lleva al eZ-FET: el backchannel),
     // leído en P4.4 por un monitor propio que también mete lo de `uart_rx`
@@ -165,11 +172,19 @@ SC_MODULE(SocF5529), public m430_irq_if {
         dma.f_mclk = [this] { return f_mclk_; };
         dma.al_cambiar = [this] { avisa_irq(); };
         dma.ocupado = [this](bool v) { nucleo.espera(v || flash_espera_); dma_ocupado_ = v; };
+        rtc.clk(clk_dummy); rtc.rst_n(rst_n); rtc.clk_en(uno); rtc.clk_hz(hz_smclk);
+        rtc.f_bclk = [this] { return f_aclk_; };
+        a_rtc.bind(rtc.tsk); rtc.irq(irq_rtc);
+        cb.clk(clk_dummy); cb.rst_n(rst_n); cb.clk_en(uno); cb.clk_hz(hz_smclk);
+        cb.v_canal = [this](unsigned c) { return cb_entrada(c); };
+        cb.v_cc = [this] { return vcc; };
+        a_cb.bind(cb.tsk); cb.irq(irq_cb);
         uno.write(true);
         rst_n.write(false);
         SC_HAS_PROCESS(SocF5529);
         SC_METHOD(irq_timers);
         for (auto& s : irq_t) sensitive << s;
+        sensitive << irq_rtc << irq_cb;
         dont_initialize();
         SC_METHOD(salidas_proc);
         for (TimerAP4* t : tms) for (unsigned n = 0; n < 7; ++n) sensitive << t->out[n];
@@ -362,7 +377,11 @@ private:
         const unsigned sela = (ucsctl_[4] >> 8) & 7u, sels = (ucsctl_[4] >> 4) & 7u, selm = ucsctl_[4] & 7u;
         auto div = [&](unsigned sh) { return double(1u << ((ucsctl_[5] >> sh) & 7u)); };
         f_mclk_ = f_fuente(selm) / div(0);
-        f_smclk_ = (sr & 0x0080) || (ucsctl_[6] & 0x0002) ? 0.0 : f_fuente(sels) / div(4);   // SCG1 o SMCLKOFF
+        // SCG1 o SMCLKOFF; con SCG1, una petición de un módulo (SMCLKREQEN) lo
+        // mantiene [UG5 §5.2.10]: aquí, la de una USCI que está enviando
+        smclk_pedido_ = pide_smclk();
+        f_smclk_ = ((sr & 0x0080) && !((ucsctl_[8] & 0x0004) && smclk_pedido_)) || (ucsctl_[6] & 0x0002)
+                   ? 0.0 : f_fuente(sels) / div(4);
         f_aclk_ = f_fuente(sela) / div(8);
         if (sr & 0x0020) f_aclk_ = f_aclk_;                           // OSCOFF: XT1 en LPM4 (no se modela el corte)
         // El control de relojes del EEM con la CPU en manos del depurador
@@ -382,6 +401,7 @@ private:
         hz_smclk.write(f_smclk_);
         ta0.recalcula(); ta1.recalcula(); tb0.recalcula(); ta2.recalcula();
         for (UsciTi* u : {&ua0, &ub0, &ua1, &ub1}) u->recalcula();
+        rtc.recalcula();
         ev_wdt_.notify(sc_core::SC_ZERO_TIME);
         comprueba_vcore();
     }
@@ -390,8 +410,15 @@ private:
     // oscilador bien los deja borrados [UG5 §5.2.12]
     void actualiza_fallos() {
         const uint16_t antes = ucsctl7_;
-        if (!xt1_ok_) ucsctl7_ |= 0x0002;                             // XT1LFOFFG
-        if (!xt2_ok_) ucsctl7_ |= 0x0008;                             // XT2OFFG
+        // Un cristal solo «falla» si está pedido: XT1OFF/XT2OFF a 0, o un
+        // reloj (ACLK, SMCLK, MCLK o la referencia del FLL) que lo usa; apagado
+        // y sin nadie que lo use, la bandera se borra y no vuelve [UG5 §5.2.12]
+        const unsigned sela = (ucsctl_[4] >> 8) & 7u, sels = (ucsctl_[4] >> 4) & 7u, selm = ucsctl_[4] & 7u;
+        const unsigned selref = (ucsctl_[3] >> 4) & 7u;
+        const bool usa_xt1 = !(ucsctl_[6] & 0x0001) || sela == 0 || sels == 0 || selm == 0 || selref < 2;
+        const bool usa_xt2 = !(ucsctl_[6] & 0x0100) || sela >= 5 || sels >= 5 || selm >= 5 || selref == 5;
+        if (!xt1_ok_ && usa_xt1) ucsctl7_ |= 0x0002;                  // XT1LFOFFG
+        if (!xt2_ok_ && usa_xt2) ucsctl7_ |= 0x0008;                  // XT2OFFG
         if (dco_fallo_) ucsctl7_ |= 0x0001;                           // DCOFFG
         if (ucsctl7_ & 0x000F) sfrifg1_ |= 0x02;                      // OFIFG
         if (ucsctl7_ != antes) avisa_irq();
@@ -555,6 +582,13 @@ private:
         return pin[48 + (ch - 12)]->floating() ? 0.0 : double(pin[48 + (ch - 12)]->voltage());  // P7.0-P7.3
     }
 
+    // Comp_B: CB0-CB7 en P6.0-P6.7, CB8-CB11 en P7.0-P7.3 [DS SLAS590P]
+    double cb_entrada(unsigned c) const {
+        const unsigned i = c < 8 ? 40 + c : c < 12 ? 48 + (c - 8) : 0;
+        if (c >= 12 || pin[i]->floating()) return 0.0;
+        return double(pin[i]->voltage());
+    }
+
     // --- TLV de fábrica -----------------------------------------------------------
     void fabrica() {
         uint8_t* t = &mem_[0x1A00];
@@ -663,6 +697,8 @@ private:
         if (dma.pide_irq()) pon(0xFFE4);
         if (pt_[0].ifg & pt_[0].ie) pon(0xFFDE);
         if (pt_[1].ifg & pt_[1].ie) pon(0xFFD4);
+        if (irq_rtc.read()) pon(0xFFD2);
+        if (irq_cb.read()) pon(0xFFF8);
         return f;
     }
     void irq_timers() { nucleo.nota_irq(); dispara_dma_timers(); }
@@ -680,9 +716,15 @@ private:
             t_ant_[k] = v;
         }
     }
+    bool smclk_pedido_ = false;
+    bool pide_smclk() const {
+        for (const UsciTi* u : {&ua0, &ub0, &ua1, &ub1}) if (u->fuente_brclk() >= 2 && u->pide_reloj()) return true;
+        return false;
+    }
     // Las USCI: interrupciones y disparos del DMA (16-23)
     bool u_ant_[8] = {};
     void usci_proc() {
+        if (pide_smclk() != smclk_pedido_) relojes();
         UsciTi* u[4] = {&ua0, &ub0, &ua1, &ub1};
         for (unsigned k = 0; k < 4; ++k) {
             const bool rx = u[k]->dma_rx_pide(), tx = u[k]->dma_tx_pide();
@@ -834,6 +876,7 @@ private:
                 f.t->cci_a[f.n].write(v);
             }
         }
+        cb.recalcula();                                              // las tensiones de CB0-CB11
     }
     uint16_t piv(unsigned k, bool dbg) {
         Puerto& x = pt_[k];
@@ -934,17 +977,16 @@ private:
 
     // --- El bus ---------------------------------------------------------------------
     uint8_t declarado_[0x1000] = {};
-    bool avisado_[3] = {};
+    bool avisado_ = false;
     void aviso(uint32_t a) {
-        const unsigned k = (a >= 0x900) ? 2 : (a >= 0x8C0) ? 1 : 0;
-        if (avisado_[k]) return;
-        avisado_[k] = true;
-        static const char* const Q[3] = {"RTC_A", "Comp_B", "USB (M5)"};
-        std::fprintf(stderr, "[f5529] 0x%04X: %s declarado (aviso una vez)\n", unsigned(a), Q[k]);
+        if (avisado_ || a < 0x900) return;
+        avisado_ = true;
+        std::fprintf(stderr, "[f5529] 0x%04X: USB (M5) declarado (aviso una vez)\n", unsigned(a));
     }
     // Los registros de 16 bits (las palabras de los módulos de palabra)
     bool lee16(uint32_t a, uint16_t& v, bool dbg) {
         if (a >= 0x340 && a < 0x440) return false;                    // los Timer: aparte
+        if ((a >= 0x4A0 && a < 0x4C0) || (a >= 0x8C0 && a < 0x8D0)) return false;
         if (a >= 0x4C0 && a < 0x4F0) { v = mpy.lee16(a - 0x4C0); return true; }
         if (a >= 0x500 && a < 0x540) { v = dma.lee16(a - 0x500, dbg); return true; }
         if (a >= 0x5C0 && a < 0x640) { v = usci_de(a)->lee16_5xx(a & 0x1F, dbg); return true; }
@@ -1126,8 +1168,10 @@ public:
         const unsigned n = gp.get_data_length();
         unsigned char* d = gp.get_data_ptr();
         gp.set_response_status(tlm::TLM_OK_RESPONSE);
-        if (a >= 0x340 && a < 0x440) {                                // los Timer
-            tlm_utils::simple_initiator_socket<SocF5529>& s = a < 0x380 ? a_ta0 : a < 0x3C0 ? a_ta1 : a < 0x400 ? a_tb0 : a_ta2;
+        const bool rtc_o_cb = (a >= 0x4A0 && a < 0x4C0) || (a >= 0x8C0 && a < 0x8D0);
+        if ((a >= 0x340 && a < 0x440) || rtc_o_cb) {                  // los Timer, el RTC_A y el Comp_B
+            tlm_utils::simple_initiator_socket<SocF5529>& s = a >= 0x8C0 ? a_cb : a >= 0x4A0 ? a_rtc :
+                a < 0x380 ? a_ta0 : a < 0x3C0 ? a_ta1 : a < 0x400 ? a_tb0 : a_ta2;
             sc_core::sc_time t = sc_core::SC_ZERO_TIME;
             if (dbg) s->transport_dbg(gp); else s->b_transport(gp, t);
             return;

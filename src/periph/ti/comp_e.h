@@ -43,8 +43,10 @@ public:
 
     std::function<double(unsigned)> v_canal;         // canales 0-7
     std::function<double()> v_cc;
-    RefAP4* ref = nullptr;
+    RefAP4* ref = nullptr;                           // sin él (Comp_B del F5529): la referencia siempre lista
     unsigned bit_ref = 2;                            // su bit de petición en REF_A
+    unsigned n_canales = 8;                          // Comp_B del F5529: 12
+    double v_refl1 = 1.2;                            // REFL = 1: 1,2 V (Comp_E) o 1,5 V (Comp_B)
 
     enum : uint16_t {
         IPEN = 0x0080, IMEN = 0x8000,
@@ -93,7 +95,7 @@ protected:
     }
     double v_compartida() const {
         switch ((ctl2_ >> 13) & 3u) {
-            case 1: return 1.2;
+            case 1: return v_refl1;
             case 2: return 2.0;
             case 3: return 2.5;
             default: return 0.0;
@@ -105,12 +107,13 @@ protected:
         const unsigned tap = usa1 ? ((ctl2_ >> 8) & 0x1Fu) : (ctl2_ & 0x1Fu);
         switch (rs()) {
             case 1: return (v_cc ? v_cc() : 3.3) * double(tap + 1u) / 32.0;
-            case 2: return (ref && ref->lista() ? v_compartida() : 0.0) * double(tap + 1u) / 32.0;
-            case 3: return ref && ref->lista() ? v_compartida() : 0.0;
+            case 2: return (ref_lista() ? v_compartida() : 0.0) * double(tap + 1u) / 32.0;
+            case 3: return ref_lista() ? v_compartida() : 0.0;
             default: return 0.0;
         }
     }
-    double canal(unsigned c) { return (c < 8 && v_canal) ? v_canal(c) : 0.0; }
+    bool ref_lista() const { return ref ? ref->lista() : true; }
+    double canal(unsigned c) { return (c < n_canales && v_canal) ? v_canal(c) : 0.0; }
     void evalua() {
         if (!(ctl1_ & ON)) return;
         const double cref = v_cref();

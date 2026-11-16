@@ -168,6 +168,11 @@ public:
         }
         ev_cambio_.notify(sc_core::SC_ZERO_TIME);
     }
+    // La petición de reloj de 5xx [UG5 §5.2.10]: con un carácter por enviar o
+    // en el registro de desplazamiento, la USCI pide su BRCLK aunque el modo
+    // de bajo consumo lo pare; `fuente_brclk` es UCSSEL (1 ACLK, 2-3 SMCLK)
+    bool pide_reloj() const { return !en_reset() && (txlleno_ || tx_ocupado_ || rx_ocupado_); }
+    unsigned fuente_brclk() const { return (ctlw0_ >> 6) & 3u; }
     // La petición de interrupción de 5xx: IFG & IE
     bool irq5() const { return (ifg_ & ie5_ & mascara_ifg()) != 0; }
     // Para el DMA de 5xx: UCRXIFG y UCTXIFG

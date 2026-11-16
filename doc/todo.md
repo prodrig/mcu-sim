@@ -1067,6 +1067,29 @@ modelo:
 | USCI40 | SPI esclavo con UCCKPH = 1: los bytes se corren un bit | se documenta | — |
 | XOSC5 | el fallo del cristal LF puede no detectarse | se documenta | sin cristal, OFIFG siempre |
 
+**SLAZ314AD (MSP430F5529), clasificada** [§10.4 del análisis; M4]. Por
+grupos, porque son 79:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22 | POPM con el SR; @PC como origen | **se modela** | avisan una vez (M1) |
+| CPU23, CPU26-CPU35, CPU39, CPU40, CPU47 | rotaciones, CALL SP, CALLA, el PC en anidamientos y pasos, saltos seguidos de datos, VMAIFG | se documenta | los compiladores las evitan; el modelo hace lo que dice la guía |
+| CPU37, EEM9-EEM23, JTAG26, JTAG27 | la depuración (trazas, disparadores con esperas, LPMx.5) | se documenta | el EEM del modelo no tiene esas carreras |
+| ADC25 | escribir ADC12CTL0 con CONSEQ = 00 dispara | se documenta | solo dispara ADC12SC |
+| ADC27, ADC29 | linealidad; la calibración del sensor en la TLV | se documenta | la TLV sale del propio modelo del sensor |
+| ADC42, ADC69 | el ADC se para si se dispara encima o se cambia el reloj | se documenta | — |
+| DMA4, DMA7, DMA8, DMA10 | escrituras de 20 bits, interrupciones perdidas, la pila | se documenta | — |
+| FLASH33, FLASH34, FLASH35, FLASH37 | fsystem < 160 kHz, leer durante el borrado de banco, SVM | se documenta | PMM_setVCore de DriverLib ya trae el rodeo de FLASH37 |
+| MPY1 | guardar/restaurar del MPY32 | se documenta | — |
+| PMAP1, PORT15, PORT16, PORT19, PORT24 | el PMAP, PMALOCKED, los pines al arrancar, LPMx.5, consumo | se documenta | — |
+| PMM9-PMM20 | SVS/SVM, relojes rápidos al salir de LPM3/4, VCORE, la protección de sobretensión | se documenta | el PMM del modelo no tiene tensiones |
+| RTC3, RTC6 | RTC_A | no aplica | RTC_A declarado |
+| SYS10, SYS12, SYS14, SYS16, SYS18 | BSL, ACCVIFG con 2,4-2,6 V, consumo tras un PUC, la rampa de Vcc, el USB al arrancar | se documenta / M5 | — |
+| BSL6, BSL7, JTAG20, USB4-USB13 | el BSL y el USB | no aplica (M5, M9) | — |
+| COMP10 | la salida del comparador en LPM3/4 | no aplica | Comp_B declarado |
+| TAB23 | leer TAR = CCR0 | se documenta | — |
+| USCI26, USCI30, USCI31 | I2C multimaestro, receptor, error de trama tras UCSWRST | se documenta | (las mismas que en el G2553) |
+
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)

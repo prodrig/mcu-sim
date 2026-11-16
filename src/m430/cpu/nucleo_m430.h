@@ -99,11 +99,20 @@ SC_MODULE(NucleoM430), public m430_mem_if, public m430_jtag_cpu_if {
 
     // --- m430_mem_if -----------------------------------------------------------
     bool lee(uint32_t a, unsigned n, uint32_t& v, M430Acceso t) override {
+        // Una lectura de un periférico, también en su sitio: un pin que otro
+        // chip mueve en respuesta a una escritura nuestra (el SBWTDIO que el
+        // objetivo gobierna en la franja de TDO) tiene que haberse movido. Tras
+        // una escritura a un periférico sin tiempo en medio, un delta
+        if (a < perif_hi && t != M430Acceso::Instruccion) {
+            if (local_ > sc_core::SC_ZERO_TIME) sincroniza();
+            else if (escrito_perif_ && !tclk_) sc_core::wait(sc_core::SC_ZERO_TIME);
+            escrito_perif_ = false;
+        }
         return acceso(false, a, n, v, t);
     }
     bool escribe(uint32_t a, unsigned n, uint32_t v, M430Acceso t) override {
         // Una escritura a un periférico se ve en su sitio en el tiempo
-        if (a < perif_hi) sincroniza();
+        if (a < perif_hi) { sincroniza(); escrito_perif_ = true; }
         return acceso(true, a, n, v, t);
     }
     // Por debajo de esta dirección, las escrituras se sincronizan (los periféricos)
@@ -186,7 +195,7 @@ private:
         const bool p = parado_ || tclk_;
         if (p != dbg_ant_) { dbg_ant_ = p; if (al_parada_dbg) al_parada_dbg(p); }
     }
-    bool espera_ = false;
+    bool espera_ = false, escrito_perif_ = false;
     bool en_reset_ = true, rst_bajo_ = false, parada_ = false, parado_ = false, tclk_m1_ = false;
     unsigned pasos_ = 0;
     int64_t credito_ = 0;

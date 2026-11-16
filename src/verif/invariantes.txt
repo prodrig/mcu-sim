@@ -437,7 +437,16 @@ testc6                 202      53173701458348        resto
 # de SBW pasa de 7 a 100 us (la hoja de datos da 15-100 us; el ejemplo de
 # SLAA754 deja SBWTCK abajo hasta 25 us y en la placa funciona), con lo que
 # la comprobacion de salida espera mas. N1-N7 y N10 empiezan donde antes.
-test430               776      8295630750000  resto
+# M4 (3) (16-11-2026) mueve el resto a 8295637000000 (+6250000 ps), A
+# PROPOSITO: una lectura de periferico del nucleo (no de instruccion) ahora
+# sincroniza antes el tiempo local acumulado del nucleo (`sincroniza()` en
+# nucleo_m430.h), para que vea el estado del periferico en su instante y no
+# en el del ultimo `wait`. Lo pedia el Replicator430 del F5529: leia TDO de
+# la G2553 por SBW antes de que la G2553 lo hubiera puesto. Los programas de
+# laboratorio que leen sus perifericos acaban un poco despues: N2 +1,5 us,
+# N3 +0,875 us, N4 y N5 +1,75 us, N6 +0,375 us; N7-N12 no se mueven. Igual en
+# dos pasadas.
+test430               776      8295637000000  resto
 
 # testg2: el MSP430G2553 (M3 de doc/analisis_msp430.md). G1 el SoC contra el
 # descriptor generado y las constantes de fabrica del DCO; G2 g2_basico.c
@@ -458,4 +467,11 @@ testg2                 40       4948892901984        total
 # (VCORE 3 y el FLL a 25 MHz, la UCA1 a 115200 leida en P4.4, la Flash de
 # 5xx, el ADC12_A con el REF, el DMA, el MPY32, el CRC16, una funcion en
 # 0x10000 y Timer0_A5). Sin sockets: total. Igual en dos pasadas.
-testf5                 13       419001000000         total
+# M4 (3) (16-11-2026): F3 y F4, el Replicator430 de TI compilado para una
+# F5529 (P6.0-P6.5) que programa una G2553 por SBW y por JTAG de 4 hilos,
+# anaden 6 comprobaciones y su tiempo; F1-F2 acaban donde antes
+# (419001000000). F5, el RTC_A y el Comp_B con la DriverLib (f5_rtc_cb.c),
+# anade 4 comprobaciones; con el, las USCI de 5xx piden SMCLK en LPM3
+# mientras envian (SMCLKREQEN, UG5 5.2.10). F1-F4 acaban donde antes
+# (2008003000000). Igual en dos pasadas.
+testf5                 23       5048004000000        total

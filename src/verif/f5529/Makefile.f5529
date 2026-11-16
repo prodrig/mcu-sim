@@ -7,11 +7,22 @@ REFS   ?= ../../../doc/refs/msp430
 TI     ?= $(REFS)/ti/msp430/include_gcc
 DL     ?= $(REFS)/launchpads/MSP-EXP430F5529LP/sw/MSP-EXP430F5529LP_Software_Examples_linux/Firmware/Source/SimpleUsbBackchannel/driverlib/MSP430F5xx_6xx
 CFLAGS := -mmcu=msp430f5529 -mlarge -mcode-region=either -mdata-region=lower -I$(TI) -L$(TI) -I$(DL) -I$(DL)/deprecated/CCS -Ishim -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
-DLSRC  := pmm.c ucs.c usci_a_uart.c flashctl.c adc12_a.c dma.c gpio.c wdt_a.c ref.c crc.c timer_a.c sfr.c
-PROGS  := f5_basico
+DLSRC  := pmm.c ucs.c usci_a_uart.c flashctl.c adc12_a.c dma.c gpio.c wdt_a.c ref.c crc.c timer_a.c sfr.c rtc_a.c comp_b.c
+PROGS  := f5_basico f5_rtc_cb
 
-all: $(PROGS:%=elf/%.elf)
+REP    := replicator/Replicator430.c replicator/JTAGfunc430.c replicator/LowLevelFunc430.c replicator/Devices430.c replicator/target_code.c
+REPFLAGS := -mmcu=msp430f5529 -I$(TI) -L$(TI) -Ishim -O1 -g -D__interrupt= -w
+
+all: $(PROGS:%=elf/%.elf) elf/rep_sbw.elf elf/rep_jtag.elf
 
 elf/%.elf: %.c
 	@mkdir -p elf
 	$(MSPGCC)gcc $(CFLAGS) -o $@ $< $(DLSRC:%=$(DL)/%)
+
+# El Replicator430 de TI en el F5529 (M4): por SBW y por JTAG de 4 hilos
+elf/rep_sbw.elf: $(REP) replicator/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=3 -o $@ $(REP)
+elf/rep_jtag.elf: $(REP) replicator/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=1 -o $@ $(REP)

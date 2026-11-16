@@ -102,7 +102,7 @@ public:
                  }}};
     }
     std::vector<std::string> limitaciones() const override {
-        return {"Comp_B, RTC_A y el USB (M5) estan declarados: contestan y avisan",
+        return {"el USB (M5) esta declarado: contesta y avisa; el RTC_A, solo en modo calendario",
                 "el BSL de Flash no esta (M9); con el vector de reset borrado, el chip no arranca nada",
                 "--gdb por los pines (JTAG de Xv2) aun no: use --gdb-dap"};
     }
