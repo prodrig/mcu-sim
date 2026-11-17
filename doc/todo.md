@@ -1009,7 +1009,7 @@ la sonda de bancada portada de la MSP Debug Stack y el *backend* de GDB) y su
 SoC de laboratorio (`test430`); encima, la capa de familia en `src/periph/ti/`
 (compartida con el P4) y los chips.
 
-**Estado (2026-11-17):** **M0-M5 hechas, y cerrado lo que quedaba de M2 y M3
+**Estado (2026-11-17):** **M0-M5 hechas, y cerrado lo que quedaba de M2-M5
 que no depende de fases posteriores**; sigue M6 (las FR2xx/FR4xx). El
 detalle, en §11 del análisis. Lo cerrado:
 
@@ -1036,9 +1036,14 @@ detalle, en §11 del análisis. Lo cerrado:
   simpleUsbBackchannel de TI enumera por el puente CDC-ACM y lleva datos
   entre el USB y el backchannel. `usb=`/`--usb` en la F5529LP.
 
-**Lo que queda, con su fase**: el JSTATE, que es de FRAM (**M6**); `--gdb`
-por los pines del F5529 (la sonda de bancada en Xv2; hoy, `--gdb-dap`); el
-modo contador del RTC_A y CBOUT hacia los pines; el BSL de ROM, el de
+* **Lo que quedaba de M4 y M5** (`testf5` F10-F13): el RTC_A en modo
+  contador, CBOUT en P1.6 y en el Timer1_A3, lo del USB sin la pila de TI
+  (Port U, el temporizador y la marca de tiempo, RWUP, el LDO), y **`--gdb`
+  por los pines del F5529**: la sonda de bancada habla Xv2
+  (`m430/sonda/sonda_xv2.h`, `DbgSondaXv2`), con `make gdb-g2` por los dos
+  caminos.
+
+**Lo que queda, con su fase**: el JSTATE, que es de FRAM (**M6**); el BSL de ROM, el de
 `slaa450g` y el USB BSL (**M9**); el G2553 en `mcu-sim-gui` (**M12**).
 
 **Dos cosas que se aprendieron en el camino**, dichas aquí porque no son del

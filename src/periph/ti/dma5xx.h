@@ -37,6 +37,7 @@ SC_MODULE(Dma5xx) {
     std::function<double()> f_mclk;
     std::function<void()> al_cambiar;            // DMAIFG: que el SoC arbitre
     std::function<void(bool)> ocupado;           // la CPU espera mientras
+    std::function<void(unsigned)> al_disparo;    // el disparo del canal n (la marca de tiempo del USB)
 
     SC_CTOR(Dma5xx) { SC_THREAD(proc); reset(); }
     void reset() {
@@ -129,6 +130,7 @@ private:
     // Un bloque para a la CPU desde el disparo: la instrucción que lo pide es
     // la última antes del bloque [UG5 §11.2.6]
     void pide(unsigned n) {
+        if (al_disparo) al_disparo(n);
         cola_.push_back(n);
         if ((dt(ch_[n]) & 3u) && ocupado) ocupado(true);
         ev_.notify(sc_core::SC_ZERO_TIME);

@@ -26,7 +26,7 @@
 //   Timer_A de 7: sin los registros de comparación agrupados), las cuatro
 //   USCI (periph/ti/usci.h), el ADC12_A (periph/ti/adc12_a.h), el MPY32
 //   (periph/ti/mpy32.h) y el DMA de tres canales (periph/ti/dma5xx.h).
-//   El Comp_B (periph/ti/comp_b.h) y el RTC_A en modo calendario
+//   El Comp_B (periph/ti/comp_b.h) y el RTC_A, en calendario y en contador
 //   (periph/ti/rtc_a.h). El USB (M5: periph/ti/usb_ti.h), con D+ y D- en los
 //   nodos PU.0 y PU.1 y la PLL desde XT2.
 //
@@ -208,9 +208,11 @@ SC_MODULE(SocF5529), public m430_irq_if {
         dma.escribe = [this](uint32_t a, uint16_t v, bool byte) { escribe_bus(a, v, byte); };
         dma.f_mclk = [this] { return f_mclk_; };
         dma.al_cambiar = [this] { avisa_irq(); };
+        dma.al_disparo = [this](unsigned n) { usb.t_acceso = sc_core::sc_time_stamp() + nucleo.adelanto(); usb.evento_dma(n); };
         dma.ocupado = [this](bool v) { nucleo.espera(v || flash_espera_); dma_ocupado_ = v; };
         rtc.clk(clk_dummy); rtc.rst_n(rst_n); rtc.clk_en(uno); rtc.clk_hz(hz_smclk);
         rtc.f_bclk = [this] { return f_aclk_; };
+        rtc.f_smclk = [this] { return f_smclk_; };
         a_rtc.bind(rtc.tsk); rtc.irq(irq_rtc);
         cb.clk(clk_dummy); cb.rst_n(rst_n); cb.clk_en(uno); cb.clk_hz(hz_smclk);
         cb.v_canal = [this](unsigned c) { return cb_entrada(c); };
@@ -228,7 +230,10 @@ SC_MODULE(SocF5529), public m430_irq_if {
         for (UsciTi* u : {&ua0, &ub0, &ua1, &ub1})
             sensitive << u->simo_out << u->simo_oe << u->somi_out << u->somi_oe << u->clk_out << u->clk_oe
                       << u->ste_out << u->ste_oe;
+        sensitive << cb.salida;
         dont_initialize();
+        // CBOUT, por dentro, a la captura CCI1B del Timer1_A3 [DS SLAS590P, «TA1 Signal Connections»]
+        SC_METHOD(cbout_proc); sensitive << cb.salida; dont_initialize();
         SC_METHOD(usci_proc);
         for (UsciTi* u : {&ua0, &ub0, &ua1, &ub1}) sensitive << u->cambio();
         dont_initialize();
@@ -446,7 +451,7 @@ private:
         hz_smclk.write(f_smclk_);
         ta0.recalcula(); ta1.recalcula(); tb0.recalcula(); ta2.recalcula();
         for (UsciTi* u : {&ua0, &ub0, &ua1, &ub1}) u->recalcula();
-        rtc.recalcula();
+        rtc.recalcula_a();
         usb.relojes();
         ev_wdt_.notify(sc_core::SC_ZERO_TIME);
         comprueba_vcore();
@@ -851,7 +856,10 @@ private:
     // La función de periférico del pin i con PxSEL = 1. Devuelve el tipo:
     // 0 ninguna (GPIO), 1 Timer (con su salida y su entrada), 2 USCI, 3
     // analógica, 4 reloj (salida fija)
-    struct Fn { int tipo = 0; TimerAP4* t = nullptr; unsigned n = 0; LineaU u[2]; };
+    // tipo: 1 Timer, 2 USCI, 3 analógico, 4 reloj de salida, 5 CBOUT; `clk`,
+    // el TACLK que el pin da como entrada [DS SLAS590P, «Terminal Functions»]
+    struct Fn { int tipo = 0; TimerAP4* t = nullptr; unsigned n = 0; LineaU u[2]; TimerAP4* clk = nullptr; };
+    void cbout_proc() { ta1.cci_b[1].write(cb.salida.read()); }
     Fn funcion_de(unsigned i) const {
         Fn f;
         const unsigned p = i / 8, b = i % 8;
@@ -863,13 +871,14 @@ private:
         case 0:                                                       // P1
             if (b >= 1 && b <= 5) T(&ta0, b - 1);
             else if (b == 7) T(&ta1, 0);
-            else if (b == 0) f.tipo = 4;                              // ACLK
+            else if (b == 0) { f.tipo = 4; f.clk = const_cast<TimerAP4*>(&ta0); }   // ACLK / TA0CLK
+            else if (b == 6) { f.tipo = 5; f.clk = const_cast<TimerAP4*>(&ta1); }   // CBOUT / TA1CLK
             break;
         case 1:                                                       // P2
             if (b == 0) T(&ta1, 1);
             else if (b == 1) T(&ta1, 2);
             else if (b >= 3 && b <= 5) T(&ta2, b - 3);
-            else if (b == 2) f.tipo = 4;                              // SMCLK
+            else if (b == 2) { f.tipo = 4; f.clk = const_cast<TimerAP4*>(&ta2); }   // SMCLK / TA2CLK
             else if (b == 7) U(&ub0, 3, &ua0, 2);
             break;
         case 2:                                                       // P3
@@ -939,7 +948,8 @@ private:
                     else pin[i]->set_hiz(id_pin_[i]);
                     continue;
                 }
-                if (f.tipo == 3 || f.tipo == 4 || !dir) { pin[i]->set_hiz(id_pin_[i]); continue; }
+                if (f.tipo == 5 && dir) { pin[i]->set_drive(id_pin_[i], cb.salida.read() ? alto : 0.0f, 50.0f); continue; }
+                if (f.tipo == 3 || f.tipo == 4 || f.tipo == 5 || !dir) { pin[i]->set_hiz(id_pin_[i]); continue; }
             }
             if (dir) pin[i]->set_drive(id_pin_[i], ((x.out >> b) & 1u) ? alto : 0.0f, 50.0f);
             else if ((x.ren >> b) & 1u) pin[i]->set_drive(id_pin_[i], ((x.out >> b) & 1u) ? alto : 0.0f, 35000.0f);
@@ -979,6 +989,8 @@ private:
                 }
             } else if (f.tipo == 1 && ((pt_[i / 8].sel >> (i % 8)) & 1u) && !((pt_[i / 8].dir >> (i % 8)) & 1u)) {
                 f.t->cci_a[f.n].write(v);
+            } else if (f.clk && ((pt_[i / 8].sel >> (i % 8)) & 1u) && !((pt_[i / 8].dir >> (i % 8)) & 1u)) {
+                f.clk->taclk.write(v);                                  // TAxCLK
             }
         }
         cb.recalcula();                                              // las tensiones de CB0-CB11
@@ -1278,6 +1290,7 @@ public:
         unsigned char* d = gp.get_data_ptr();
         gp.set_response_status(tlm::TLM_OK_RESPONSE);
         if (a >= 0x900 && a < 0x940) {                                // el USB, por bytes
+            usb.t_acceso = sc_core::sc_time_stamp() + nucleo.adelanto();
             for (unsigned i = 0; i < n; ++i) {
                 if (gp.is_read()) d[i] = usb.lee8(a + i, dbg);
                 else usb.escribe8(a + i, d[i]);

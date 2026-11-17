@@ -119,7 +119,9 @@ public:
         e.r[2] = v & SR_BITS;
         if (al_cambiar_sr && antes != sr()) al_cambiar_sr(antes, sr());
     }
-    bool durmiendo() const { return (sr() & SR_CPUOFF) != 0; }
+    bool durmiendo() const { return (sr() & SR_CPUOFF) != 0 && !ignora_cpuoff; }
+    // La CPUXv2 bajo JTAG: TCLK es MCLK y CPUOFF no la para (lo pone el núcleo)
+    bool ignora_cpuoff = false;
     uint64_t instrucciones() const { return n_ins_; }
     uint64_t ciclos() const { return n_cic_; }
 

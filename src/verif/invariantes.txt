@@ -478,4 +478,13 @@ testg2                 40       4948892901984        total
 # programando otro F5529 (SBW y JTAG), el patron magico y la firma, y F9, el
 # USB con el simpleUsbBackchannel de TI; anaden 16 comprobaciones. F1-F5
 # acaban donde antes (5048004000000). Igual en dos pasadas.
-testf5                 39       20005009000000       total
+# Lo que quedaba de M4 y M5 (17-11-2026): F10 el RTC_A en modo contador, F11
+# CBOUT en P1.6 y en el TA1, F12 lo del USB sin la pila de TI (Port U, el
+# temporizador y la marca de tiempo, RWUP, la sobrecarga del LDO) y F13 la
+# sonda de bancada con las secuencias de Xv2 (lo de --gdb por los pines);
+# anaden 20 comprobaciones y su tiempo. En el nucleo, dos cosas de Xv2 bajo
+# JTAG, A PROPOSITO: suspendida en la busqueda no debe ciclos de la
+# instruccion anterior, y con TCLK de MCLK CPUOFF no la duerme (las MOVA de
+# ReadCpuRegXv2 en LPM). F1-F9 acaban donde antes (20005009000000: F10 empieza
+# ahi); test430 y testg2 no se mueven. Igual en dos pasadas.
+testf5                 59       25861134250000       total

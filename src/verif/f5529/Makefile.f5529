@@ -8,7 +8,7 @@ TI     ?= $(REFS)/ti/msp430/include_gcc
 DL     ?= $(REFS)/launchpads/MSP-EXP430F5529LP/sw/MSP-EXP430F5529LP_Software_Examples_linux/Firmware/Source/SimpleUsbBackchannel/driverlib/MSP430F5xx_6xx
 CFLAGS := -mmcu=msp430f5529 -mlarge -mcode-region=either -mdata-region=lower -I$(TI) -L$(TI) -I$(DL) -I$(DL)/deprecated/CCS -Ishim -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
 DLSRC  := pmm.c ucs.c usci_a_uart.c flashctl.c adc12_a.c dma.c gpio.c wdt_a.c ref.c crc.c timer_a.c sfr.c rtc_a.c comp_b.c
-PROGS  := f5_basico f5_rtc_cb
+PROGS  := f5_basico f5_rtc_cb f5_rtc_cnt f5_cbout f5_usb_hw
 
 REP    := replicator/Replicator430.c replicator/JTAGfunc430.c replicator/LowLevelFunc430.c replicator/Devices430.c replicator/target_code.c
 REPFLAGS := -mmcu=msp430f5529 -I$(TI) -L$(TI) -Ishim -O1 -g -D__interrupt= -w

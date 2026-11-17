@@ -201,6 +201,10 @@ private:
             while (tclk_ && (halt_jtag_ || por_xv2_ || bajadas_ == vistas_)) {
                 // Xv2 suspendida: lo que no es búsqueda va sin TCLK
                 if (suspendida_xv2() && !instr) { deuda_ = 0; espera_instr_ = false; return; }
+                // y suspendida en la búsqueda, la instrucción anterior ya ha
+                // acabado: no debe ciclos (la primera subida tras soltar
+                // CPUSUSP es la de la búsqueda: la MOVA de ReadCpuRegXv2)
+                if (suspendida_xv2()) deuda_ = 0;
                 espera_instr_ = instr && deuda_ == 0;
                 wait(ev_tclk_ | rst_n.value_changed_event());
                 if (!rst_n.read()) { espera_instr_ = false; return; }
@@ -335,6 +339,10 @@ private:
                 }
                 salta_bp_ = false;
                 accesos_paso_ = 0;
+                // [de modelo] Xv2 bajo JTAG: con TCLK de MCLK, CPUOFF no la
+                // duerme (las MOVA de ReadCpuRegXv2 se ejecutan en LPM; el SR
+                // con CPUOFF vuelve al soltarla)
+                cpu.ignora_cpuoff = xv2 && tclk_;
                 const M430Cpu::Paso p = cpu.paso();
                 if (pasos_ && !p.dormido) --pasos_;
                 if (para_tras_) { para_tras_ = false; if (eem) { /* ya está parado por el EEM */ } }

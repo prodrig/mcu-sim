@@ -33,6 +33,7 @@
 #include "../cpu/nucleo_m430.h"
 #include "../debug/eem.h"
 #include "../sonda/sonda_m430.h"
+#include "../sonda/sonda_xv2.h"
 
 namespace stm32 {
 
@@ -186,6 +187,113 @@ private:
         bajo_jtag_ = true;
         pc_ = s_.lee_pc();
         sr_ = s_.lee_reg(2);
+    }
+};
+
+// --- --gdb en Xv2 (5xx/6xx): la sonda de bancada con las secuencias de Xv2 -----------
+// Lo mismo que DbgSondaM430, con el PC de 20 bits, el EEM de 32 y la Flash
+// con las rutinas del Replicator430Xv2 en la RAM del objetivo.
+class DbgSondaXv2 : public m430_dbg_if {
+public:
+    // `info_a`: el segmento A de la información (se desbloquea solo para él)
+    DbgSondaXv2(SondaXv2& s, unsigned disparadores, uint32_t info_a_ini = 0x1980, uint32_t info_a_fin = 0x19FF)
+        : s_(s), n_tb_(disparadores), a_ini_(info_a_ini), a_fin_(info_a_fin) {}
+    bool enganchar() override {
+        if (s_.conecta() != 0x91) return false;
+        return parar_(), true;
+    }
+    bool parado() override {
+        if (bajo_jtag_) return true;
+        if (s_.lee_eem(0x82) & EemM430::E_STOPPED) { parar_(); return true; }
+        return false;
+    }
+    void parar() override { parar_(); }
+    void seguir() override {
+        if (!bajo_jtag_) return;
+        s_.pon_reg(2, sr_);
+        s_.escribe_eem(0x82, (s_.lee_eem(0x82) & 0xFF7Fu) | EemM430::CLEAR_STOP);
+        s_.suelta_en(pc_);
+        bajo_jtag_ = false;
+    }
+    void paso() override {
+        if (!bajo_jtag_) parar_();
+        s_.pon_reg(2, sr_);
+        s_.pon_pc(pc_);
+        s_.un_paso();
+        pc_ = s_.lee_pc();
+        sr_ = uint16_t(s_.lee_reg(2));
+    }
+    uint32_t reg(unsigned r) override {
+        if (r == 0) return pc_;
+        if (r == 2) return sr_;
+        if (r == 3) return 0;
+        return s_.lee_reg(r);
+    }
+    void pon_reg(unsigned r, uint32_t v) override {
+        if (r == 0) { pc_ = v & 0xFFFFEu; return; }
+        if (r == 2) { sr_ = uint16_t(v); return; }
+        if (r == 3) return;
+        s_.pon_reg(r, v & 0xFFFFFu);
+    }
+    uint16_t lee16(uint32_t a) override { return s_.lee(a); }
+    void escribe16(uint32_t a, uint16_t v) override { s_.escribe(a, v); }
+    uint16_t eem_lee(uint8_t d) override { return uint16_t(s_.lee_eem(d)); }
+    void eem_escribe(uint8_t d, uint32_t v) override { s_.escribe_eem(d, v); }
+    unsigned disparadores() const override { return n_tb_; }
+    bool flash_borra(uint32_t a, bool masivo) override {
+        if (!bajo_jtag_) parar_();
+        const uint32_t r = sin_eem_();
+        const bool ok = s_.borra_flash(masivo ? 0xA504 : 0xA502, a, llave(a));
+        s_.escribe_eem(0x80, r);
+        recupera_();
+        return ok;
+    }
+    bool flash_escribe(uint32_t a, const uint16_t* w, unsigned n) override {
+        if (!bajo_jtag_) parar_();
+        const uint32_t r = sin_eem_();
+        const bool ok = s_.escribe_flash(a, w, n, llave(a));
+        s_.escribe_eem(0x80, r);
+        recupera_();
+        return ok;
+    }
+    // El POR por JTAG (SyncJtag_AssertPor); la CPU, en su vector de reset
+    void reset(bool parar) override {
+        s_.sincroniza_por();
+        recupera_();
+        if (!parar) seguir();
+    }
+private:
+    SondaXv2& s_;
+    unsigned n_tb_;
+    uint32_t a_ini_, a_fin_;
+    bool bajo_jtag_ = false;
+    uint32_t pc_ = 0;
+    uint16_t sr_ = 0;
+    uint16_t llave(uint32_t a) const { return (a >= a_ini_ && a <= a_fin_) ? 0xA508 : 0xA548; }
+    // Las rutinas de la Flash corren libres: sin reacciones del EEM y sin su
+    // parada (como la MSPDS, que las corre con el EEM apartado); devuelve
+    // BREAKREACT, para ponerlo luego
+    uint32_t sin_eem_() {
+        const uint32_t r = s_.lee_eem(0x80);
+        s_.escribe_eem(0x80, 0);
+        s_.escribe_eem(0x82, (s_.lee_eem(0x82) & 0xFFFFu & ~uint32_t(EemM430::E_STOPPED)) | EemM430::CLEAR_STOP);
+        s_.pon_reg(2, 0);                       // sin GIE ni CPUOFF (la CPU podía estar en LPM)
+        return r;
+    }
+    void parar_() {
+        if (bajo_jtag_) return;
+        s_.sincroniza();
+        bajo_jtag_ = true;
+        pc_ = s_.lee_pc();
+        sr_ = uint16_t(s_.lee_reg(2));
+    }
+    // Tras un POR (el de las rutinas de la Flash, o `monitor reset`): el PC,
+    // el del vector de reset, como la MSPDS
+    void recupera_() {
+        bajo_jtag_ = true;
+        pc_ = s_.lee(0xFFFE) & 0xFFFEu;
+        s_.pon_pc(pc_);
+        sr_ = uint16_t(s_.lee_reg(2));
     }
 };
 

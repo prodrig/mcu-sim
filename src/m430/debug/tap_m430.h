@@ -58,6 +58,9 @@
 //     estado (IN0RDY, IN1RDY, OUT0RDY, OUT1RDY); detrás, una o dos palabras
 //     de entrada o de salida. El buzón es del SoC (`jmb_*`);
 //   * COREIP_ID (16 bits) y DEVICE_ID (20 bits: el puntero a la TLV);
+//   * EMEX_DATA_EXCHANGE32 (0x0D): el EEM con valores de 32 bits (los de los
+//     disparadores son de 20), y EMEX_READ_CONTROL/EMEX_WRITE_CONTROL, el
+//     GENCTRL directo [MSPDS EemDataExchangeXv2.c];
 //   * TEST_REG con 0x0200 hace un BOR (ReleaseDevice_430Xv2(V_BOR)) y
 //     TEST_3V_REG se acepta;
 //   * la protección por firma de 5xx [UG5 §1.11]: la pone el SoC al
@@ -85,7 +88,7 @@ enum : uint8_t {
     IR430_DATA_16BIT = 0x41, IR430_DATA_CAPTURE = 0x42, IR430_DATA_QUICK = 0x43, IR430_DATA_PSA = 0x44,
     IR430_SHIFT_OUT_PSA = 0x46,
     IR430_EMEX_DATA_EXCHANGE = 0x09, IR430_EMEX_READ_TRIGGER = 0x0A, IR430_EMEX_READ_CONTROL = 0x0B,
-    IR430_EMEX_WRITE_CONTROL = 0x0C,
+    IR430_EMEX_WRITE_CONTROL = 0x0C, IR430_EMEX_DATA_EXCHANGE32 = 0x0D,
     IR430_CNTRL_SIG_HIGH_BYTE = 0x11, IR430_CNTRL_SIG_LOW_BYTE = 0x12, IR430_CNTRL_SIG_16BIT = 0x13, IR430_CNTRL_SIG_CAPTURE = 0x14, IR430_CNTRL_SIG_RELEASE = 0x15,
     IR430_COREIP_ID = 0x17, IR430_PREPARE_BLOW = 0x22, IR430_EX_BLOW = 0x24,
     IR430_TEST_REG = 0x2A, IR430_TEST_3V_REG = 0x2F,
@@ -275,6 +278,7 @@ private:
         case IR430_BYPASS: return 1;
         case IR430_CNTRL_SIG_HIGH_BYTE: case IR430_CNTRL_SIG_LOW_BYTE: return 8;
         case IR430_DEVICE_ID: return xv2_ ? 20 : 16;
+        case IR430_EMEX_DATA_EXCHANGE32: return 32;
         default: return 16;
         }
     }
@@ -291,8 +295,9 @@ private:
             v = mdb_; break;
         case IR430_SHIFT_OUT_PSA: v = psa_; break;
         case IR430_DATA_PSA: v = mdb_; break;
-        case IR430_EMEX_DATA_EXCHANGE:
+        case IR430_EMEX_DATA_EXCHANGE: case IR430_EMEX_DATA_EXCHANGE32:
             v = (emex_fase_ == 1 && (emex_dir_ & 1u) && eem_) ? eem_->lee(uint8_t(emex_dir_ & ~1u)) : 0; break;
+        case IR430_EMEX_READ_CONTROL: case IR430_EMEX_WRITE_CONTROL: v = eem_ ? eem_->lee(0x82) : 0; break;
         case IR430_COREIP_ID: v = xv2_ ? coreip_id : 0; break;
         case IR430_DEVICE_ID: v = xv2_ ? device_id_ptr : 0; break;
         case IR430_JMB_EXCHANGE:
@@ -321,7 +326,7 @@ private:
             psa_dir_ = (cntrl_ & bit_halt()) ? mdb_jtag_ : cpu_->jtag_ultima_busqueda();
             psa_ = uint16_t(psa_dir_);
         }
-        if (ir_ == IR430_EMEX_DATA_EXCHANGE) emex_fase_ = 0;
+        if (ir_ == IR430_EMEX_DATA_EXCHANGE || ir_ == IR430_EMEX_DATA_EXCHANGE32) emex_fase_ = 0;
         if (ir_ == IR430_CNTRL_SIG_RELEASE || ir_ == IR430_BYPASS) {
             // RELEASE (y BYPASS, que lo hace a la vez [JTAG §2.2.4.2.4]): la CPU, libre
             if (cpu_ && (cntrl_ & CS430_TCE1)) { cpu_->jtag_halt(false); cpu_->jtag_control(false); }
@@ -351,6 +356,12 @@ private:
             if (emex_fase_ == 0) { emex_dir_ = uint8_t(v); emex_fase_ = 1; }
             else { if (!(emex_dir_ & 1u) && eem_) eem_->escribe(emex_dir_, uint16_t(v)); emex_fase_ = 0; }
             break;
+        // El de 32 bits (Xv2: los valores de 20 bits de los disparadores) [EemDataExchangeXv2.c]
+        case IR430_EMEX_DATA_EXCHANGE32:
+            if (emex_fase_ == 0) { emex_dir_ = uint8_t(v); emex_fase_ = 1; }
+            else { if (!(emex_dir_ & 1u) && eem_) eem_->escribe(emex_dir_, v); emex_fase_ = 0; }
+            break;
+        case IR430_EMEX_WRITE_CONTROL: if (eem_) eem_->escribe(0x82, uint16_t(v)); break;
         case IR430_JMB_EXCHANGE: if (xv2_) jmb(uint16_t(v)); break;
         case IR430_TEST_REG:
             // 0x0200: el BOR [Replicator430Xv2, ReleaseDevice_430Xv2(V_BOR)]; suelta la CPU

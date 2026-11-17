@@ -16,6 +16,10 @@
 # paso de instrucción, Ctrl-C (SIGINT a GDB) con la CPU en marcha, y que el
 # perro no muerda con la CPU parada (GENCLKCTRL = 0x26, el de la herramienta).
 #
+# Y la MSP-EXP430F5529LP por los dos caminos (M4): --gdb-dap y --gdb, este
+# por SBW con las secuencias de Xv2 (DbgSondaXv2): load en la Flash de 5xx con
+# las rutinas del Replicator430Xv2, ruptura en 0x10000, finish, stepi, Ctrl-C.
+#
 #   python3 verif/g2553/gdb_g2.py [--sim build/mcu-sim] [--gdb msp430-elf-gdb]
 #
 # Sin msp430-elf-gdb, lo dice y sale con 0 (no es una suite con invariante).
@@ -159,27 +163,49 @@ def una(sim, modo, prog, elf, xml):
         check(vivo, "%s: el simulador sigue en pie tras las dos sesiones" % modo)
 
 
-def una_f5(sim, prog):
-    """El F5529LP por --gdb-dap: load en la Flash de 5xx (por encima de 0x10000
-    también) y una ruptura en una función de 0x10000 (modelo grande)"""
+def una_f5(sim, prog, modo):
+    """El F5529LP por --gdb-dap o por los pines (--gdb: la sonda de bancada por
+    SBW con las secuencias de Xv2): load en la Flash de 5xx (por encima de
+    0x10000 también), una ruptura en una función de 0x10000 (modelo grande),
+    finish, stepi y Ctrl-C"""
     elf = os.path.join("verif", "f5529", "elf", "f5_basico.elf")
     pu = puerto_libre()
-    s = Sim(sim, [os.path.join("placas", "msp_exp430f5529lp.xml"), "--gdb-dap"], pu)
+    s = Sim(sim, [os.path.join("placas", "msp_exp430f5529lp.xml"), modo], pu)
+    n = "F5529 %s" % modo
     try:
-        if not check(s.listo, "F5529 --gdb-dap: el stub escucha"):
+        if not check(s.listo, "%s: el stub escucha" % n):
             return
         o = gdb(prog, pu, ["load", "compare-sections", "break arriba", "monitor reset halt", "continue",
-                           "p/x $pc", "p x", "finish"], elf)
+                           "p/x $pc", "p x", "finish", "stepi", "p/x $pc", "p/x $sp"], elf)
+        a = [prog, "-q", "-batch", "-ex", "set remotetimeout 60", "-ex",
+             "target extended-remote localhost:%d" % pu, "-ex", "continue", "-ex", "p/x $pc", elf]
+        g = subprocess.Popen(a, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        time.sleep(4)
+        g.send_signal(signal.SIGINT)
+        try:
+            o2 = g.communicate(timeout=120)[0]
+        except subprocess.TimeoutExpired:
+            g.kill()
+            o2 = g.communicate()[0]
         check("Start address" in o and "MIS-MATCHED" not in o and o.count("matched.") >= 4,
-              "F5529 --gdb-dap: load en la Flash de 5xx (también la de 0x10000) y compare-sections")
+              "%s: load en la Flash de 5xx (también la de 0x10000) y compare-sections" % n)
         check(re.search(r"Breakpoint 1, (0x[0-9a-f]+ in )?arriba \(x=41\)", o) is not None and
               re.search(r"\$1 = 0x10000", o) is not None,
-              "F5529 --gdb-dap: ruptura en arriba(), en 0x10000 (modelo grande), con x = 41")
-        check("Value returned is $3 = 124" in o, "F5529 --gdb-dap: finish devuelve 124")
+              "%s: ruptura en arriba(), en 0x10000 (modelo grande), con x = 41" % n)
+        check("Value returned is $3 = 124" in o, "%s: finish devuelve 124" % n)
+        m = re.findall(r"\$(\d+) = (0x[0-9a-f]+)", o)
+        v = dict((int(k), int(x, 16)) for k, x in m)
+        check(v.get(4) is not None and 0x4400 <= v[4] <= 0x243ff and v.get(5) is not None and 0x2400 <= v[5] <= 0x4400,
+              "%s: stepi: el PC en la Flash y el SP en la RAM" % n)
+        check("Program received signal SIGINT" in o2 and re.search(r"\$1 = 0x[0-9a-f]+", o2) is not None,
+              "%s: Ctrl-C (interrupt) para la CPU en marcha" % n)
         if fallos:
             print(o[-2500:])
+            print(o2[-1500:])
     finally:
+        vivo = s.p.poll() is None
         s.fin()
+        check(vivo, "%s: el simulador sigue en pie tras las dos sesiones" % n)
 
 
 def main():
@@ -196,8 +222,9 @@ def main():
     for modo in ("--gdb-dap", "--gdb"):
         print("\n--- %s ---" % modo)
         una(a.sim, modo, prog, elf, xml)
-    print("\n--- F5529 ---")
-    una_f5(a.sim, prog)
+    for modo in ("--gdb-dap", "--gdb"):
+        print("\n--- F5529 %s ---" % modo)
+        una_f5(a.sim, prog, modo)
     print("\nTOTAL GDB G2: %s" % ("0 fallos" if not fallos else "%d fallos" % fallos))
     return 1 if fallos else 0
 

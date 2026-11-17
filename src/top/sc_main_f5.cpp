@@ -23,6 +23,16 @@
 //   F9  el USB (M5): el simpleUsbBackchannel de TI, su binario tal cual,
 //       enumera por el puente CDC-ACM y lleva datos entre el USB y el
 //       backchannel (UCA1) en los dos sentidos
+//   F10 (TESTF5_SOLO=A) el RTC_A en modo contador: el evento de 8 y de 32
+//       bits, RT0PS y RT1PS encadenados y RTCHOLD
+//   F11 (TESTF5_SOLO=B) CBOUT del Comp_B en P1.6 y en la captura del TA1
+//   F12 (C) lo del USB que no usa la pila de TI: Port U, el temporizador y la
+//       marca de tiempo, la suspensión con RWUP y la sobrecarga del LDO
+//   F13 (D) la sonda de bancada con las secuencias de Xv2 (SondaXv2 y
+//       DbgSondaXv2, lo que hay detrás de --gdb por los pines): SBW en
+//       TEST/RST de un F5529 con f5_basico; la memoria, los registros de 20
+//       bits, el paso, una ruptura del EEM en 0x10000, la Flash con las rutinas
+//       del Replicator430Xv2 y el POR por JTAG
 // =============================================================================
 #include <systemc>
 #include <cmath>
@@ -34,6 +44,7 @@
 #include "soc/msp430/f5529/soc_f5529.h"
 #include "soc/msp430/g2553/soc_g2553.h"
 #include "parts/puente_usb.h"
+#include "m430/gdb/gdb_m430.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -92,6 +103,7 @@ SC_MODULE(TbF5) {
     SocF5529 xs{"repx_sbw"}, xj{"repx_jtag"};
     Cableado c_xsbw = cab_xsbw(xs), c_xjtag = cab_xjtag(xj);
     SocF5529 ts{"f5_sbw", &c_xsbw}, tj{"f5_jtag", &c_xjtag};
+    SocF5529 sx{"f5_sonda"};
     int id_pu_s_ = -1, id_pu_j_ = -1, id_pu_xs_ = -1, id_pu_xj_ = -1;
     SC_CTOR(TbF5) {
         SC_THREAD(run);
@@ -101,7 +113,8 @@ SC_MODULE(TbF5) {
         // Y la de la F5529LP (R10, 47 kohm)
         id_pu_xs_ = ts.rst.register_driver("r10"); ts.rst.set_drive(id_pu_xs_, 3.3f, 47000.0f);
         id_pu_xj_ = tj.rst.register_driver("r10"); tj.rst.set_drive(id_pu_xj_, 3.3f, 47000.0f);
-        for (SocF5529* x : {&xs, &xj, &ts, &tj}) x->monitor_uart = x == &xs || x == &xj;
+        { const int d = sx.rst.register_driver("r10"); sx.rst.set_drive(d, 3.3f, 47000.0f); }
+        for (SocF5529* x : {&xs, &xj, &ts, &tj, &sx}) x->monitor_uart = x == &xs || x == &xj || x == &sx;
     }
     // El Replicator430Xv2 en un F5529 programa otro F5529
     void repx(const char* nombre, SocF5529& f, SocF5529& t, const char* elf, const char* como) {
@@ -333,6 +346,191 @@ SC_MODULE(TbF5) {
         wait(5, SC_MS);
     }
 
+    // F10: el RTC_A en modo contador
+    void f10() {
+        grupo("F10 f5_rtc_cnt.c con la DriverLib: el RTC_A en modo contador, con sus preescaladores");
+        corre("f5_rtc_cnt.elf");
+        // (los tiempos llevan lo que tarda la línea en salir a 9600: ~1 ms por carácter)
+        const bool a0 = espera_uart("A\n", 200);
+        const bool a1 = espera_uart("tev8 ", 200);
+        char t[200];
+        const std::string la = linea(f5.uart_tx, "tev8");
+        std::snprintf(t, sizeof t, "RTCNT de ACLK con el evento de 8 bits: el cuarto RTCTEVIFG deja «%s» (0x400 y lo que tarda en leerlo)", la.c_str());
+        check(a0 && a1 && la.size() == 13 && la.compare(5, 6, "000004") == 0, t);
+        const bool b0 = espera_uart("B\n", 50);
+        const sc_time tb = sc_time_stamp();
+        const bool b1 = espera_uart("ps1 ", 1500);
+        const double d1 = (sc_time_stamp() - tb).to_seconds();
+        const bool b2 = espera_uart("tev32 ", 1500);
+        const double d2 = (sc_time_stamp() - tb).to_seconds();
+        std::snprintf(t, sizeof t, "la cadena ACLK/256/128 a 1 Hz: RT1PSIFG a %.3f s con «%s», y el desborde de 32 bits a %.3f s con «%s»",
+                      d1, linea(f5.uart_tx, "ps1").c_str(), d2, linea(f5.uart_tx, "tev32").c_str());
+        check(b0 && b1 && b2 && linea(f5.uart_tx, "ps1") == "ps1 FFFFFFFF" && linea(f5.uart_tx, "tev32") == "tev32 00000000" &&
+              std::fabs(d1 - 1.0) < 0.02 && std::fabs(d2 - 2.0) < 0.02, t);
+        const bool c = espera_uart("hold ", 3000);
+        check(c && linea(f5.uart_tx, "hold") == "hold ok", "RTCHOLD para el contador (" + linea(f5.uart_tx, "hold") + ")");
+    }
+
+    // F11: CBOUT en P1.6 y en la captura del Timer1_A3
+    void f11() {
+        grupo("F11 f5_cbout.c: CBOUT del Comp_B en P1.6 y en la captura CCI1B del Timer1_A3");
+        corre("f5_cbout.elf");
+        AnalogNet* cb0 = dynamic_cast<AnalogNet*>(&f5.p(6, 0));
+        const int d = cb0->register_driver("banco_cbout");
+        cb0->set_drive(d, 1.0f, 10.0f);
+        const bool listo = espera_uart("listo", 200);
+        const bool bajo = f5.p(1, 6).voltage() < 0.3f;
+        cb0->set_drive(d, 2.0f, 10.0f);
+        wait(5, SC_US);
+        const bool alto = f5.p(1, 6).voltage() > 3.0f;
+        wait(995, SC_US);                                  // 1 ms arriba
+        cb0->set_drive(d, 1.0f, 10.0f);
+        wait(5, SC_US);
+        const bool bajo2 = f5.p(1, 6).voltage() < 0.3f;
+        check(listo && bajo && alto && bajo2, "P1.6 (SEL y DIR) sigue a CBOUT: abajo, arriba con CB0 a 2,0 V y abajo otra vez");
+        const bool cap = espera_uart("cap ", 100);
+        const std::string l = linea(f5.uart_tx, "cap");
+        const long us = cap ? std::strtol(l.c_str() + 4, nullptr, 10) : -1;
+        char t[160];
+        std::snprintf(t, sizeof t, "TA1 captura los dos flancos de CBOUT por CCI1B: %ld ciclos de SMCLK entre ellos (1 ms a 1,05 MHz)", us);
+        check(cap && us > 1000 && us < 1100, t);
+        cb0->set_hiz(d);
+    }
+
+    // F12: lo del módulo USB que no usa la pila de TI
+    void f12() {
+        grupo("F12 f5_usb_hw.c: Port U, el temporizador y la marca de tiempo de USB, RWUP y la sobrecarga del LDO");
+        f5.usb.vbus(true);
+        corre("f5_usb_hw.elf");
+        char t[200];
+        const bool s0 = espera_uart("pu sale", 200);
+        const float v0 = f5.pu0.voltage(), v1 = f5.pu1.voltage();
+        std::snprintf(t, sizeof t, "Port U como salidas (PUOPE): PU.0 a %.2f V y PU.1 a %.2f V (PUOUT0 = 1, PUOUT1 = 0)", v0, v1);
+        check(s0 && v0 > 3.0f && v1 < 0.3f, t);
+        const bool s1 = espera_uart("pu entra", 200);
+        AnalogNet* p0 = dynamic_cast<AnalogNet*>(&f5.pu0);
+        AnalogNet* p1 = dynamic_cast<AnalogNet*>(&f5.pu1);
+        const int d0 = p0->register_driver("banco_pu0"), d1 = p1->register_driver("banco_pu1");
+        p0->set_drive(d0, 0.0f, 50.0f); p1->set_drive(d1, 3.3f, 50.0f);
+        const bool s2 = espera_uart("puin", 100);
+        check(s1 && s2 && linea(f5.uart_tx, "puin") == "puin 08", "Port U como entradas (PUIPE): PUIN0 = 0 y PUIN1 = 1 (" + linea(f5.uart_tx, "puin") + ")");
+        p0->set_hiz(d0); p1->set_hiz(d1);
+        espera_uart("pll", 100);
+        const bool s3 = espera_uart("ut ", 100);
+        const long ut = std::strtol(linea(f5.uart_tx, "ut ").c_str() + 3, nullptr, 10);
+        const bool s4 = espera_uart("ts ", 100);
+        const long ts = std::strtol(linea(f5.uart_tx, "ts ").c_str() + 3, nullptr, 10);
+        const bool s5 = espera_uart("tsdma ", 100);
+        const long td = std::strtol(linea(f5.uart_tx, "tsdma").c_str() + 6, nullptr, 10);
+        std::snprintf(t, sizeof t, "el temporizador de USB: %ld UTIFG en ~2 ms con UTSEL 5 (128 us), PLL «%s»", ut, linea(f5.uart_tx, "pll").c_str());
+        // (la RSI alarga el bucle de espera: entre 15 y 30 son de 2 a 4 ms)
+        check(s3 && ut >= 15 && ut <= 30 && linea(f5.uart_tx, "pll") == "pll 00", t);
+        std::snprintf(t, sizeof t, "la marca de tiempo a 16 MHz: %ld cuentas entre dos TSE3 (~100 us) y %ld hasta el disparo del DMA0 (~210 us)", ts, td);
+        check(s4 && s5 && ts > 1500 && ts < 2000 && td > 3000 && td < 4000, t);
+        const bool s6 = espera_uart("susp listo", 200);
+        // Un anfitrión que deja de mandar SOF y vuelve con la reanudación remota
+        bool despierto = false;
+        f5.usb.al_rwup = [&despierto] { despierto = true; };
+        for (unsigned k = 0; k < 4; ++k) { f5.usb.sof(uint16_t(k)); wait(1, SC_MS); }
+        auto linea_entera = [this](const char* c) {
+            const size_t i = f5.uart_tx.find(c);
+            return i != std::string::npos && f5.uart_tx.find('\n', i) != std::string::npos;
+        };
+        for (unsigned k = 4; k < 80 && !linea_entera("susr"); ++k) {
+            if (despierto) f5.usb.sof(uint16_t(k));
+            wait(1, SC_MS);
+        }
+        const unsigned rwup = f5.usb.reanudaciones_remotas();
+        f5.usb.al_rwup = nullptr;
+        const bool s7 = linea_entera("susr");
+        std::snprintf(t, sizeof t, "3 ms sin SOF: SUSRIFG; el programa pide RWUP y el anfitrión ve %u reanudación remota: RESRIFG («%s»)",
+                      rwup, linea(f5.uart_tx, "susr").c_str());
+        check(s6 && s7 && linea(f5.uart_tx, "susr") == "susr 1 resr 1" && rwup == 1, t);
+        const bool s8 = espera_uart("ovl listo", 100);
+        f5.usb.sobrecarga(true);
+        const bool s9 = espera_uart("ovl vusben", 50);
+        check(s8 && s9 && linea(f5.uart_tx, "ovl vusben") == "ovl vusben 0",
+              "un corto en VUSB: VUOVLIFG por USBVECINT y, con OVLAOFF, VUSBEN a 0 (" + linea(f5.uart_tx, "ovl vusben") + ")");
+        f5.usb.vbus(false);
+    }
+
+    // F13: la sonda de Xv2 por SBW, sin GDB por medio
+    void f13() {
+        grupo("F13 la sonda de bancada con las secuencias de Xv2 (SondaXv2, DbgSondaXv2) por SBW");
+        sx.reset(true);
+        sx.carga(std::string(DIR) + "f5_basico.elf");
+        sx.reset(false);
+        // f5_basico hasta su bucle en LPM0 (con la RSI del TA0 cada ms)
+        for (int i = 0; i < 2000 && sx.uart_tx.find("ta0 10 ms") == std::string::npos; ++i) wait(1, SC_MS);
+        wait(2, SC_MS);
+        SondaM430::Pines p; p.test = &sx.test; p.rst = &sx.rst;
+        SondaM430 h(p, SondaM430::Modo::Sbw);
+        SondaXv2 s(h, 0x2400);
+        DbgSondaXv2 d(s, sx.eem.disparadores());
+        char t[200];
+        const bool eng = d.enganchar();
+        const uint32_t pc = d.reg(0);
+        const uint32_t sr = d.reg(2);
+        std::snprintf(t, sizeof t, "conecta (JTAG ID 0x91) y toma la CPU dormida en LPM0: PC = 0x%05X, SR = 0x%04X (CPUOFF y GIE)",
+                      unsigned(pc), unsigned(sr));
+        check(eng && sx.nucleo.en_tclk() && pc >= 0x4400 && pc < 0x24400 && (sr & 0x0018) == 0x0018, t);
+        d.escribe16(0x2400, 0xBEEF);
+        const uint16_t r = d.lee16(0x2400);
+        std::snprintf(t, sizeof t, "la RAM por JTAG: 0xBEEF escrito y leído (0x%04X); la TLV: 0x%04X en 0x1A04 (el ID 0x5529)", r, d.lee16(0x1A04));
+        check(r == 0xBEEF && d.lee16(0x1A04) == 0x2955 && sx.mem16(0x2400) == 0xBEEF, t);
+        d.pon_reg(12, 0xABCDE);
+        d.pon_reg(5, 0x01234);
+        const uint32_t r12 = d.reg(12), r5 = d.reg(5), pc2 = d.reg(0);
+        std::snprintf(t, sizeof t, "los registros de 20 bits: R12 = 0x%05X, R5 = 0x%05X (MOVA por JTAG), y el PC sigue (0x%05X)",
+                      unsigned(r12), unsigned(r5), unsigned(pc2));
+        check(r12 == 0xABCDE && r5 == 0x01234 && sx.nucleo.cpu.reg(12) == 0xABCDE && pc2 == pc, t);
+        // El paso: un MOV #imm,R4 escrito en la RAM
+        d.escribe16(0x2500, 0x4034); d.escribe16(0x2502, 0x1357); d.escribe16(0x2504, 0x3FFF);
+        d.pon_reg(0, 0x2500);
+        d.paso();
+        std::snprintf(t, sizeof t, "un paso: MOV #0x1357,R4 en 0x2500; PC = 0x%05X, R4 = 0x%04X",
+                      unsigned(d.reg(0)), unsigned(d.reg(4)));
+        check(d.reg(0) == 0x2504 && d.reg(4) == 0x1357, t);
+        // Una ruptura en arriba() (0x10000) con el disparador 0 del EEM, como el Z1 de GDB
+        d.reset(true);
+        const uint32_t v = d.reg(0);
+        std::snprintf(t, sizeof t, "el POR por JTAG (SyncJtag_AssertPor): el PC en el vector de reset, 0x%05X", unsigned(v));
+        check(v == sx.mem16(0xFFFE), t);
+        d.eem_escribe(0x00, 0x10000);                      // MBTRIGx_VAL
+        d.eem_escribe(0x02, 0x0000);                       // CTL: búsqueda, MAB, ==
+        d.eem_escribe(0x04, 0x0000);                       // MSK
+        d.eem_escribe(0x06, 0x0001);                       // CMB
+        d.eem_escribe(0x80, 0x0001);                       // BREAKREACT
+        d.eem_escribe(0x82, 0x0001 | 0x0002);              // EEM_EN | CLEAR_STOP
+        d.seguir();
+        bool par = false;
+        for (int i = 0; i < 400 && !(par = d.parado()); ++i) wait(1, SC_MS);
+        std::snprintf(t, sizeof t, "la ruptura del EEM en arriba() (0x10000): parada con E_STOPPED, PC = 0x%05X, R12 = %u",
+                      unsigned(d.reg(0)), unsigned(d.reg(12)));
+        check(par && d.reg(0) == 0x10000 && d.reg(12) == 41, t);
+        d.eem_escribe(0x80, 0);
+        // La Flash: un segmento de la principal y la información B con las rutinas de TI
+        const uint16_t w[4] = {0x1111, 0x2222, 0x3333, 0x4444};
+        const bool b1 = d.flash_borra(0x1880, false);
+        const bool e1 = d.flash_escribe(0x1880, w, 4);
+        const uint16_t a = d.lee16(0x1880), b = d.lee16(0x1886);
+        std::snprintf(t, sizeof t, "la Flash (información B) con FlashErase_o/FlashWrite_o en la RAM del objetivo y el JMB: 0x%04X ... 0x%04X", a, b);
+        check(b1 && e1 && a == 0x1111 && b == 0x4444 && sx.mem16(0x1882) == 0x2222, t);
+        const uint16_t w2[2] = {0x5A5A, 0xA5A5};
+        const bool b2 = d.flash_borra(0x20000, false);
+        const bool e2 = d.flash_escribe(0x20000, w2, 2);
+        std::snprintf(t, sizeof t, "y por encima de 0x10000: 0x20000 = 0x%04X, 0x20002 = 0x%04X, 0x201FE borrado (0x%04X)",
+                      d.lee16(0x20000), d.lee16(0x20002), d.lee16(0x201FE));
+        check(b2 && e2 && d.lee16(0x20000) == 0x5A5A && d.lee16(0x20002) == 0xA5A5 && d.lee16(0x201FE) == 0xFFFF, t);
+        // Y suelta: f5_basico desde el reset, por el backchannel
+        sx.uart_tx.clear();
+        d.reset(false);
+        h.desconecta();
+        for (int i = 0; i < 2000 && sx.uart_tx.find("arriba") == std::string::npos; ++i) wait(1, SC_MS);
+        check(sx.uart_tx.find("arriba") != std::string::npos && !sx.nucleo.parado(),
+              "monitor reset (sin parar) y suelta: f5_basico vuelve a arrancar y escribe por la UCA1");
+    }
+
     // Espera a que salga `c` por la UART, como mucho `ms`
     // (y el resto de su línea)
     bool espera_uart(const char* c, int ms) {
@@ -376,6 +574,10 @@ SC_MODULE(TbF5) {
         if (va('7')) f7();
         if (va('8')) f8();
         if (va('9')) f9();
+        if (va('A')) f10();
+        if (va('B')) f11();
+        if (va('C')) f12();
+        if (va('D')) f13();
         std::printf("\nTOTAL F5: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

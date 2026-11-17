@@ -1407,9 +1407,30 @@ antes el tiempo local (el SBW del Replicator), la espera del núcleo ya no
 pierde el aviso que llega mientras se sincroniza, y R3 como origen de
 ADDA/SUBA/CMPA es #2 (el DECDA/INCDA de 2 bytes de CCS).
 
-**Queda:** `--gdb` por los pines para el F5529 (la sonda de bancada aún habla
-1xx; con `--gdb-dap` hay GDB), el modo contador del RTC_A y CBOUT hacia los
-pines y el Timer. El JSTATE es de FRAM (M6).
+**Lo que quedaba, hecho (17-11-2026):**
+* `--gdb` por los pines en el F5529: `m430/sonda/sonda_xv2.h` (`SondaXv2`)
+  habla Xv2 sobre el HIL de la sonda de bancada, con las secuencias del
+  Replicator430Xv2 (SyncJtag_AssertPor, ExecutePOR, SetPC, ReadMem,
+  WriteMem, ReleaseDevice; la Flash con FlashErase_o/FlashWrite_o en la RAM
+  del objetivo y el JMB) y las de la MSPDS para los registros (MOVA por
+  JTAG) y el EEM de 32 bits (EMEX_DATA_EXCHANGE32, que el TAP ya entiende,
+  con EMEX_READ_CONTROL/WRITE_CONTROL). `DbgSondaXv2` (en `gdb_m430.h`) es
+  el camino de GDB y `stub_pines()` lo cuelga del F5529 por SBW en
+  TEST/RST. F13 de `testf5` la prueba sin GDB (la CPU dormida en LPM0, los
+  registros de 20 bits, el paso, una ruptura del EEM en 0x10000, la Flash
+  baja y la de encima de 0x10000, el POR) y `make gdb-g2` con el GDB de
+  verdad (load, ruptura en 0x10000, finish, stepi, Ctrl-C). Dos arreglos de
+  Xv2 en el núcleo: suspendida en la búsqueda ya no debe ciclos de la
+  instrucción anterior, y bajo JTAG CPUOFF no la duerme [de modelo: TCLK es
+  MCLK]. [de modelo] Sin la cola de búsqueda de la CPUXv2, el PC es el MAB
+  (la MSPDS le resta 4) y la sonda devuelve el PC con SetPC tras cada MOVA;
+* el RTC_A en modo contador (RT0PS y RT1PS encadenados desde ACLK o SMCLK,
+  RTCNT de 8 a 32 bits con RTCTEV, RTCHOLD, RT0PSIFG y RT1PSIFG): F10;
+* CBOUT del Comp_B en P1.6 (con SEL y DIR) y en CCI1B del Timer1_A3, y las
+  entradas de reloj de los Timer_A (TA0CLK en P1.0, TA1CLK en P1.6, TA2CLK en
+  P2.2): F11.
+
+El JSTATE es de FRAM (M6).
 
 ### M5 · F5529: USB
 
@@ -1435,8 +1456,15 @@ listo (un PC pide IN sin parar), y dos arreglos de fuera del USB: un canal
 de DMA desarmado ya no deja la CPU esperando, y el núcleo no pierde el fin
 de una espera.
 
-**Queda [de modelo]:** los isócronos, el temporizador y la marca de tiempo
-de USB, la reanudación remota y el LDO con sus sobrecargas.
+**Lo que quedaba, hecho (17-11-2026):** F12 de `testf5` (`f5_usb_hw.c`):
+Port U como GPIO (PUOPE, PUIPE, PUOUT, PUIN, con el carril de VUSB); el
+temporizador de USB a 16 MHz con UTSEL y UTIFG, puesto a cero por SOF; la
+marca de tiempo (USBTSREG) con TSE3 y con el disparo del DMA; la suspensión
+sin SOF y la reanudación remota (RWUP, que el anfitrión ve y contesta con
+RESRIFG); y la sobrecarga del LDO (VUOVLIFG y, con OVLAOFF, VUSBEN a 0).
+Los isócronos no son del MSP430: el módulo USB del F5529 solo tiene control,
+bulk e interrupción [UG5 cap. 42]. **Queda [de modelo]:** la reanudación
+remota la contesta el anfitrión al momento.
 
 **Además**, M5 es la base de dos cosas:
 * el BSL USB (M9);

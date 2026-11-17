@@ -6,8 +6,9 @@
 //   * los PINES son P1.0…P8.7 y PJ.0…PJ.3 (el JTAG de 4 hilos);
 //   * --gdb-dap: el stub contra el núcleo, con el programador de la Flash de
 //     5xx (512 B en la principal, hasta 0x243FF; 128 B en la información);
-//   * --gdb por los pines (el JTAG de Xv2) queda para cuando la sonda de
-//     bancada hable Xv2: hasta entonces, --gdb-dap;
+//   * --gdb por los pines: la sonda de bancada por SBW en TEST/RST, con las
+//     secuencias de Xv2 (`SondaXv2`, `DbgSondaXv2`) y la Flash por las
+//     rutinas del Replicator430Xv2 en la RAM del objetivo;
 //   * `usb=<destino>` (M5): un PC en PU.0/PU.1 que enumera el CDC-ACM del
 //     firmware (la pila USB de TI) y lo lleva a un canal serie, como en el
 //     F303 y el MSP432E4. Con él hay VBUS.
@@ -90,7 +91,8 @@ public:
         }
     }
     ~McuF5529() override {
-        puente_usb_.reset(); gdb_.reset(); directo_.reset();
+        puente_usb_.reset(); gdb_.reset(); gdb_pines_.reset(); dbg_sonda_.reset(); sonda_xv2_.reset(); sonda_.reset();
+        directo_.reset();
         delete chip_;
         for (AnalogNet* n : propios_) delete n;
     }
@@ -106,9 +108,8 @@ public:
                  }}};
     }
     std::vector<std::string> limitaciones() const override {
-        return {"el RTC_A, solo en modo calendario; el USB, sin isocronos ni reanudacion remota",
-                "el BSL de Flash no esta (M9); con el vector de reset borrado, el chip no arranca nada",
-                "--gdb por los pines (JTAG de Xv2) aun no: use --gdb-dap"};
+        return {"el USB: la reanudacion remota la contesta el anfitrion al momento",
+                "el BSL de Flash no esta (M9); con el vector de reset borrado, el chip no arranca nada"};
     }
 
     void registra_nodos(const std::string& prefijo, NodeMap& n) override {
@@ -200,6 +201,18 @@ public:
         gdb_->set_verbose(traza);
         gdb_->set_enabled(activo);
     }
+    // --gdb: el stub por los pines, sobre la sonda de bancada por SBW en
+    // TEST/RST con las secuencias de Xv2 (m430/sonda/sonda_xv2.h)
+    GdbRspBase* stub_pines(const std::string& nombre, unsigned puerto) override {
+        SondaM430::Pines p; p.test = &chip_->test; p.rst = &chip_->rst;
+        sonda_.reset(new SondaM430(p, SondaM430::Modo::Sbw));
+        sonda_xv2_.reset(new SondaXv2(*sonda_, 0x2400));
+        dbg_sonda_.reset(new DbgSondaXv2(*sonda_xv2_, chip_->eem.disparadores()));
+        gdb_pines_.reset(new GdbStubM430(nombre.c_str(), *dbg_sonda_, puerto, "gdb-pines"));
+        gdb_pines_->pon_flash_5xx(0x4400, 0x243FF, 0x1800, 0x19FF);
+        gdb_pines_->set_enabled(false);
+        return gdb_pines_.get();
+    }
 
 private:
     SocF5529* chip_;
@@ -210,7 +223,10 @@ private:
     int d_dvcc_ = -1, d_dvss_ = -1, d_rst_ = -1;
     bool externa_ = false;
     std::unique_ptr<DbgDirectoM430> directo_;
-    std::unique_ptr<GdbStubM430> gdb_;
+    std::unique_ptr<GdbStubM430> gdb_, gdb_pines_;
+    std::unique_ptr<SondaM430> sonda_;
+    std::unique_ptr<SondaXv2> sonda_xv2_;
+    std::unique_ptr<DbgSondaXv2> dbg_sonda_;
     std::unique_ptr<PuenteUsbCdc> puente_usb_;
 
     void poke16(uint32_t a, uint16_t v) { chip_->poke(a, uint8_t(v)); chip_->poke(a + 1, uint8_t(v >> 8)); }

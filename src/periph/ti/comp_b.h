@@ -14,8 +14,11 @@
 //   * los canales son 16; el F5529 saca CB0-CB7 en P6.0-P6.7 y CB8-CB11 en
 //     P7.0-P7.3 [DS SLAS590P, «Terminal Functions»].
 //
-// LO QUE NO ESTÁ: CBOUT hacia P1.6 y hacia la captura del Timer1_A3 (CCI1B),
-// y los mismos huecos que el Comp_E (SHORT, los modos de consumo).
+// CBOUT (`salida`) lo lleva el SoC a P1.6 (SEL y DIR a 1) y a la captura
+// CCI1B del Timer1_A3.
+//
+// LO QUE NO ESTÁ: los mismos huecos que el Comp_E (SHORT, los modos de
+// consumo).
 // =============================================================================
 #ifndef STM32_PERIPH_TI_COMP_B_H
 #define STM32_PERIPH_TI_COMP_B_H
