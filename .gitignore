@@ -64,9 +64,13 @@ trace/
 !src/verif/m430/elf/*.elf
 !src/verif/g2553/elf/*.elf
 !src/verif/f5529/elf/*.elf
-# Y los de las FR2xx/FR4xx (M6, M7): testfr2 y testfr4 (el de la FR2433 faltaba)
+# Y los de las FR2xx/FR4xx (M6, M7): testfr2, testfr4, testfr2311, testfr2355 y
+# testfr2476 (el de la FR2433 faltaba)
 !src/verif/fr2433/elf/*.elf
 !src/verif/fr4133/elf/*.elf
+!src/verif/fr2311/elf/*.elf
+!src/verif/fr2355/elf/*.elf
+!src/verif/fr2476/elf/*.elf
 # Las tablas de la ROM R1: las genera rom_r1/gen_tablas.py a partir de rom.h
 src/verif/fw/msp432p4/rom_r1/tablas.c
 src/verif/fw/msp432e4/rom_r1/tablas.c

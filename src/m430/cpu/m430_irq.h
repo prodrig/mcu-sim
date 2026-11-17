@@ -27,6 +27,8 @@ struct m430_irq_if {
     virtual ~m430_irq_if() = default;
     virtual uint16_t pendiente(bool gie) = 0;
     virtual void acepta(uint16_t vector) = 0;
+    // RETI ejecutada (el ICC de las FR235x saca su pila virtual) [UG FR2 §5.2.5]
+    virtual void al_reti() {}
 };
 
 } // namespace stm32

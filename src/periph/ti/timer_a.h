@@ -32,6 +32,14 @@
 // que es la rareza conocida del silicio. [TRM, «Output Example—Timer in Up
 // Mode»; P-16 r]
 //
+// EL TIMER_B (caps.es_b) [UG FR2 SLAU445I cap. 14]: los mismos registros en
+// los mismos sitios, con lo suyo: TBxCCRn es un registro que pasa al latch
+// de comparación TBxCLn según CLLD (en el acto; cuando TBxR cuenta a 0;
+// cuando cuenta a 0 o, en ascendente/descendente, a TBxCL0; o cuando llega
+// al TBxCLn de antes), CNTL acorta el contador en modo continuo (8, 10, 12 o
+// 16 bits) y no hay SCCI. TBCLGRP (los latches en grupo) no está [de
+// modelo]: cada latch carga por su CLLD.
+//
 // LO QUE NO ESTÁ: las entradas CCInB internas (ACLK, las salidas de los
 // comparadores...) y INCLK no están conectadas: leen 0. [P-16 r]
 // =============================================================================
@@ -51,6 +59,12 @@ struct TimerACaps {
     unsigned ncc = 5;              // 2, 3, 5 o 7 (el 7, para el Timer_B)
     uint16_t iv_taifg = 0x0E;      // el valor de TAxIV para TAIFG (0x0A en el TA3 de 2xx)
     bool     ex0 = true;           // TAxEX0 (no en 1xx/2xx)
+    // El TIMER_B (M7): los latches de comparación TBxCLn con su CLLD, la
+    // longitud del contador (CNTL) y sin SCCI [UG FR2 SLAU445I cap. 14]
+    bool     es_b = false;
+    // TB25 [SLAZ679R]: en modo ascendente, con CLLD = 01 o 10 TBxCCRn pasa a
+    // TBxCLn en el acto (no al llegar a 0)
+    bool     tb25 = false;
 };
 
 class TimerAP4 : public Bus16P4 {
@@ -117,6 +131,14 @@ protected:
     TimerACaps caps_;
     unsigned nc_;
     uint16_t ctl_ = 0, ex0_ = 0, cctl_[NCC] = {}, ccr_[NCC] = {};
+    uint16_t tbccr_[NCC] = {};                   // Timer_B: TBxCCRn (ccr_ es el latch TBxCLn)
+    unsigned clld(unsigned n) const { return (cctl_[n] >> 9) & 3u; }
+    // Timer_B: el techo del modo continuo (CNTL)
+    uint32_t tope() const {
+        if (!caps_.es_b) return 0xFFFFu;
+        static const uint32_t T[4] = {0xFFFFu, 0x0FFFu, 0x03FFu, 0x00FFu};
+        return T[(ctl_ >> 11) & 3u];
+    }
     // El estado anclado: TAR y sentido en el tic `t_ref_`
     uint16_t tar_ = 0;
     bool     baja_ = false;                      // up/down: contando hacia abajo
@@ -143,7 +165,7 @@ protected:
     void reset_proc() {
         if (rst_n.read()) return;
         ctl_ = 0; ex0_ = 0;
-        for (unsigned n = 0; n < nc_; ++n) { cctl_[n] = 0; ccr_[n] = 0; o_out_[n] = false; }
+        for (unsigned n = 0; n < nc_; ++n) { cctl_[n] = 0; ccr_[n] = 0; tbccr_[n] = 0; o_out_[n] = false; }
         tar_ = 0; baja_ = false; div_ext_ = 0;
         t_ref_ = sc_core::sc_time_stamp(); f_ = 0.0;
         actualiza_irq();
@@ -183,8 +205,10 @@ protected:
                 return ((uint64_t(v) + p - tar_ - 1u) % p) + 1u;
             }
             case 2: {                                   // continuo
-                const uint64_t d = (uint64_t(v) + 65536u - tar_) % 65536u;
-                return d ? d : 65536u;
+                const uint64_t m = uint64_t(tope()) + 1u;
+                if (v >= m) return 0;
+                const uint64_t d = (uint64_t(v) + m - tar_) % m;
+                return d ? d : m;
             }
             case 3: {                                   // ascendente/descendente
                 if (v > c) return 0;
@@ -210,7 +234,7 @@ protected:
                 tar_ = uint16_t((uint64_t(tar_) + k) % (c + 1u));
                 break;
             case 2:
-                tar_ = uint16_t((uint64_t(tar_) + k) % 65536u);
+                tar_ = uint16_t((uint64_t(tar_) + k) % (uint64_t(tope()) + 1u));
                 break;
             case 3: {
                 const uint64_t P = 2u * c;
@@ -231,7 +255,7 @@ protected:
         auto mira = [&](uint64_t d) { if (d && (!m || d < m)) m = d; };
         mira(distancia(ccr_[0]));
         for (unsigned n = 1; n < nc_; ++n) if (!cap(n)) mira(distancia(ccr_[n]));
-        if (mc() == 2) mira(distancia(0xFFFF));
+        if (mc() == 2) mira(distancia(uint16_t(tope())));
         return m;
     }
 
@@ -243,7 +267,7 @@ protected:
         bool taifg = false;
         if (tar_ == 0) {
             if (mc() == 1 && antes != 0) taifg = true;
-            if (mc() == 2 && antes == 0xFFFF) taifg = true;
+            if (mc() == 2 && antes == tope()) taifg = true;
             if (mc() == 3 && antes == 1) taifg = true;
         }
         if (mc() == 3 && c == 0) taifg = false;
@@ -255,8 +279,8 @@ protected:
             if (!equ[n]) continue;
             ++n_cmp_;
             cctl_[n] |= CC_IFG;
-            // SCCI: la entrada, retenida en la comparación
-            if (entrada(n)) cctl_[n] |= CC_SCCI; else cctl_[n] &= uint16_t(~CC_SCCI);
+            // SCCI: la entrada, retenida en la comparación (el Timer_B no tiene)
+            if (!caps_.es_b) { if (entrada(n)) cctl_[n] |= CC_SCCI; else cctl_[n] &= uint16_t(~CC_SCCI); }
             cambio = true;
         }
         for (unsigned n = 0; n < nc_; ++n) {
@@ -280,7 +304,23 @@ protected:
             pon_salida(n, o);
         }
         if (taifg) { ctl_ |= IFG; cambio = true; }
+        if (caps_.es_b) carga_latches(equ);
         if (cambio) actualiza_irq();
+    }
+    // Timer_B: TBxCCRn al latch TBxCLn, según CLLD [UG FR2 §14.2.4.2]
+    void carga_latches(const bool* equ) {
+        bool c0 = false;
+        for (unsigned n = 0; n < nc_; ++n) {
+            bool carga = false;
+            switch (clld(n)) {
+                case 1: carga = tar_ == 0; break;
+                case 2: carga = tar_ == 0 || (mc() == 3 && tar_ == ccr_[0]); break;
+                case 3: carga = equ[n]; break;
+                default: break;
+            }
+            if (carga && ccr_[n] != tbccr_[n]) { ccr_[n] = tbccr_[n]; if (n == 0) c0 = true; }
+        }
+        if (c0) ancla_frecuencia();
     }
     void pon_salida(unsigned n, bool o) {
         if (o == o_out_[n]) return;
@@ -359,6 +399,7 @@ protected:
         ++n_cap_;
         if (cctl_[n] & CC_IFG) cctl_[n] |= CC_COV;
         ccr_[n] = tar_;
+        tbccr_[n] = tar_;
         cctl_[n] |= CC_IFG;
         actualiza_irq();
     }
@@ -408,7 +449,7 @@ protected:
             return v;
         }
         if (off == 0x10) { al_dia(); return tar_; }
-        if (off >= 0x12 && off < 0x12 + 2 * nc_) return ccr_[(off - 0x12) / 2];
+        if (off >= 0x12 && off < 0x12 + 2 * nc_) return caps_.es_b ? tbccr_[(off - 0x12) / 2] : ccr_[(off - 0x12) / 2];
         if (off == 0x20) return caps_.ex0 ? ex0_ : 0;
         if (off == 0x2E) return iv(dbg);
         return 0;
@@ -418,7 +459,7 @@ protected:
         al_dia();
         if (off == 0x00) {
             const uint16_t nuevo = mz(ctl_);
-            ctl_ = uint16_t(nuevo & 0x03F3u);            // TACLR no se guarda
+            ctl_ = uint16_t(nuevo & (caps_.es_b ? 0x7BF3u : 0x03F3u));   // TACLR no se guarda (el B: TBCLGRP y CNTL)
             if (nuevo & CLR) { tar_ = 0; baja_ = false; div_ext_ = 0; }
             // TAR cuando se arranca en up/down por debajo: sube
             ancla_frecuencia();
@@ -440,7 +481,13 @@ protected:
             tar_ = mz(tar_);
             t_ref_ = sc_core::sc_time_stamp();
         } else if (off >= 0x12 && off < 0x12 + 2 * nc_) {
-            ccr_[(off - 0x12) / 2] = mz(ccr_[(off - 0x12) / 2]);
+            const unsigned n = (off - 0x12) / 2;
+            if (caps_.es_b) {
+                tbccr_[n] = mz(tbccr_[n]);
+                // CLLD = 0: el latch, en el acto; si no, en su evento (salvo TB25)
+                const bool tb25 = caps_.tb25 && mc() == 1 && (clld(n) == 1 || clld(n) == 2);
+                if (clld(n) == 0 || tb25) ccr_[n] = tbccr_[n];
+            } else ccr_[n] = mz(ccr_[n]);
             if (off == 0x12) ancla_frecuencia();     // CCR0 = 0 para o arranca
         } else if (off == 0x20 && caps_.ex0) {
             ex0_ = uint16_t(mz(ex0_) & 7u);

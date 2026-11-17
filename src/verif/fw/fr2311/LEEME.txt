@@ -1,0 +1,8 @@
+OutOfBox_MSP430FR2311.txt: el binario TI-TXT de la demo de fábrica de la
+MSP-EXP430FR2311, TAL CUAL (MSP-EXP430FR2311 Software Examples,
+Firmware/Binary/OutOfBox_MSP430FR2311; los fuentes, en Firmware/Source, son
+BSD de TI). Mide la luz con el fotodiodo D1 y el SAC0 de la FR2311 en
+transimpedancia (R3 2,37 Mohm de OA0O a OA0-), la lee con el ADC y la pasa
+al LED1 como PWM con el Timer_B (0 lx, apagado; 300 lx, casi del todo
+encendido). Lo usa testfr2311 H3 con la parte Fotodiodo (M7 de
+doc/analisis_msp430.md).

@@ -1,0 +1,9 @@
+OutOfBox_LP-MSP430FR2476.txt: el binario TI-TXT de la demo de fábrica de la
+LP-MSP430FR2476, TAL CUAL (LP-MSP430FR2476 Software Examples,
+Firmware/Binary/OutOfBox_LP-MSP430FR2476; los fuentes, en Firmware/Source,
+son BSD de TI). Mide el TMP235 (U1) por A1 con la referencia de 1,5 V, cada
+vez que TA1.1 dispara el ADC; calibra al arrancar y pinta en el LED RGB la
+diferencia (verde igual, rojo más caliente, azul más frío) con un PWM por
+programa desde TB0 CCR0; S1 recalibra y S2 manda la temperatura por la UCA0
+a 9600. Lo usa testfr2476 K3 con la parte Tmp235 (M7 de
+doc/analisis_msp430.md).

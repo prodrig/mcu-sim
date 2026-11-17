@@ -52,6 +52,8 @@
 #include "auto_reset_esp.h"
 #include "ws2812.h"
 #include "lcd_fh1138p.h"
+#include "fotodiodo.h"
+#include "tmp235.h"
 
 namespace stm32 {
 
@@ -3096,6 +3098,44 @@ REGISTRA_PARTE(LcdFh1138p,
             if (!s.empty()) p[k] = &n[s];
         }
         return new LcdFh1138p(d.id.c_str(), p, d.si("muestra", false));
+    });
+
+REGISTRA_PARTE(Fotodiodo,
+    Ayuda("Un fotodiodo a tension cero o en inversa: con luz, una corriente que entra por el "
+          "catodo y sale por el anodo, proporcional a la luz (na_por_lux). El D1 (SFH 2701) "
+          "de la MSP-EXP430FR2311, en la transimpedancia del SAC0 con R3 [SLAU664B].")
+      .ejemplo("<componente tipo=\"Fotodiodo\" id=\"D1\" na_por_lux=\"5\" luz=\"100\">\n"
+               "  <pin nombre=\"anodo\" nodo=\"DVSS\"/> <pin nombre=\"catodo\" nodo=\"OPAMP_MENOS\"/>\n"
+               "</componente>")
+      .pin("anodo, catodo", "obligatorios", "Sus dos patas.")
+      .atr("na_por_lux", "5", "La sensibilidad, en nA por lux [de modelo].")
+      .atr("luz", "0", "La luz con la que empieza, en lux.")
+      .nota("Mando: luz (lux). Observables: luz y corriente (uA). Sin corriente oscura ni capacidad."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        if (d.nodo_de("anodo").empty() || d.nodo_de("catodo").empty()) {
+            SC_REPORT_ERROR("netlist", ("Fotodiodo '" + d.id + "': le faltan anodo y catodo").c_str());
+            return nullptr;
+        }
+        return new Fotodiodo(d.id.c_str(), n[d.nodo_de("anodo")], n[d.nodo_de("catodo")],
+                             d.num("na_por_lux", 5.0), d.num("luz", 0.0));
+    });
+
+REGISTRA_PARTE(Tmp235,
+    Ayuda("El sensor de temperatura analogico TMP235: con VDD, VOUT = 500 mV + 10 mV/C "
+          "por la temperatura, de -40 a 150 C. El U1 de la LP-MSP430FR2476, en A1 (P1.1), "
+          "con VDD tras J9 [SLAU802].")
+      .ejemplo("<componente tipo=\"Tmp235\" id=\"U1\" temperatura=\"25\">\n"
+               "  <pin nombre=\"vdd\" nodo=\"J9.2\"/> <pin nombre=\"vout\" nodo=\"P1.1\"/>\n"
+               "</componente>")
+      .pin("vdd, vout", "obligatorios", "La alimentacion y la salida.")
+      .atr("temperatura", "25", "La temperatura con la que empieza, en C.")
+      .nota("Mando: temperatura (C). Observables: temperatura y vout (V). Sin VDD, la salida suelta."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        if (d.nodo_de("vdd").empty() || d.nodo_de("vout").empty()) {
+            SC_REPORT_ERROR("netlist", ("Tmp235 '" + d.id + "': le faltan vdd y vout").c_str());
+            return nullptr;
+        }
+        return new Tmp235(d.id.c_str(), n[d.nodo_de("vdd")], n[d.nodo_de("vout")], d.num("temperatura", 25.0));
     });
 
 REGISTRA_PARTE(AutoResetEsp,

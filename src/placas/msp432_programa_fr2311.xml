@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     LA MSP-EXP432P401R PROGRAMA A LA MSP-EXP430FR2311 POR SPY-BI-WIRE
+     (SLAA754, «MSP430 Spy-Bi-Wire With SimpleLink MCUs», la segunda mitad;
+     M7 de doc/analisis_msp430.md)
+
+     El ejemplo de TI MSP432Host_SBW_MSP430FR (TI-RTOS, el GPIO y la UART del
+     SDK) tal y como viene compilado en slaa754.zip
+     (verif/fw/msp432p4/slaa754/MSP432Host_SBW_MSP430FR.out): el
+     Replicator430FR sobre dos GPIO del MSP432, que borra la FRAM del FR2311,
+     le escribe un «blinky» (SBW/image/msp430fr_image.h: LED1 en P1.0) y lo
+     arranca. Los hilos, los de su README («MSP430FR2311 rst pin used for
+     testing»):
+
+         P4/P6.0 (J1.2)  ->  FR/RST  (J101.11, SBW RST, del lado del FR2311)
+         P4/P6.1 (J3.23) ->  FR/TEST (J101.13, SBW TST, del lado del FR2311)
+         las masas
+
+     En la FR2311 TEST no sale a los conectores BoosterPack: va por J101. Lo
+     que va haciendo sale por el backchannel del XDS110 a 9600 (aqui, a
+     memoria); al final, el LED1 del FR2311 parpadea.
+
+         ./build/mcu-sim placas/msp432_programa_fr2311.xml --serie P4/BCL=memoria --ms=30000
+
+     (M, monitor_serie_9600.xml, escucha el TX del backchannel a 9600: lo que
+     saldria en el terminal del PC)
+     ========================================================================= -->
+<sistema nombre="msp432-programa-fr2311">
+  <placa id="P4" fichero="msp_exp432p401r.xml" x="0" y="0"/>
+  <placa id="FR" fichero="msp_exp430fr2311.xml" x="120" y="0"/>
+  <placa id="M" fichero="monitor_serie_9600.xml" x="60" y="70"/>
+  <hilo a="P4/J1.2" b="FR/J101.11"/>    <!-- P6.0 -> RST/SBWTDIO -->
+  <hilo a="P4/J3.3" b="FR/J101.13"/>    <!-- P6.1 -> TEST/SBWTCK -->
+  <hilo a="P4/J6.GND1" b="FR/J2.10"/>   <!-- GND -->
+  <!-- El monitor, del TX del backchannel del MSP432 (lo que veria el PC) -->
+  <hilo a="M/P1.RX" b="P4/J101.10"/>
+  <hilo a="M/P1.GND" b="P4/J6.GND2"/>
+  <mcu ref="P4/u0" firmware="verif/fw/msp432p4/slaa754/MSP432Host_SBW_MSP430FR.out"/>
+</sistema>

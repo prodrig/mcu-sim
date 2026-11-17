@@ -533,6 +533,7 @@ private:
         if (x_) pcn |= uint32_t(s & 0xF000u) << 4;
         pon_sr(uint16_t(s & 0x0FFFu));
         e.r[0] = pcn & amask_ & ~1u;
+        if (irq_) irq_->al_reti();
         return cic_.reti;
     }
 

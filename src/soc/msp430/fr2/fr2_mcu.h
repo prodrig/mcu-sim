@@ -1,6 +1,6 @@
 // =============================================================================
 // fr2_mcu.h — El ADAPTADOR de las FR2xx/FR4xx a `mcu_if`, y su alta en la
-// factoría (M6: el FR2433; M7: el FR4133...)
+// factoría (M6: el FR2433; M7: el FR4133, el FR2311...)
 //
 // Como el del F5529 (f5529_mcu.h), con lo que cambia:
 //   * los PINES son los del encapsulado de cada chip (P1-P8 como mucho);
@@ -20,6 +20,9 @@
 #include "../../mcu_if.h"
 #include "../fr2433/soc_fr2433.h"
 #include "../fr4133/soc_fr4133.h"
+#include "../fr2311/soc_fr2311.h"
+#include "../fr2355/soc_fr2355.h"
+#include "../fr2476/soc_fr2476.h"
 #include "../../../pins/nomenclatura.h"
 #include "../../../parts/netlist.h"
 #include "../../../common/nombres_nodo.h"
@@ -33,6 +36,14 @@ namespace stm32 {
 inline constexpr Encapsulado ENC_FR2433_RGE24{"VQFN24", 24, 19, {0xFFu, 0xFFu, 0x07u}, true};
 // FR4133 LQFP-64 (el de la LaunchPad, MSP430FR4133IPM): P1-P7 enteros,
 // P8.0-P8.3 [SLAS865F figura 7-1]
+// FR2311 TSSOP-20 (el de la LaunchPad, MSP430FR2311IPW20): P1 y P2 enteros [SLASE58E tabla 4-1]
+inline constexpr Encapsulado ENC_FR2311_PW20{"TSSOP20", 20, 16, {0xFFu, 0xFFu}, true};
+// FR2355 LQFP-48 (el de la LaunchPad, MSP430FR2355TPT): P1-P4 enteros,
+// P5.0-P5.4 y P6.0-P6.6 [SLASEC4D figura 4-1]
+inline constexpr Encapsulado ENC_FR2355_PT48{"LQFP48", 48, 44, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x1Fu, 0x7Fu}, true};
+// FR2476 LQFP-48 (el de la LaunchPad, MSP430FR2476TPT): P1-P5 enteros y
+// P6.0-P6.2 [SLASEO7C figura 7-1]
+inline constexpr Encapsulado ENC_FR2476_PT48{"LQFP48", 48, 43, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x07u}, true};
 inline constexpr Encapsulado ENC_FR4133_PM64{"LQFP64", 64, 60, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x0Fu}, true};
 
 namespace fr2 {
@@ -64,9 +75,12 @@ inline const RegistroNomFr2 g_registro_nom_fr2{};
 struct McuCapsFr2 { const char* nombre; Encapsulado enc; const ChipFr2* chip; bool cristal; };
 inline constexpr McuCapsFr2 MCU_MSP430FR2433{"MSP430FR2433", ENC_FR2433_RGE24, &CHIP_FR2433, false};
 inline constexpr McuCapsFr2 MCU_MSP430FR4133{"MSP430FR4133", ENC_FR4133_PM64, &CHIP_FR4133, true};
+inline constexpr McuCapsFr2 MCU_MSP430FR2311{"MSP430FR2311", ENC_FR2311_PW20, &CHIP_FR2311, false};
+inline constexpr McuCapsFr2 MCU_MSP430FR2355{"MSP430FR2355", ENC_FR2355_PT48, &CHIP_FR2355, true};
+inline constexpr McuCapsFr2 MCU_MSP430FR2476{"MSP430FR2476", ENC_FR2476_PT48, &CHIP_FR2476, false};
 struct RegistroCatalogoFr2 {
     RegistroCatalogoFr2() {
-        for (const McuCapsFr2* m : {&MCU_MSP430FR2433, &MCU_MSP430FR4133})
+        for (const McuCapsFr2* m : {&MCU_MSP430FR2433, &MCU_MSP430FR4133, &MCU_MSP430FR2311, &MCU_MSP430FR2355, &MCU_MSP430FR2476})
             CatalogoMcu::registra(McuDesc{m->nombre, "MSP430FR2", &m->enc, m});
     }
 };
@@ -95,7 +109,7 @@ public:
             directo_->al_reset = [c] { c->reset(true); sc_core::wait(1, sc_core::SC_US); c->reset(false); };
             directo_->despierta = [c] { c->despierta_por_depurador(); };
             gdb_.reset(new GdbStubM430((std::string(nm) + "_gdb").c_str(), *directo_, dbg.puerto, "gdb-430"));
-            gdb_->pon_fram(chip_->fram_ini(), 0xFFFF, 0x1800, 0x19FF);
+            gdb_->pon_fram(chip_->fram_ini(), chip_->fram_fin(), 0x1800, 0x19FF);
             gdb_->set_enabled(false);
         }
     }
@@ -194,7 +208,7 @@ public:
         sonda_xv2_.reset(new SondaXv2(*sonda_, 0x2000));
         dbg_sonda_.reset(new DbgSondaXv2(*sonda_xv2_, chip_->eem.disparadores()));
         gdb_pines_.reset(new GdbStubM430(nombre.c_str(), *dbg_sonda_, puerto, "gdb-pines"));
-        gdb_pines_->pon_fram(chip_->fram_ini(), 0xFFFF, 0x1800, 0x19FF);
+        gdb_pines_->pon_fram(chip_->fram_ini(), chip_->fram_fin(), 0x1800, 0x19FF);
         gdb_pines_->set_enabled(false);
         return gdb_pines_.get();
     }

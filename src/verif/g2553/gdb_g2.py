@@ -19,8 +19,9 @@
 # Y la MSP-EXP430F5529LP por los dos caminos (M4): --gdb-dap y --gdb, este
 # por SBW con las secuencias de Xv2 (DbgSondaXv2): load en la Flash de 5xx con
 # las rutinas del Replicator430Xv2, ruptura en 0x10000, finish, stepi, Ctrl-C.
-# Y la MSP-EXP430FR2433 (M6) y la MSP-EXP430FR4133 (M7), igual: load en la
-# FRAM, main, hbreak, stepi, Ctrl-C.
+# Y la MSP-EXP430FR2433 (M6), la MSP-EXP430FR4133, la MSP-EXP430FR2311, la
+# MSP-EXP430FR2355 y la LP-MSP430FR2476 (M7), igual: load en la FRAM (en la
+# FR2476, también por encima de 0x10000), main, hbreak, stepi, Ctrl-C.
 #
 #   python3 verif/g2553/gdb_g2.py [--sim build/mcu-sim] [--gdb msp430-elf-gdb]
 #
@@ -210,7 +211,7 @@ def una_f5(sim, prog, modo):
         check(vivo, "%s: el simulador sigue en pie tras las dos sesiones" % n)
 
 
-def una_fr2(sim, prog, modo, chip="FR2433", placa="msp_exp430fr2433.xml", elf=None):
+def una_fr2(sim, prog, modo, chip="FR2433", placa="msp_exp430fr2433.xml", elf=None, isr="t0", var="ticks", fram=0xC400, fin=0xFFFF):
     """Una LaunchPad de las FR2xx/FR4xx (M6, M7) por --gdb-dap o por los pines
     (--gdb, SBW): load en la FRAM (el programador abre SYSCFG0), ruptura en
     main, hbreak en la rutina del Timer0_A3, paso y Ctrl-C"""
@@ -222,7 +223,7 @@ def una_fr2(sim, prog, modo, chip="FR2433", placa="msp_exp430fr2433.xml", elf=No
         if not check(s.listo, "%s: el stub escucha" % n):
             return
         o = gdb(prog, pu, ["load", "compare-sections", "break main", "monitor reset halt", "continue",
-                           "hbreak t0", "continue", "p ticks", "p/x $pc", "stepi", "p/x $pc"], elf)
+                           "hbreak " + isr, "continue", "p " + var, "p/x $pc", "stepi", "p/x $pc"], elf)
         a = [prog, "-q", "-batch", "-ex", "set remotetimeout 60", "-ex",
              "target extended-remote localhost:%d" % pu, "-ex", "continue", "-ex", "p/x $pc", elf]
         g = subprocess.Popen(a, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -236,11 +237,11 @@ def una_fr2(sim, prog, modo, chip="FR2433", placa="msp_exp430fr2433.xml", elf=No
         check("Start address" in o and "MIS-MATCHED" not in o and o.count("matched.") >= 3,
               "%s: load en la FRAM y compare-sections" % n)
         check("Breakpoint 1, main ()" in o, "%s: la ruptura en main" % n)
-        check(re.search(r"(Hardware assisted )?[Bb]reakpoint 2, t0 \(\)", o) is not None and "$1 = 0" in o,
-              "%s: hbreak en la rutina del Timer0_A3 (ticks = 0)" % n)
+        check(re.search(r"(Hardware assisted )?[Bb]reakpoint 2, (0x[0-9a-f]+ in )?" + isr + r" \(", o) is not None and "$1 = 0" in o,
+              "%s: hbreak en la rutina del Timer0 (%s = 0)" % (n, var))
         m = re.findall(r"\$(\d+) = (0x[0-9a-f]+)", o)
         v = dict((int(k), int(x, 16)) for k, x in m)
-        check(v.get(2) is not None and v.get(3) is not None and 0xC400 <= v[3] <= 0xFFFF and v[3] != v[2],
+        check(v.get(2) is not None and v.get(3) is not None and fram <= v[3] <= fin and v[3] != v[2],
               "%s: stepi en la FRAM" % n)
         check("Program received signal SIGINT" in o2 and re.search(r"\$1 = 0x[0-9a-f]+", o2) is not None,
               "%s: Ctrl-C (interrupt) para la CPU en marcha" % n)
@@ -277,6 +278,19 @@ def main():
         print("\n--- FR4133 %s ---" % modo)
         una_fr2(a.sim, prog, modo, "FR4133", "msp_exp430fr4133.xml",
                 os.path.join("verif", "fr4133", "elf", "fr4_basico.elf"))
+    for modo in ("--gdb-dap", "--gdb"):
+        print("\n--- FR2311 %s ---" % modo)
+        una_fr2(a.sim, prog, modo, "FR2311", "msp_exp430fr2311.xml",
+                os.path.join("verif", "fr2311", "elf", "fr23_basico.elf"), "tb0n", "desb")
+    for modo in ("--gdb-dap", "--gdb"):
+        print("\n--- FR2355 %s ---" % modo)
+        una_fr2(a.sim, prog, modo, "FR2355", "msp_exp430fr2355.xml",
+                os.path.join("verif", "fr2355", "elf", "fr235_basico.elf"), "tb0", "n_orden", 0x8000)
+    for modo in ("--gdb-dap", "--gdb"):
+        print("\n--- FR2476 %s ---" % modo)
+        # La ruptura, en una función de la FRAM de arriba de 0x10000 (-mlarge)
+        una_fr2(a.sim, prog, modo, "FR2476", "lp_msp430fr2476.xml",
+                os.path.join("verif", "fr2476", "elf", "fr247_basico.elf"), "suma_alta", "p6irq", 0x8000, 0x17FFF)
     print("\nTOTAL GDB G2: %s" % ("0 fallos" if not fallos else "%d fallos" % fallos))
     return 1 if fallos else 0
 

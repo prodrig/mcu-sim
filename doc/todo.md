@@ -1143,6 +1143,32 @@ clase:
 | EEM28 | los relojes de salida se ven en el pin durante una parada de depuración en LPMx | se documenta | los relojes de salida del modelo son un nivel (corren o no) |
 | EEM30 | una ruptura en la primera instrucción que lee la FRAM se pierde con FRPWR = 0 | se documenta | GCCTL0.FRPWR no apaga nada en el modelo |
 
+**SLAZ679R (MSP430FR2311), clasificada** [§10.4 del análisis; M7]. Son 16;
+todas, salvo TB25, de las de la FR2433 (SLAZ664S), con la misma clase:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| ADC50, ADC63, BSL18, CPU21, CPU22, CPU40, CPU46, CS13, EEM23, PMM32, RTC15, USCI42, USCI45, USCI47, USCI50 | (las de la FR2433) | (las mismas) | (lo mismo) |
+| TB25 | en modo ascendente, con CLLD = 01 o 10, TBxCCRn pasa a TBxCLn en el acto y no al llegar TBxR a 0 | **se modela** | `TimerACaps::tb25`; `testfr2311` H2 lo comprueba (en ascendente, en el acto; en continuo, al paso por 0) |
+
+**SLAZ695J (MSP430FR2355), clasificada** [§10.4 del análisis; M7]. Son 13,
+todas de las de la FR2311 (SLAZ679R), con la misma clase; ninguna toca lo que
+es propio de la FR2355 (el ICC, los SAC-L3, el ADC de 12 bits, la referencia
+mejorada, FRWPOA):
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22, CPU40, CPU46, CS13, EEM23, PMM32, RTC15, USCI42, USCI45, USCI47, USCI50 | (las de la FR2433) | (las mismas) | (lo mismo) |
+| TB25 | (la de la FR2311) | **se modela** | `ChipFr2::errata_tb25` también en `CHIP_FR2355`, para sus cuatro Timer_B |
+
+**SLAZ726B (MSP430FR2476), clasificada** [§10.4 del análisis; M7]. Son 9:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22, CPU40, CPU46, EEM23, USCI42, USCI50 | (las de la FR2433) | (las mismas) | (lo mismo) |
+| TB25 | (la de la FR2311) | **se modela** | `ChipFr2::errata_tb25` también en `CHIP_FR2476`, para su Timer0_B7 |
+| COMP12 | la salida del eCOMP0 no llega a TB0.CCI1B | **se modela** | `CHIP_FR2476` no la conecta (`ccib_timer = -1`): esa captura B es la salida de TA3 CCR1 [DS tabla 9-15] |
+
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)

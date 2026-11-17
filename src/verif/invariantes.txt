@@ -502,6 +502,12 @@ testfr2                26       13367796000000       total
 # SoC de la familia (soc/msp430/fr2/soc_fr2.h); los Timer piden su reloj en
 # LPM (UG FR2 3.2.12), PxIFG no se borra con LOCKLPM5 (UG FR2 8.3.4) y P2IV
 # se lee (antes daba 0). testfr2 no se mueve. Igual en dos pasadas.
+# Despues, con el FR2311, el FR2355 y el FR2476: el Timer_B en timer_a.h, lo
+# analogico, el ICC (y su gancho al_reti en la RETI del nucleo m430), el ADC
+# de 12 bits, REFVSEL, FRWPOA, una reasignacion por funcion, y el final del
+# trozo de vFlashWrite por sector_de en common/gdb_rsp.h (lo mismo con
+# sectores alineados). test430, testg2, testf5, testfr2 y testfr4 no se
+# mueven, ni las suites de los STM32, el MSP432 y los ESP32.
 
 # testfr4: el MSP430FR4133 (M7 de doc/analisis_msp430.md). F1 el SoC contra el
 # descriptor, la TLV y el LCD_E al reset; F2 fr4_basico.c con la DriverLib y
@@ -512,3 +518,25 @@ testfr2                26       13367796000000       total
 # vidrio, el cronometro y el termometro). Sin sockets: total. Igual en dos
 # pasadas.
 testfr4                27       34584002000000       total
+
+# testfr2311: el MSP430FR2311 (M7). H1 el descriptor y la TLV; H2
+# fr23_basico.c con la DriverLib y una red en el banco (el Timer_B con CNTL y
+# CLLD, TB25, el eCOMP0 contra su DAC, el SAC0 en GP con ganancia 3, el TIA0
+# con 1 Mohm y 1 uA); H3 la demo de fabrica de TI, su binario, con el
+# fotodiodo y R3 (el PWM de LED2 segun la luz). Sin sockets: total. Igual en
+# dos pasadas.
+testfr2311             15        1328202000000       total
+# testfr2355: el MSP430FR2355 (M7). J1 el descriptor, la TLV y el ICC tras el
+# reset; J2 fr235_basico.c (el FLL a 24 MHz, el ADC de 12 bits y REFVSEL, el
+# ICC anidando por niveles, el DAC del SAC3 cargado por TB2.1 y el SAC1 en PGA
+# inversor en cascada leido por dentro, el eCOMP1 contra la de 1,2 V, TB3.6 y
+# el MPY32); J3 la demo de fabrica de TI, su binario (el sensor de luz con el
+# fotodiodo, S1, y el generador de funciones por S2). Sin sockets: total.
+# Igual en dos pasadas.
+testfr2355             23        6522402000000       total
+# testfr2476: el MSP430FR2476 (M7). K1 el descriptor y la TLV; K2
+# fr247_basico.c con -mlarge (la FRAM de arriba de 0x10000 y PFWP alli, el ADC
+# de 12 bits y REFVSEL, TA2.1 reasignado por TA2RMP, TB0.6, el eCOMP0 contra la
+# de 1,2 V, la interrupcion de P6); K3 la demo de fabrica de TI, su binario
+# (el TMP235 y el LED RGB, S2 y S1). Sin sockets: total. Igual en dos pasadas.
+testfr2476             19        6629302000000       total

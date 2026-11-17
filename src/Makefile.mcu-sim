@@ -272,6 +272,9 @@ TESTG2    := $(B)/testg2$(EXE)
 TESTF5    := $(B)/testf5$(EXE)
 TESTFR2   := $(B)/testfr2$(EXE)
 TESTFR4   := $(B)/testfr4$(EXE)
+TESTFR2311 := $(B)/testfr2311$(EXE)
+TESTFR2355 := $(B)/testfr2355$(EXE)
+TESTFR2476 := $(B)/testfr2476$(EXE)
 ASAN430   := $(B)/asan430$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
@@ -287,7 +290,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 testf5 testf5-build testfr2 testfr2-build testfr4 testfr4-build rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 fr2311-slaa754 testf5 testf5-build testfr2 testfr2-build testfr4 testfr4-build testfr2311 testfr2311-build testfr2355 testfr2355-build testfr2476 testfr2476-build rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -510,6 +513,36 @@ testfr4-build: $(TESTFR4)
 testfr4: $(TESTFR4)
 	$(TESTFR4)
 
+# LA SUITE DEL MSP430FR2311 (fase M7): make testfr2311
+$(TESTFR2311): top/sc_main_fr2311.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/fr2/*.h soc/msp430/fr2311/*.h periph/ti/*.h) parts/fotodiodo.h
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_fr2311.cpp $(LDFLAGS) $(LDLIBS)
+
+testfr2311-build: $(TESTFR2311)
+
+testfr2311: $(TESTFR2311)
+	$(TESTFR2311)
+
+# LA SUITE DEL MSP430FR2355 (fase M7): make testfr2355
+$(TESTFR2355): top/sc_main_fr2355.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/fr2/*.h soc/msp430/fr2355/*.h periph/ti/*.h) parts/fotodiodo.h
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_fr2355.cpp $(LDFLAGS) $(LDLIBS)
+
+testfr2355-build: $(TESTFR2355)
+
+testfr2355: $(TESTFR2355)
+	$(TESTFR2355)
+
+# LA SUITE DEL MSP430FR2476 (fase M7): make testfr2476
+$(TESTFR2476): top/sc_main_fr2476.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/fr2/*.h soc/msp430/fr2476/*.h periph/ti/*.h) parts/tmp235.h
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_fr2476.cpp $(LDFLAGS) $(LDLIBS)
+
+testfr2476-build: $(TESTFR2476)
+
+testfr2476: $(TESTFR2476)
+	$(TESTFR2476)
+
 # msp430-elf-gdb DE VERDAD contra la MSP-EXP430G2ET (P-20): load, rupturas
 # de software y de hardware, watch, paso, Ctrl-C y monitor reset halt, por
 # --gdb-dap y por --gdb (Spy-Bi-Wire); la F5529LP por los dos, con una
@@ -525,6 +558,13 @@ gdb-g2: $(MCUSIM)
 # a memoria, acaba en «MSP430 Programmed Successfully». Un minuto de pared.
 g2-slaa754: $(MCUSIM)
 	$(MCUSIM) placas/msp432_programa_g2553.xml --serie P4/BCL=memoria --ms=3000
+
+# SLAA754, la segunda mitad (M7): el mismo ejemplo para FRAM, tal cual viene
+# compilado (MSP432Host_SBW_MSP430FR.out), programa a la MSP-EXP430FR2311 por
+# Spy-Bi-Wire con el Replicator430FR: «MSP430 Programmed Successfully» y el
+# LED1 del FR2311 parpadea. Minuto y medio de pared.
+fr2311-slaa754: $(MCUSIM)
+	$(MCUSIM) placas/msp432_programa_fr2311.xml --serie P4/BCL=memoria --ms=30000
 
 m430fw:
 	cd verif/m430 && python3 gen_dif.py && python3 gen_ciclos.py && $(MAKE) -f Makefile.m430 && python3 gen_dec.py

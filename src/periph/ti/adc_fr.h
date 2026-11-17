@@ -1,11 +1,11 @@
 // =============================================================================
-// adc_fr.h — El ADC de 10 bits de las FR2xx/FR4xx (M6 de doc/analisis_msp430.md)
-// [UG FR2 SLAU445I cap. 21]
+// adc_fr.h — El ADC de 10 bits de las FR2xx/FR4xx (M6 de doc/analisis_msp430.md),
+// y el de 12 de las FR235x y FR247x (M7, `doce`) [UG FR2 SLAU445I cap. 21]
 //
 //   +00 ADCCTL0   ADCSHT (11-8), ADCMSC (7), ADCON (4), ADCENC (1), ADCSC (0)
 //   +02 ADCCTL1   ADCSHS (11-10), ADCSHP (9), ADCISSH (8), ADCDIV (7-5),
 //                 ADCSSEL (4-3: MODCLK, ACLK, SMCLK), ADCCONSEQ (2-1), ADCBUSY
-//   +04 ADCCTL2   ADCPDIV (9-8: /1, /4, /64), ADCRES (5-4: 8 o 10 bits),
+//   +04 ADCCTL2   ADCPDIV (9-8: /1, /4, /64), ADCRES (5-4: 8, 10 o 12 bits),
 //                 ADCDF (3: con signo, a la izquierda), ADCSR (2)
 //   +06 ADCLO, +08 ADCHI  la ventana
 //   +0A ADCMCTL0  ADCSREF (6-4), ADCINCH (3-0)
@@ -14,8 +14,9 @@
 //   +1E ADCIV     2 OV, 4 TOV, 6 HI, 8 LO, 0x0A IN, 0x0C IFG0
 //
 // Cada conversión dura el muestreo (ADCSHP = 1: 4-1024 ciclos de ADCCLK;
-// ADCSHP = 0: el pulso, que aquí es inmediato [de modelo]) más 10 o 12 de
-// conversión. Los cuatro modos de ADCCONSEQ; en los de secuencia, de INCH
+// ADCSHP = 0: el pulso, que aquí es inmediato [de modelo]) más 10, 12 o 14
+// de conversión (8, 10 o 12 bits; ADCRES = 11, reservado: 10 bits [de
+// modelo]). Los cuatro modos de ADCCONSEQ; en los de secuencia, de INCH
 // hacia abajo hasta A0. Disparos: ADCSC o los de fuera (`dispara(shs)`, con
 // ADCSHS distinto de 0). El canal y las referencias los da el SoC.
 // =============================================================================
@@ -35,11 +36,14 @@ SC_MODULE(AdcFr) {
     std::function<double(unsigned)> f_reloj;   // ADCSSEL: 0 MODCLK, 1 ACLK, 2-3 SMCLK
     std::function<void()> al_cambiar;
     std::function<void(bool)> pide_reloj;      // el ADC necesita su reloj (MODOSC en LPM3)
+    bool doce = false;                         // el de 12 bits (ADCRES = 10) [UG FR2 tabla 21-4]
 
     SC_CTOR(AdcFr) { SC_THREAD(hilo); reset(); }
 
     void reset() {
-        ctl0_ = 0; ctl1_ = 0; ctl2_ = 0x0010; lo_ = 0; hi_ = 0x3FF; mctl_ = 0; mem_ = 0; ie_ = 0; ifg_ = 0;
+        // ADCHI: 0x3FF dice la tabla 21-9; con 12 bits, su figura 21-27 pone a 1
+        // los bits 11-0 [de modelo: 0xFFF en el de 12 bits]
+        ctl0_ = 0; ctl1_ = 0; ctl2_ = 0x0010; lo_ = 0; hi_ = doce ? 0xFFF : 0x3FF; mctl_ = 0; mem_ = 0; ie_ = 0; ifg_ = 0;
         ocupado_ = false; pendiente_ = false; leido_ = true; canal_ = 0;
         ev_.notify(sc_core::SC_ZERO_TIME);
     }
@@ -103,7 +107,10 @@ private:
     unsigned conseq() const { return (ctl1_ >> 1) & 3u; }
     bool secuencia() const { return conseq() & 1u; }
     bool secuencia_repite() const { return conseq() & 2u; }
-    unsigned bits() const { return ((ctl2_ >> 4) & 3u) == 0 ? 8u : 10u; }
+    unsigned bits() const {
+        const unsigned r = (ctl2_ >> 4) & 3u;
+        return r == 0 ? 8u : (r == 2 && doce) ? 12u : 10u;
+    }
     void aviso() { if (al_cambiar) al_cambiar(); }
     void arranca() {
         if (ocupado_) { ifg_ |= 0x20; aviso(); return; }                  // ADCTOVIFG
@@ -130,7 +137,7 @@ private:
         if (f <= 0.0) return -1.0;
         const double fa = f / PD[(ctl2_ >> 8) & 3u] / double(((ctl1_ >> 5) & 7u) + 1u);
         const unsigned muestreo = (ctl1_ & 0x0200) ? SHT[(ctl0_ >> 8) & 15u] : 0u;
-        return double(muestreo + (bits() == 8 ? 10u : 12u)) / fa;
+        return double(muestreo + bits() + 2u) / fa;
     }
     void hilo() {
         for (;;) {

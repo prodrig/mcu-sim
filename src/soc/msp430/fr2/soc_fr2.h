@@ -28,7 +28,10 @@
 //   las eUSCI, el MPY32 si lo hay, la base del RTC, la función de cada pin con
 //   cada PxSEL, las conexiones internas de los Timer y los disparos del ADC,
 //   los canales del ADC, el sensor de temperatura, el cristal, el JTAG de 4
-//   hilos, el ID de la TLV y el LCD_E (periph/ti/lcd_e.h) si lo hay.
+//   hilos, el ID de la TLV y el LCD_E (periph/ti/lcd_e.h) si lo hay; y, desde
+//   M7, el Timer_B, lo analógico (eCOMP, SAC, TIA: periph/ti/analog_fr.h), el
+//   ADC de 12 bits, la referencia mejorada (REFVSEL), el ICC, los disparos
+//   de los DAC, FRWPOA y las reasignaciones de pines (una por función).
 //
 // Los vectores salen del descriptor generado por su NOMBRE: la tabla dice
 // «TIMER0_A0», el descriptor dice dónde está.
@@ -73,6 +76,7 @@
 #include "../../../periph/ti/cs_fr.h"
 #include "../../../periph/ti/mpy32.h"
 #include "../../../periph/ti/lcd_e.h"
+#include "../../../periph/ti/analog_fr.h"
 #include "../../../common/analog_net.h"
 #include "../../../pins/pin_mux.h"
 #include "../../../common/imagen_fw.h"
@@ -84,13 +88,37 @@ namespace stm32 {
 // Los pines se numeran puerto × 8 + bit (P1.0 = 0, P2.0 = 8...)
 inline constexpr uint8_t fr2_pin(unsigned puerto, unsigned bit) { return uint8_t((puerto - 1) * 8 + bit); }
 
-struct Fr2Timer { const char* nombre; uint32_t base; unsigned ncc; const char* v0; const char* vn; };
+struct Fr2Timer { const char* nombre; uint32_t base; unsigned ncc; const char* v0; const char* vn; bool es_b = false; };
 struct Fr2Usci { const char* nombre; uint32_t base; bool es_b; const char* vec; };
 // Lo que hace un pin con un PxSEL (1, 2 o 3). tipo: 1 el CCR `n` del Timer
 // `mod` (salida con DIR, captura sin él), 2 la línea `n` (0 SIMO/TXD/SDA, 1
 // SOMI/RXD/SCL, 2 CLK, 3 STE) de la eUSCI `mod`, 3 analógica o cristal, 4 el
-// reloj `n` de salida (0 MCLK, 1 SMCLK, 2 ACLK), 5 el TAxCLK del Timer `mod`
-struct Fr2Fn { uint8_t pin, sel, tipo, mod, n; };
+// reloj `n` de salida (0 MCLK, 1 SMCLK, 2 ACLK), 5 el TAxCLK del Timer `mod`,
+// 7 la salida (COUT) del eCOMP `mod`. En `sel`, además: REMAP_SI, la
+// función solo con el bit de reasignación del chip puesto (USCIBRMP...);
+// REMAP_NO, solo con él a 0. `rmp`, si no es -1, es ESE bit de
+// reasignación (de SYSCFG3 << 16 | SYSCFG2) en vez del del chip: la FR2476
+// tiene cinco (USCIA0RMP, USCIB0RMP, USCIB1RMP, TA2RMP y TA3RMP)
+struct Fr2Fn { uint8_t pin, sel, tipo, mod, n; int8_t rmp = -1; };
+enum : uint8_t { REMAP_SI = 0x10, REMAP_NO = 0x20 };
+// Una tensión dentro del chip: 0 nada, 1 el pin `n`, 2 la salida del SAC
+// `n`, 3 la del TIA, 4 el DAC del SAC `n`, 5 la referencia compartida (1,5
+// V; en las de referencia mejorada, la que diga REFVSEL), 6 la de 1,2 V de
+// bajo consumo (FR235x: el canal 2 de los eCOMP)
+struct Fr2Src { uint8_t tipo, n; };
+// Un eCOMP: sus entradas por CPPSEL y CPNSEL (110, su DAC, no hace falta
+// decirlo), la captura B de un Timer que lleva su salida y el ADCSHS que
+// la usa como disparo
+struct Fr2Ecomp { const char* nombre; uint32_t base; const char* vec; Fr2Src mas[8], menos[8];
+                  int8_t ccib_timer, ccib_n; uint8_t adc_shs; };
+// Un SAC: sus pines (OAx+, OAx-, OAxO), la pareja (-1: ninguna), las fuentes
+// «10» de PSEL y NSEL, su vector (nullptr: sin DAC que interrumpa) y el canal
+// del ADC que lee su salida por dentro, sin mirar el pin (-1: ninguno; el
+// FR2355: «connected internally to the ADC» [SLAU680 §3.1.3])
+struct Fr2Sac { const char* nombre; uint32_t base; bool l3; uint8_t pin_mas, pin_menos, pin_sal; int8_t par;
+                Fr2Src psel10, nsel10; const char* vec; int8_t adc_ch = -1; };
+// El TIA: sus pines (TRI+, TRI-, TRIO) y las fuentes 01 y 10 de TRIPSEL
+struct Fr2Tia { uint32_t base; uint8_t pin_mas, pin_menos, pin_sal; Fr2Src psel01, psel10; };
 // Las salidas 0..n-1 del Timer `de` van a las capturas B del Timer `a`
 struct Fr2Enlace { uint8_t de, a, n; };
 // La salida `ccr` del Timer `timer` dispara el ADC con ADCSHS = `shs`
@@ -127,6 +155,27 @@ struct ChipFr2 {
     // SYS23: la RAM en 0x20FE-0x20FF no se conserva tras un BOR por RST, por
     // PMMSWBOR, por la seguridad o por SVSH [SLAZ550AA]
     bool errata_sys23 = false;
+    // Los «Smart Analog Combo» (FR231x, FR235x): los canales del ADC son
+    // analógicos con PxSEL = 11 (SYSCFG2 no tiene ADCPCTL); XIN/XOUT, con el
+    // PxSEL que diga `xt1_selv`; y los módulos analógicos
+    bool adc_por_sel = false;
+    uint8_t xt1_selv = 1;
+    const Fr2Ecomp* ecomps = nullptr; unsigned necomps = 0;
+    const Fr2Sac* sacs = nullptr; unsigned nsacs = 0;
+    const Fr2Tia* tia = nullptr;
+    // El bit de reasignación de pines (USCIBRMP...): el bit de SYSCFG3:SYSCFG2
+    // (16 + n: el de SYSCFG3); -1: no hay
+    int remap_bit = -1;
+    bool errata_tb25 = false;            // TB25 en sus Timer_B [SLAZ679R]
+    // Las FR235x: el ADC de 12 bits (ADCRES = 10), la referencia compartida
+    // mejorada (REFVSEL: 1,5, 2,0 o 2,5 V), el ICC (su base y el vector de su
+    // ILSR0; 0: no hay) y los disparos de los DAC de los SAC (`shs` es el
+    // DACLSEL que cargan)
+    bool adc12 = false;
+    bool ref_mejorada = false;
+    bool frwpoa = false;                 // SYSCFG0.FRWPOA (las FR235x)
+    uint32_t icc_base = 0; uint16_t icc_vec0 = 0;
+    const Fr2Disparo* dac_disparos = nullptr; unsigned ndac_disparos = 0;
 };
 
 SC_MODULE(SocFR2), public m430_irq_if {
@@ -160,6 +209,9 @@ SC_MODULE(SocFR2), public m430_irq_if {
     Mpy32 mpy;
     CsFr cs;
     std::unique_ptr<LcdE> lcd;
+    std::vector<std::unique_ptr<EcompFr>> ecomp;
+    std::vector<std::unique_ptr<SacFr>> sac;
+    std::unique_ptr<TiaFr> tia;
 
     // Lo que sale por la eUSCI del backchannel, leído en su TXD por un
     // monitor propio que también mete lo de `uart_rx` por su RXD. En una
@@ -242,7 +294,10 @@ SC_MODULE(SocFR2), public m430_irq_if {
         // Los Timer_A
         for (unsigned k = 0; k < c.ntimers; ++k) {
             const Fr2Timer& d = c.timers[k];
-            ta.emplace_back(new TimerAP4(d.nombre, d.base, TimerACaps{d.ncc, 0x0E, true}, 0x40));
+            TimerACaps tc{d.ncc, 0x0E, true};
+            tc.es_b = d.es_b;
+            tc.tb25 = d.es_b && c.errata_tb25;
+            ta.emplace_back(new TimerAP4(d.nombre, d.base, tc, 0x40));
             a_ta_.emplace_back(new tlm_utils::simple_initiator_socket<SocFR2>(("a_" + std::string(d.nombre)).c_str()));
             irq_t_.emplace_back(new sc_core::sc_signal<bool>(("irq0_" + std::string(d.nombre)).c_str()));
             irq_t_.emplace_back(new sc_core::sc_signal<bool>(("irqn_" + std::string(d.nombre)).c_str()));
@@ -258,11 +313,13 @@ SC_MODULE(SocFR2), public m430_irq_if {
             u->clk(clk_dummy); u->rst_n(rst_n); u->clk_en(uno); u->clk_hz(hz_smclk);
             u->f_brclk = [this](unsigned s) { return s == 1 ? CsFr::F_MODOSC : s >= 2 ? f_smclk_ : 0.0; };
         }
+        adc.doce = c.adc12;
         adc.v_canal = [this](unsigned ch) { return adc_entrada(ch); };
         adc.v_ref = [this](unsigned sref) { return adc_vref(sref); };
         adc.f_reloj = [this](unsigned s) { return s == 0 ? CsFr::F_MODOSC : s == 1 ? f_aclk_ : f_smclk_; };
         adc.al_cambiar = [this] { avisa_irq(); };
-        rtc.f_fuente = [this](unsigned s) { return s == 1 ? f_smclk_ : s == 2 ? (xt1_en_marcha() ? 32768.0 : 0.0) : CsFr::F_VLO; };
+        // RTCSS = 01: SMCLK, o ACLK con RTCCKSEL (SYSCFG2.10) [UG FR2 tabla 1-26]
+        rtc.f_fuente = [this](unsigned s) { return s == 1 ? ((syscfg2_ & 0x0400) ? f_aclk_ : f_smclk_) : s == 2 ? (xt1_en_marcha() ? 32768.0 : 0.0) : CsFr::F_VLO; };
         rtc.al_cambiar = [this] { avisa_irq(); };
         rtc.al_desbordar = [this] { adc.dispara(1); if (lpm5_) despierta_lpm5(-1); };
         if (c.lcd_base) {
@@ -273,6 +330,7 @@ SC_MODULE(SocFR2), public m430_irq_if {
             lcd->al_cambiar = [this] { avisa_irq(); };
             lcd->al_fase = [this] { pines_lcd(); };
         }
+        construye_analogico();
         construye_fuentes();
         uno.write(true);
         rst_n.write(false);
@@ -288,11 +346,12 @@ SC_MODULE(SocFR2), public m430_irq_if {
                       << u->ste_out << u->ste_oe;
         dont_initialize();
         // Las conexiones internas de los Timer y los disparos del ADC
-        if (c.nenlaces || c.ndisparos) {
+        if (c.nenlaces || c.ndisparos || c.ndac_disparos) {
             SC_METHOD(timers_proc);
             for (unsigned k = 0; k < c.nenlaces; ++k)
                 for (unsigned n = 0; n < c.enlaces[k].n; ++n) sensitive << ta[c.enlaces[k].de]->out[n];
             for (unsigned k = 0; k < c.ndisparos; ++k) sensitive << ta[c.disparos[k].timer]->out[c.disparos[k].ccr];
+            for (unsigned k = 0; k < c.ndac_disparos; ++k) sensitive << ta[c.dac_disparos[k].timer]->out[c.dac_disparos[k].ccr];
             dont_initialize();
         }
         SC_METHOD(usci_proc);
@@ -310,6 +369,7 @@ SC_MODULE(SocFR2), public m430_irq_if {
         SC_METHOD(test_proc); sensitive << test.value_changed_event(); dont_initialize();
         SC_METHOD(rst_pin_proc); sensitive << rst.value_changed_event() << ev_rst_pin_; dont_initialize();
         SC_METHOD(lpm5_proc); sensitive << ev_lpm5_; dont_initialize();
+        if (c.necomps) { SC_METHOD(ccib_proc); sensitive << ev_ccib_; dont_initialize(); }
         SC_THREAD(uart_mon_proc);
         fabrica();
         reset_regs(true, true);
@@ -329,7 +389,7 @@ SC_MODULE(SocFR2), public m430_irq_if {
         if (!e.empty()) return e;
         std::fill(mem_.begin() + desc.principal.ini, mem_.begin() + 0x10000, 0xFF);
         if (desc.principal2.existe()) std::fill(mem_.begin() + desc.principal2.ini, mem_.begin() + desc.principal2.fin + 1, 0xFF);
-        std::fill(mem_.begin() + desc.info.ini, mem_.begin() + desc.info.fin + 1, 0xFF);
+        if (desc.info.existe()) std::fill(mem_.begin() + desc.info.ini, mem_.begin() + desc.info.fin + 1, 0xFF);
         for (const TrozoFw& tr : t)
             for (size_t i = 0; i < tr.datos.size(); ++i) {
                 const uint32_t a = tr.dir + uint32_t(i);
@@ -366,8 +426,16 @@ SC_MODULE(SocFR2), public m430_irq_if {
     void despierta_por_depurador() { if (lpm5_) despierta_lpm5(0); }
     bool avisado_nwaits() const { return avisado_nwaits_; }
     void uart_rx(uint8_t b) { rx_cola_.push_back(b); ev_rx_.notify(sc_core::SC_ZERO_TIME); }
+    // El monitor deja de tener alto su RXD (para el banco que usa ese pin
+    // para otra cosa, como el TRI0- del FR2311)
+    void suelta_rx(bool si) {
+        if (id_rx_ < 0) return;
+        if (si) bcl_rx()->set_hiz(id_rx_); else bcl_rx()->set_drive(id_rx_, float(vcc), 1000.0f);
+    }
     // La FRAM principal (para el `load` de GDB)
     uint32_t fram_ini() const { return desc.principal.ini; }
+    // El final de la FRAM principal: 0xFFFF, o el de la de arriba de 0x10000 (FR2476)
+    uint32_t fram_fin() const { return desc.principal2.existe() ? desc.principal2.fin : 0xFFFFu; }
 
     // --- m430_irq_if -------------------------------------------------------------
     uint16_t pendiente(bool gie) override {
@@ -380,17 +448,24 @@ SC_MODULE(SocFR2), public m430_irq_if {
         if (!gie) return 0;
         const uint64_t f = fuentes();
         if (!f) return 0;
+        if (icc_on()) return icc_elige(f);
         unsigned i = 63;
         while (!((f >> i) & 1u)) --i;
         return uint16_t(0xFF80u + 2 * i);
     }
     void acepta(uint16_t v) override {
         if (v == 0xFFFA || v == 0xFFFC) return;
+        if (icc_on()) icc_mete(icc_nivel(v));
         for (const Fuente& f : fuentes_) {
             if (f.vec != v) continue;
             if (f.clase == Fuente::WDT && (wdtctl_ & 0x10)) sfrifg1_ = uint16_t(sfrifg1_ & ~1u);   // WDTIFG, de un origen
             if (f.clase == Fuente::TIMER0) ta[f.i]->reconoce_ccr0();
         }
+    }
+    // RETI: el ICC saca su pila virtual [UG FR2 §5.2.5; de modelo: también
+    // la RETI de una NMI, que el ICC no distingue en el texto del UG]
+    void al_reti() override {
+        if (icc_on() && icc_sp_ > 0) { --icc_sp_; icm_[icc_sp_] = 3; nucleo.nota_irq(); }
     }
 
 private:
@@ -450,7 +525,12 @@ private:
     }
     // La protección de la FRAM [UG FR2 §1.16.2.1]
     bool fram_protegida(uint32_t a) const {
-        if (es_fram_principal(a)) return syscfg0_ & 0x01;           // PFWP
+        if (es_fram_principal(a)) {                                  // PFWP
+            // FR235x: FRWPOA (SYSCFG0 7-2) deja sin proteger su primer
+            // FRWPOA x 1 KB [UG FR2 §1.9.2 y tabla 1-28, nota 2]
+            if (chip.frwpoa && a < desc.principal.ini + 1024u * ((syscfg0_ >> 2) & 0x3Fu)) return false;
+            return syscfg0_ & 0x01;
+        }
         if (es_info(a)) return syscfg0_ & 0x02;                     // DFWP
         return true;
     }
@@ -460,10 +540,21 @@ private:
     bool pmm_abierto_ = false;
     // La referencia de 1,5 V: con INTREFEN (o el ADC que la pide con ADCSREF = 1)
     bool vref_on() const { return pmmctl2_ & 0x0001; }
+    // Su tensión: 1,5 V; con la referencia mejorada (FR235x), REFVSEL: 00 1,5
+    // V, 01 2,0 V, 10 2,5 V [UG FR2 tabla 2-4; 11, reservado: 1,5 V de modelo]
+    double vref_nivel() const {
+        static const double V[4] = {1.5, 2.0, 2.5, 1.5};
+        return chip.ref_mejorada ? V[(pmmctl2_ >> 4) & 3u] : 1.5;
+    }
 
     // --- CS ------------------------------------------------------------------------
     sc_core::sc_event ev_fll_;
-    bool xt1_sel() const { return (pt_[chip.xt1_puerto].sel0 & chip.xt1_bits) == chip.xt1_bits; }
+    bool xt1_sel() const {
+        const uint8_t b = chip.xt1_bits;
+        const Puerto& x = pt_[chip.xt1_puerto];
+        const uint8_t s0 = (chip.xt1_selv & 1u) ? b : 0, s1 = (chip.xt1_selv & 2u) ? b : 0;
+        return (x.sel0 & b) == s0 && (x.sel1 & b) == s1;
+    }
     bool xt1_pines() const { return xt1_sel() || !(cs.lee(6) & 0x0001); }
     // El cristal oscila: con sus pines (o sin XT1AUTOOFF), y también en
     // LPMx.5 y con LOCKLPM5 tras su despertar si oscilaba al entrar [UG FR2
@@ -570,7 +661,7 @@ private:
     double v_sensor(double t) const { return chip.vsensor + chip.tcsensor * (t - chip.t_vsensor); }
     double adc_vref(unsigned sref) const {
         switch (sref & 7u) {
-        case 1: case 5: return vref_on() ? 1.5 : 0.0;                // VREF (1,5 V, con INTREFEN)
+        case 1: case 5: return vref_on() ? vref_nivel() : 0.0;       // VREF (con INTREFEN)
         case 2: case 3: case 6: case 7: {                            // VeREF+
             if (chip.veref_pin < 0) return vcc;
             const analog_net_if* x = pin[unsigned(chip.veref_pin)];
@@ -580,12 +671,18 @@ private:
         }
     }
     double adc_entrada(unsigned ch) const {
+        // La salida de un SAC que el chip lleva por dentro a ese canal
+        for (unsigned k = 0; k < chip.nsacs; ++k)
+            if (chip.sacs[k].adc_ch == int(ch) && sac[k]->salida() >= 0.0) return sac[k]->salida();
         if (ch < 16 && chip.adc_pin[ch] >= 0) {
-            const analog_net_if* x = pin[unsigned(chip.adc_pin[ch])];
-            return ((syscfg2_ >> ch) & 1u) && !x->floating() ? double(x->voltage()) : 0.0;
+            const unsigned i = unsigned(chip.adc_pin[ch]);
+            const analog_net_if* x = pin[i];
+            const bool analogico = chip.adc_por_sel ? funcion_de(i).tipo == 3 : ((syscfg2_ >> ch) & 1u);
+            return analogico && !x->floating() ? double(x->voltage()) : 0.0;
         }
         if (ch == 12) return (pmmctl2_ & 0x0008) ? v_sensor(temperatura) : 0.0;   // [DS: VSENSOR, TCSENSOR]
-        if (ch == 13) return vref_on() ? 1.5 : 0.0;
+        if (ch == 13) return vref_on() ? vref_nivel() : 0.0;
+        if (ch == 14) return 0.0;                                       // DVSS
         if (ch == 15) return vcc;
         return 0.0;
     }
@@ -602,9 +699,11 @@ private:
         for (unsigned i = 0; i < 10; ++i) t[0x0A + i] = uint8_t(0x30 + i);
         t[0x14] = 0x11; t[0x15] = 0x08;                               // la calibración del ADC
         w(0x16, 0x8000); w(0x18, 0x0000);                             // ganancia 1, sin desplazamiento
-        // El sensor, del modelo: 30 y 85 °C con la referencia de 1,5 V, 10 bits
-        w(0x1A, uint16_t(std::lround(v_sensor(30.0) / 1.5 * 1023.0)));
-        w(0x1C, uint16_t(std::lround(v_sensor(85.0) / 1.5 * 1023.0)));
+        // El sensor, del modelo: 30 y 85 °C con la referencia de 1,5 V, a 10
+        // bits (a 12 en las del ADC de 12 bits)
+        const double fe = chip.adc12 ? 4095.0 : 1023.0;
+        w(0x1A, uint16_t(std::lround(v_sensor(30.0) / 1.5 * fe)));
+        w(0x1C, uint16_t(std::lround(v_sensor(85.0) / 1.5 * fe)));
         t[0x1E] = 0x12; t[0x1F] = 0x04;                               // REF y DCO
         w(0x20, 0x8000);                                              // factor de la referencia: 1
         w(0x22, 256);                                                 // el grifo de 16 MHz a 30 °C [de modelo]
@@ -642,6 +741,10 @@ private:
         crc_ = 0xFFFF;
         mpy.reset();
         adc.reset();
+        icc_reset();
+        for (auto& e : ecomp) e->reset();
+        for (auto& x : sac) x->reset();
+        if (tia) tia->reset();
         relojes();
         pines_salida();
         ev_wdt_.notify(sc_core::SC_ZERO_TIME);
@@ -758,6 +861,10 @@ private:
         ++n_lpm5_;
         for (unsigned k = 0; k < chip.npuertos_irq; ++k) ifg5_[k] = uint8_t(pt_[k].ifg & pt_[k].ie);
         pm5ctl0_ |= 0x0001;                                           // LOCKLPM5 (al despertar)
+        // El eCOMP, el SAC y el TIA, apagados del todo en LPMx.5 [UG FR2 §18.2, §19.2, §20.2]
+        for (auto& e : ecomp) e->reset();
+        for (auto& x : sac) x->reset();
+        if (tia) tia->reset();
         rst_n.write(false);                                           // sin núcleo
         // La RAM se pierde [de modelo: queda con 0xCD]
         std::fill(mem_.begin() + desc.ram.ini, mem_.begin() + desc.ram.fin + 1, 0xCD);
@@ -800,9 +907,59 @@ private:
         return (alto << 56) | (lpm5_ ? 0 : uint64_t(nucleo.cpu.pc() & 0xFFFFFu));
     }
 
+    // --- El ICC (FR235x) [UG FR2 cap. 5] ------------------------------------------------
+    // ICCSC (ICCEN; VSEFLG, VSFFLG e ICMC, de la pila), ICCMVS (MVSSP e
+    // ICM0-ICM3) y los ICCILSR0-7 (2 bits por fuente: 0 la más alta, 3 la
+    // más baja). Con ICCEN la petición que pasa a la CPU es la de nivel más
+    // bajo (y, a igualdad, la del vector más alto), y solo si la pila está
+    // vacía o su nivel es menor que ICMC; al aceptarla, su nivel entra en la
+    // pila; la RETI lo saca. Con la pila llena (4) no pasa ninguna [de
+    // modelo: el UG no lo dice]. Borrar ICCEN vacía la pila.
+    bool iccen_ = false;
+    uint8_t icm_[4] = {3, 3, 3, 3};
+    unsigned icc_sp_ = 0;
+    uint16_t ilsr_[8] = {};
+    bool icc_on() const { return chip.icc_base && iccen_; }
+    unsigned icc_nivel(uint16_t v) const {
+        if (v < chip.icc_vec0) return 3;
+        const unsigned i = (v - chip.icc_vec0) / 2u;
+        return i < 64 ? (ilsr_[i / 8] >> (2 * (i % 8))) & 3u : 3u;
+    }
+    unsigned icmc() const { return icc_sp_ ? icm_[icc_sp_ - 1] : 3u; }
+    uint16_t icc_elige(uint64_t f) const {
+        unsigned mejor = 0, nv = 4;
+        for (int i = 63; i >= 0; --i) {
+            if (!((f >> i) & 1u)) continue;
+            const uint16_t v = uint16_t(0xFF80u + 2 * unsigned(i));
+            const unsigned n = icc_nivel(v);
+            if (n < nv) { nv = n; mejor = v; }
+        }
+        if (icc_sp_ >= 4 || (icc_sp_ > 0 && nv >= icmc())) return 0;
+        return uint16_t(mejor);
+    }
+    void icc_mete(unsigned n) { if (icc_sp_ < 4) icm_[icc_sp_++] = uint8_t(n); }
+    void icc_reset() { iccen_ = false; icc_sp_ = 0; for (auto& x : icm_) x = 3; for (auto& x : ilsr_) x = 0xFFFF; }
+    bool lee_icc(uint32_t off, uint16_t& v) const {
+        switch (off) {
+        case 0x00: v = uint16_t((iccen_ ? 0x80 : 0) | (icc_sp_ == 0 ? 0x20 : 0) | (icc_sp_ >= 4 ? 0x10 : 0) | icmc()); return true;
+        case 0x02: v = uint16_t((icc_sp_ << 8) | (icm_[3] << 6) | (icm_[2] << 4) | (icm_[1] << 2) | icm_[0]); return true;
+        default: if (off >= 0x04 && off < 0x14) { v = ilsr_[(off - 4) / 2]; return true; } return false;
+        }
+    }
+    void escribe_icc(uint32_t off, uint16_t v, uint16_t m) {
+        if (off == 0x00 && (m & 0x00FF)) {
+            iccen_ = v & 0x80;
+            if (!iccen_) { icc_sp_ = 0; for (auto& x : icm_) x = 3; }
+        } else if (off >= 0x04 && off < 0x14) {
+            uint16_t& r = ilsr_[(off - 4) / 2];
+            r = uint16_t((r & ~m) | (v & m));
+        }
+        avisa_irq();
+    }
+
     // --- Interrupciones -------------------------------------------------------------
     struct Fuente {
-        enum Clase { WDT, TIMER0, TIMERN, RTC, USCI, ADC, PUERTO, LCD } clase;
+        enum Clase { WDT, TIMER0, TIMERN, RTC, USCI, ADC, PUERTO, LCD, ECOMP, SAC } clase;
         unsigned i;
         uint16_t vec;
     };
@@ -824,6 +981,8 @@ private:
             pon(Fuente::PUERTO, k, n.c_str());
         }
         if (lcd) pon(Fuente::LCD, 0, "LCD_E");
+        for (unsigned k = 0; k < chip.necomps; ++k) pon(Fuente::ECOMP, k, chip.ecomps[k].vec);
+        for (unsigned k = 0; k < chip.nsacs; ++k) if (chip.sacs[k].vec) pon(Fuente::SAC, k, chip.sacs[k].vec);
     }
     uint64_t fuentes() {
         uint64_t f = 0;
@@ -838,6 +997,8 @@ private:
             case Fuente::ADC: p = adc.pide(); break;
             case Fuente::PUERTO: p = pt_[x.i].ifg & pt_[x.i].ie; break;
             case Fuente::LCD: p = lcd->pide(); break;
+            case Fuente::ECOMP: p = ecomp[x.i]->pide(); break;
+            case Fuente::SAC: p = sac[x.i]->pide(); break;
             }
             if (p) f |= 1ull << ((x.vec - 0xFF80u) / 2);
         }
@@ -878,7 +1039,15 @@ private:
             if (v && !disparo_ant_[k]) adc.dispara(d.shs);
             disparo_ant_[k] = v;
         }
+        // Los disparos de los DAC de los SAC (DACLSEL = 10 u 11) [DS FR235x tabla 6-32]
+        for (unsigned k = 0; k < chip.ndac_disparos && k < 4; ++k) {
+            const Fr2Disparo& d = chip.dac_disparos[k];
+            const bool v = ta[d.timer]->out[d.ccr].read();
+            if (v && !dac_ant_[k]) for (auto& x : sac) x->dispara_dac(d.shs);
+            dac_ant_[k] = v;
+        }
     }
+    bool dac_ant_[4] = {};
 
     // --- Puertos --------------------------------------------------------------------
     struct Puerto { uint8_t in = 0, out = 0, dir = 0, ren = 0, sel0 = 0, sel1 = 0, ies = 0, ie = 0, ifg = 0; };
@@ -896,12 +1065,18 @@ private:
         const unsigned s = (((pt_[p].sel1 >> b) & 1u) << 1) | ((pt_[p].sel0 >> b) & 1u);
         if (!s) return f;
         const Fr2Fn& d = fn_[i][s];
+        if (d.sel & (REMAP_SI | REMAP_NO)) {
+            const int rb = d.rmp >= 0 ? d.rmp : chip.remap_bit;
+            const bool rm = rb >= 0 && (((uint32_t(syscfg3_) << 16 | syscfg2_) >> rb) & 1u);
+            if (bool(d.sel & REMAP_SI) != rm) return f;
+        }
         switch (d.tipo) {
         case 1: f.tipo = 1; f.t = ta[d.mod].get(); f.n = d.n; break;
         case 2: f.tipo = 2; f.u = LineaU{usci[d.mod].get(), int(d.n)}; break;
         case 3: f.tipo = 3; break;
         case 4: f.tipo = 4; f.reloj = d.n; break;
         case 5: f.tipo = 5; f.t = ta[d.mod].get(); break;
+        case 7: f.tipo = 7; f.n = d.mod; break;
         default: break;
         }
         return f;
@@ -975,6 +1150,13 @@ private:
                 if (oe) { r.hiz = false; r.alto = o; }
                 return r;
             }
+            if (f.tipo == 3) {
+                // una salida analógica (OAxO, TRIxO) con su módulo encendido
+                const double v = v_salida_analogica(i);
+                if (v >= 0.0) { r.hiz = false; r.v = v; r.r = 10.0; }
+                return r;
+            }
+            if (f.tipo == 7 && dir) { r.hiz = false; r.alto = ecomp[f.n]->salida(); return r; }
             if (f.tipo == 4 && dir) {
                 // los relojes de salida: se ven como nivel alto si corren [de modelo]
                 const double fr = f.reloj == 0 ? cs.f_mclk : f.reloj == 1 ? cs.f_smclk : cs.f_aclk;
@@ -990,6 +1172,7 @@ private:
     void salidas_proc() { pines_salida(); }
     bool nivel(unsigned i) const { return !pin[i]->floating() && pin[i]->voltage() > 0.5f * float(vcc); }
     void entradas_proc() {
+        toca_analogico();
         for (unsigned k = 0; k < chip.npuertos; ++k) {
             Puerto& x = pt_[k];
             uint8_t n = 0;
@@ -1095,6 +1278,92 @@ private:
         pines_salida();
     }
 
+    // --- Lo analógico: el eCOMP, el SAC y el TIA -------------------------------------
+    double v_pin(unsigned i) const {
+        const analog_net_if* x = i < NPIN ? pin[i] : nullptr;
+        return !x || x->floating() ? 0.0 : double(x->voltage());
+    }
+    double v_src(const Fr2Src& f) const {
+        switch (f.tipo) {
+        case 1: return v_pin(f.n);
+        case 2: return f.n < sac.size() ? std::max(0.0, sac[f.n]->salida()) : 0.0;
+        case 3: return tia ? std::max(0.0, tia->salida()) : 0.0;
+        case 4: return f.n < sac.size() ? sac[f.n]->v_dac() : 0.0;
+        case 5: return vref_nivel();
+        case 6: return 1.2;                                             // [DS FR235x §6.10.13]
+        default: return -1.0;
+        }
+    }
+    // La tensión que un módulo pone en el pin `i` (< 0: ninguno)
+    double v_salida_analogica(unsigned i) const {
+        for (unsigned k = 0; k < chip.nsacs; ++k) if (chip.sacs[k].pin_sal == i && sac[k]->salida() >= 0.0) return sac[k]->salida();
+        if (tia && chip.tia->pin_sal == i && tia->salida() >= 0.0) return tia->salida();
+        return -1.0;
+    }
+    void toca_analogico() {
+        for (auto& e : ecomp) e->toca();
+        for (auto& x : sac) x->toca();
+        if (tia) tia->toca();
+    }
+    bool ecomp_ant_[2] = {};
+    sc_core::sc_event ev_ccib_;
+    void ccib_proc() {
+        for (unsigned k = 0; k < chip.necomps; ++k) {
+            const Fr2Ecomp& c = chip.ecomps[k];
+            if (c.ccib_timer >= 0) ta[unsigned(c.ccib_timer)]->cci_b[unsigned(c.ccib_n)].write(ecomp[k]->salida());
+        }
+    }
+    void construye_analogico() {
+        for (unsigned k = 0; k < chip.nsacs; ++k) {
+            const Fr2Sac& d = chip.sacs[k];
+            sac.emplace_back(new SacFr(d.nombre));
+            SacFr* x = sac.back().get();
+            x->l3 = d.l3;
+            x->vcc = [this] { return vcc; };
+            x->v_fuente = [this, k](unsigned f) {
+                const Fr2Sac& c = chip.sacs[k];
+                switch (f) {
+                case 0: return v_pin(c.pin_mas);
+                case 1: return v_pin(c.pin_menos);
+                case 2: return c.par >= 0 ? std::max(0.0, sac[unsigned(c.par)]->salida()) : 0.0;
+                case 3: return std::max(0.0, v_src(c.psel10));
+                default: return std::max(0.0, v_src(c.nsel10));
+                }
+            };
+            x->v_ref_dac = [this](bool sec) { return sec ? (vref_on() ? vref_nivel() : 0.0) : vcc; };   // [DS: primaria AVCC, secundaria la compartida]
+            x->al_cambiar = [this] { avisa_irq(); };
+            x->al_salida = [this] { pines_salida(); toca_analogico(); };
+        }
+        if (chip.tia) {
+            tia.reset(new TiaFr("tia0"));
+            tia->vcc = [this] { return vcc; };
+            tia->v_fuente = [this](unsigned f) {
+                switch (f) {
+                case 0: return v_pin(chip.tia->pin_mas);
+                case 1: return v_pin(chip.tia->pin_menos);
+                case 2: return std::max(0.0, v_src(chip.tia->psel01));
+                default: return std::max(0.0, v_src(chip.tia->psel10));
+                }
+            };
+            tia->al_salida = [this] { pines_salida(); toca_analogico(); };
+        }
+        for (unsigned k = 0; k < chip.necomps; ++k) {
+            ecomp.emplace_back(new EcompFr(chip.ecomps[k].nombre));
+            EcompFr* e = ecomp.back().get();
+            e->vcc = [this] { return vcc; };
+            e->vref = [this] { return vref_nivel(); };
+            e->v_entrada = [this, k](bool mas, unsigned sel) { return v_src(mas ? chip.ecomps[k].mas[sel & 7u] : chip.ecomps[k].menos[sel & 7u]); };
+            e->al_cambiar = [this] { avisa_irq(); };
+            e->al_salida = [this, k](bool o) {
+                const Fr2Ecomp& c = chip.ecomps[k];
+                if (c.ccib_timer >= 0) ev_ccib_.notify(sc_core::SC_ZERO_TIME);   // la señal la escribe un solo proceso
+                if (o && !ecomp_ant_[k & 1u] && c.adc_shs) adc.dispara(c.adc_shs);
+                ecomp_ant_[k & 1u] = o;
+                pines_salida();
+            };
+        }
+    }
+
     // --- El monitor del backchannel ------------------------------------------------
     std::vector<uint8_t> rx_cola_;
     sc_core::sc_event ev_rx_;
@@ -1164,7 +1433,13 @@ private:
         if (es_mpy(a)) { v = mpy.lee16(a - 0x4C0); return true; }
         if (EusciFr* u = usci_de(a, off)) { v = u->lee(off, dbg); return true; }
         if (es_lcd(a)) { v = lcd->lee(a - chip.lcd_base, dbg); return true; }
+        for (unsigned k = 0; k < chip.necomps; ++k)
+            if (a >= chip.ecomps[k].base && a < chip.ecomps[k].base + 0x20) { v = ecomp[k]->lee(a - chip.ecomps[k].base, dbg); return true; }
+        for (unsigned k = 0; k < chip.nsacs; ++k)
+            if (a >= chip.sacs[k].base && a < chip.sacs[k].base + 0x10) { v = sac[k]->lee(a - chip.sacs[k].base, dbg); return true; }
+        if (tia && a >= chip.tia->base && a < chip.tia->base + 0x10) { v = tia->lee(a - chip.tia->base, dbg); return true; }
         if (a >= 0x700 && a < 0x720) { v = adc.lee(a - 0x700, dbg); return true; }
+        if (chip.icc_base && a >= chip.icc_base && a < chip.icc_base + 0x14) return lee_icc(a - chip.icc_base, v);
         if (a >= chip.rtc_base && a < chip.rtc_base + 0x10) { v = rtc.lee(a - chip.rtc_base, dbg); return true; }
         if (a >= 0x660 && a < 0x680) { v = uint16_t(bkmem_[a - 0x660] | (bkmem_[a - 0x660 + 1] << 8)); return true; }
         if (a >= 0x180 && a < 0x192) { v = cs.lee((a - 0x180) / 2); return true; }
@@ -1212,7 +1487,13 @@ private:
         if (es_mpy(a)) { mpy.escribe(a - 0x4C0, v, m != 0xFFFF); return; }
         if (EusciFr* u = usci_de(a, off)) { u->escribe(off, v, m); return; }
         if (es_lcd(a)) { lcd->escribe(a - chip.lcd_base, v, m); relojes(); pines_salida(); return; }
+        for (unsigned k = 0; k < chip.necomps; ++k)
+            if (a >= chip.ecomps[k].base && a < chip.ecomps[k].base + 0x20) { ecomp[k]->escribe(a - chip.ecomps[k].base, v, m); return; }
+        for (unsigned k = 0; k < chip.nsacs; ++k)
+            if (a >= chip.sacs[k].base && a < chip.sacs[k].base + 0x10) { sac[k]->escribe(a - chip.sacs[k].base, v, m); return; }
+        if (tia && a >= chip.tia->base && a < chip.tia->base + 0x10) { tia->escribe(a - chip.tia->base, v, m); return; }
         if (a >= 0x700 && a < 0x720) { adc.escribe(a - 0x700, v, m); return; }
+        if (chip.icc_base && a >= chip.icc_base && a < chip.icc_base + 0x14) { escribe_icc(a - chip.icc_base, v, m); return; }
         if (a >= chip.rtc_base && a < chip.rtc_base + 0x10) { rtc.escribe(a - chip.rtc_base, v, m); relojes(); return; }
         if (a >= 0x660 && a < 0x680) {
             if (m & 0x00FF) bkmem_[a - 0x660] = uint8_t(v);
@@ -1268,7 +1549,7 @@ private:
             return;
         case 0x162: syscfg1_ = mz(syscfg1_); return;
         case 0x164: syscfg2_ = mz(syscfg2_); pines_salida(); return;
-        case 0x166: syscfg3_ = mz(syscfg3_); return;
+        case 0x166: syscfg3_ = mz(syscfg3_); pines_salida(); return;
         case 0x1A0:
             if (m & 0xFF00) {
                 const uint8_t pw = uint8_t(v >> 8);

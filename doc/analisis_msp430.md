@@ -241,7 +241,7 @@ legibles por programa:
 | **MSPBSL 1.02.00.01** | Fuentes BSD-3 del BSL de 5xx/6xx:<br>• intérprete de órdenes, API de Flash e interfaces UART por Timer_A, USCI y eUSCI, I2C y USB;<br>• proyectos para F552x por USB y por Timer_A, F543xA, F522x por I2C y CC430;<br>• un BSL para G2xx en la información (UART por software, 9600 8N1, con P1.3 de habilitación);<br>• **las imágenes publicadas** (licencia «TI Text File»): las del F552x son UART 00.07.05.04 y USB 00.07.88.38 / 00.08.88.39 | M9 |
 | **Replicator430** (SLAU320, v1.22) | Cuatro programadores de referencia en C, BSD-3, para un MSP430 anfitrión: `Replicator430` (CPU), `430X`, `430Xv2` y `430FR` (FR4xx y FR57xx-FR6xx). Cada uno trae sus funciones de JTAG y SBW (`JSBW.c`, `LowLevelFunc*.c`) y sus *funclets* de Flash y FRAM | M2, M3 |
 | **REP430F** (Elprotronic) | Manual del programador comercial basado en el Replicator. No aporta datos que no estén en SLAU320; queda como referencia | — |
-| **SLAA754** | SBW desde un MSP432P401R, un CC3220SF o un CC2640R2 a un G2553 y un FR2311, con los pines (P6.0 a RST y P6.1 a TEST en la MSP-EXP432P401R) y el formato de las imágenes. **Falta su código (`slaa754.zip`)** | M3, M7 |
+| **SLAA754** | SBW desde un MSP432P401R, un CC3220SF o un CC2640R2 a un G2553 y un FR2311, con los pines (P6.0 a RST y P6.1 a TEST en la MSP-EXP432P401R) y el formato de las imágenes. Su código (`slaa754.zip`), con los `.out` ya compilados, está en `doc/refs`: `make g2-slaa754` (M3) y `make fr2311-slaa754` (M7) | M3, M7 |
 | **`targetdb`** | Cada dispositivo (`devices/MSP430*.xml`): EEM, número de disparadores, control de relojes, SBW, base de los vectores, rango de la contraseña de JTAG y segmentos de la MPU. Cada módulo (`Modules/msp430/*.xml`): registros con dirección absoluta, campos con acceso y valores con nombre. **Sin valores de reset** | M0, M3-M8 |
 
 ### 1.3 La MSP Debug Stack, por dentro
@@ -271,7 +271,7 @@ protocolo HID que el del F5529. Es una segunda fuente para M9.
 
 | Documento | Para qué | ¿Bloquea? |
 | :--- | :--- | :--- |
-| **`slaa754.zip`** (el código de SLAA754) y el SimpleLink MSP432P4 SDK con el que se compiló | La prueba con un MSP432P401R que programa un G2553 y un FR2311 por SBW (M3, M7) | No: M3 y M7 cierran con la sonda de bancada y el Replicator |
+| ~~**`slaa754.zip`**~~ (llegó; M3 y M7 lo usan) y el SimpleLink MSP432P4 SDK con el que se compiló | La prueba con un MSP432P401R que programa un G2553 y un FR2311 por SBW (M3, M7) | No: los `.out` vienen compilados |
 | SLAA450 «Creating a Custom Flash-Based BSL» | Explica lo que MSPBSL trae en código | No |
 
 ### 1.5 Herramientas
@@ -811,7 +811,7 @@ cada operación, y eso se comprueba con una traza.
 | :--- | :--- | :--- | :--- |
 | **Sonda de bancada** (`--gdb`) | Stub de GDB sobre las macros HAL portadas, por los pines, en JTAG o SBW | Cientos de flancos por acceso | M2 |
 | **Replicator430 en un MSP430 simulado** | El código de SLAU320 compilado con `msp430-elf-gcc` para un anfitrión que `mcu-sim` ya simula (el F5529 de M4; el original es para un F5437), y cableado al objetivo en una placa de dos MCUs | Firmware real de TI programando por los pines | M4 (para el G2553 y el F5529) y M8 (430FR) |
-| **SLAA754 en una MSP-EXP432P401R** | El ejemplo de TI: el MSP432 programa un G2553 o un FR2311 por SBW (P6.0 → RST, P6.1 → TEST) e informa por el *backchannel* | Firmware real de TI en un anfitrión ARM ya modelado | M3, M7 (si llega `slaa754.zip`) |
+| **SLAA754 en una MSP-EXP432P401R** | El ejemplo de TI: el MSP432 programa un G2553 o un FR2311 por SBW (P6.0 → RST, P6.1 → TEST) e informa por el *backchannel* | Firmware real de TI en un anfitrión ARM ya modelado | M3 y M7 (hechos: `g2-slaa754`, `fr2311-slaa754`) |
 | **`mspdebug` de git** por *bit-bang* | Su `jtaglib` es una tercera implementación de [JTAG]; se sirve por un pty, como `remote_bitbang` | Igual | Opcional, tras M2 |
 | **eZ-FET emulada** | La sonda de la LaunchPad (M11), para `libmsp430` | Órdenes HAL por USB | M11 |
 
@@ -1133,7 +1133,7 @@ que entró y lo que no; lo pendiente está también en P-20 de `doc/todo.md`.
 | **M4** | F5529 sin USB + MSP-EXP430F5529LP; el Replicator430 en un F5529 programa un G2553 | `testf5` | M2, M3 | Grande |
 | **M5** | F5529: USB | `testf5` | M4 | Medio |
 | **M6** | FR2xx/FR4xx común: FR2433 + su LaunchPad | `testfr2` | M2 | Grande |
-| **M7** | FR2311, FR2355, FR4133 y FR2476, con sus LaunchPad | `testfr2` | M6 | Grande, divisible por chip |
+| **M7** | FR2311, FR2355, FR4133 y FR2476, con sus LaunchPad | `testfr4`, `testfr2311`, `testfr2355`, `testfr2476` | M6 | Grande, divisible por chip |
 | **M8** | FR5xx/FR6xx: FR5969, después FR5994 y FR6989, con sus LaunchPad; Replicator430FR | `testfr5` | M2, M4 | Grande, divisible |
 | **M9** | BSL de 2xx, de 5xx (USB de TI desde MSPBSL) y de FR5xx/FR6xx | `testg2`, `testf5`, `testfr5` + Python | M3, M5, M8 | Medio |
 | **M10** | BSL de FR2xx/FR4xx (SLAU550AB) | `testfr2` + Python | M7, M9 | Pequeño |
@@ -1558,6 +1558,7 @@ Un chip por subfase, en este orden, porque así cada uno añade poco:
 4. **FR2476**: FRAM por encima de 0x10000, 4 × TA3 + TB7 y ADC de 12 bits.
 
 **Cierre:** la demo de fábrica de cada LaunchPad y las erratas de cada chip.
+**Hecho** (véase «Cierre de M7» al final de esta sección).
 
 **Hecho, el FR4133 (17-11-2026).** Primero, la familia: el SoC del FR2433 se
 hizo **`soc/msp430/fr2/soc_fr2.h`**, uno para todas, con el chip como una
@@ -1613,6 +1614,151 @@ Lo que salió por el camino: [error de TI] la tabla 3 de SLAU595B pone «A3R» y
 **Queda del FR4133 [de modelo]:** la modulación IR de SYSCFG1, el CapTIvate
 IO (CAPTIO0) y el RTC a CCI1B de TA0, declarados; en 8-mux, 1/3 de
 polarización como en los demás.
+
+**Hecho, el FR2311 (17-11-2026).** Lo de la familia que pedía: **el Timer_B**
+(en `timer_a.h`, `TimerACaps::es_b`): los latches TBxCLn con los cuatro
+CLLD, CNTL (8, 10, 12 o 16 bits en continuo) y sin SCCI; y **lo analógico**,
+`periph/ti/analog_fr.h`: el **eCOMP** (las entradas de cada CPPSEL/CPNSEL que
+da el chip, la histéresis, CPINV, CPIFG/CPIIFG con CPIES y CPxIV, y su DAC de
+6 bits con los dos búferes, por CPDACSW o por la salida), el **SAC** (el OA;
+en el SAC-L3, la PGA de la tabla 20-2 y el DAC de 12 bits con DACIFG/SACxIV)
+y el **TIA**. El operacional de los tres, sin lazo dentro (el modo GP, el
+TIA), mueve su salida cada 0,1 o 0,5 µs la mitad del error hasta que V- =
+V+ por las resistencias de la placa, o hasta un raíl; con lazo dentro (el
+seguidor, la PGA), la cuenta. El SoC lleva sus salidas a los pines (OAxO,
+TRIxO, COUT), sus entradas desde los pines o desde los otros módulos, el
+eCOMP a la captura B de un Timer y al ADC, y sus vectores. Y en la tabla del
+chip: ADC por PxSEL = 11 (los «Smart Analog Combo» no tienen ADCPCTL), XIN
+con PxSEL = 10, la reasignación de la UCB0 (USCIBRMP) y RTCCKSEL.
+
+El chip, **`fr2311/soc_fr2311.h`** [DS SLASE58E]: P1-P2, TB0/TB1 de 3 CCR,
+eUSCI_A0 y B0, sin MPY ni memoria de información, eCOMP0 (C0, C1, C4 = OA0O
+o TRI0O, el DAC), SAC0 (SAC-L1: OA0+ P1.4, OA0- P1.2, OA0O P1.3) y TIA0 (TRI0+
+P1.7, TRI0- P1.6, TRI0O P1.5). **El fotodiodo** (`parts/fotodiodo.h`), una
+corriente que entra por el cátodo, proporcional a la luz (el mando `luz`).
+`msp_exp430fr2311.xml` (D1, R3 y sus puentes J7-J9, LED1/LED2 tras J10/J11,
+S1, el backchannel en el 3362) y su SVG. Y **la segunda mitad de SLAA754**:
+`msp432_programa_fr2311.xml`, la MSP-EXP432P401R con
+`MSP432Host_SBW_MSP430FR.out` de TI tal cual, cableada a RST y TEST de la
+FR2311 por J101: el Replicator430FR borra la FRAM, escribe el «blinky» y lo
+verifica, «MSP430 Programmed Successfully», y el LED1 del FR2311 parpadea
+(`make fr2311-slaa754`).
+
+**Cierre del FR2311:** `testfr2311`: H1 el descriptor y la TLV; H2
+`fr23_basico.c` con la DriverLib y una red en el banco (Timer_B con CNTL de 8
+bits y el PWM con CLLD; TB25; el eCOMP0 contra los dos búferes de su DAC y
+su interrupción; el SAC0 en GP con ganancia 3 por 20k/10k; el TIA0 con 1
+Mohm y 1 µA); y **H3 la demo de fábrica de TI, su binario**, con D1 y R3 como
+en la placa: a oscuras LED2 apagado, a 50 lx al 35,6 % (0,59 V en OA0O), a
+300 lx al 99,6 % (el OA en el raíl). `make gdb-g2` con la FR2311 por los dos
+caminos. SLAZ679R clasificada; **TB25** (en ascendente, CLLD = 01/10 cargan
+el latch en el acto), modelada.
+
+**Queda del FR2311 [de modelo]:** TBxOUTH (TB0TRG, TB1TRG y el eCOMP que
+ponen las salidas del Timer_B en alta impedancia), el RTC a CCI0A de TB0, la
+modulación IR, el retraso del filtro del eCOMP y el ancho de banda del OA;
+TBCLGRP.
+
+Lo que salió por el camino: `make gdb-g2` con la FR2311 dio con un error de
+`common/gdb_rsp.h`, el de todos los stubs: el final del sector de un trozo
+de `vFlashWrite` se calculaba alineando la dirección a su tamaño, y la FRAM
+de la FR2311 empieza en 0xF100, con sectores de 512 B que no están
+alineados; el trozo pasaba al sector siguiente sin borrarlo, y el borrado de
+ese sector, después, se llevaba lo escrito. Ahora el final se busca con
+`sector_de`; con sectores alineados (todos los demás) sale lo mismo.
+
+**Hecho, el FR2355 (17-11-2026).** Lo de la familia que pedía, en la tabla
+del chip y en `soc_fr2.h`: **el ICC** (UG FR2 cap. 5): ICCSC, ICCMVS y los
+ICCILSR0-7; con ICCEN, la petición que pasa a la CPU es la de nivel más bajo
+(a igualdad, la de vector más alto), y solo si la pila virtual está vacía o
+su nivel es menor que ICMC; al aceptarla entra en la pila, y la RETI la saca
+(un gancho nuevo del núcleo, `al_reti`). **El ADC de 12 bits** (ADCRES = 10,
+14 ciclos de conversión). **La referencia compartida mejorada**: REFVSEL da
+1,5, 2,0 o 2,5 V al ADC (canal 13 y VREF+), a los DAC de los SAC y al del
+eCOMP. **La de 1,2 V** como entrada de los eCOMP. **Los disparos del DAC**
+(DACLSEL = 10/11, TB2.1/TB2.2). **Las salidas de los SAC al ADC por dentro**
+(«connected internally to the ADC», SLAU680 §3.1.3: la demo deja P1.1 como
+salida digital y lee la salida del SAC0 por A1). **FRWPOA** (SYSCFG0 7-2): el
+primer FRWPOA KB de la FRAM principal sin proteger por PFWP; el arranque de
+CCS lo abre para las variables PERSISTENT de la demo, que sin él no
+guardaban la luz medida.
+
+El chip, **`fr2355/soc_fr2355.h`** [DS SLASEC4D]: P1-P6 (P1-P4 con
+interrupción), TB0-TB2 de 3 CCR y TB3 de 7, eUSCI_A0/A1/B0/B1, MPY32, el
+ADC con A8-A11 en P5, eCOMP0 y eCOMP1 (con la de 1,2 V y las salidas de los
+SAC), los cuatro SAC-L3 por parejas (SAC0-SAC2, SAC1-SAC3), el ICC en 0x6C0
+(ILSR0 el vector 0xFFCE, el P4) y XT1 en P2.7/P2.6. La ROM de DriverLib y
+FFT, declarada: la demo de fábrica no la llama. `msp_exp430fr2355.xml` (D1 y
+R3 en el SAC2 tras J7-J9, LED1/LED2 tras J10/J11, S1, S2, S3, Y1, el
+backchannel en el 3363 y los cuatro conectores BoosterPack) y su SVG.
+
+**Cierre del FR2355:** `testfr2355` (23): J1 el descriptor, la TLV y el ICC
+tras el reset; J2 `fr235_basico.c` (registros, sin DriverLib): XT1 y el FLL
+a 24 MHz, el ADC de 12 bits con DVCC y la referencia a 2,0 V, **el ICC**
+(el P1 de nivel 0 anida dentro de TB0 de nivel 3, con ICCSC 0x0083 e
+ICCMVS 0x02F3 dentro; TB0 espera a la RETI del P1 aunque haya GIE; sin
+ICCEN anida cualquiera), el DAC del SAC3 que carga TB2.1 en seguidor y el
+SAC1 en PGA inversor en cascada leído por A5 por dentro (4093, luego 1022),
+DACIFG, el eCOMP1 contra la de 1,2 V, TB3.6 al 30 % y el MPY32; y **J3 la
+demo de fábrica de TI, su binario**, con D1 y R3 como en la placa: a
+oscuras LED1 encendido; a 40 lx (ADC 588) LED2 al 13,9 % (la media entera de
+la demo se para 9 cuentas por debajo); S1 recalibra y se apagan los dos; S2
+pasa al generador de funciones: su configuración en JSON, la tabla del seno
+calculada con `sinf` (1,09 s), y 614 muestras en 1,2 s entre 1024 y 3070, el
+seno del DAC del SAC3 invertido por el SAC1. `make gdb-g2` con la FR2355 por
+los dos caminos. SLAZ695J clasificada (13, todas de la FR2311; TB25
+modelada también aquí).
+
+**Queda del FR2355 [de modelo]:** el MFM, TBxOUTH (TBxTRG), la eUSCI_A1
+invertida para IR, TB3 CCR0B a TB1, el RTC a TB0 CCI0A, y la ROM de
+bibliotecas (está en el mapa, sin contenido: si un programa la llamara, habría que cargar la imagen
+de TI desde fichero, como en B2). Con la pila virtual del ICC llena no pasa
+ninguna petición (el UG no dice qué hace), y la RETI de una NMI también saca
+de la pila.
+
+**Hecho, el FR2476 (17-11-2026).** Lo de la familia que pedía: **la FRAM de
+arriba de 0x10000** (la `principal2` del descriptor: el SoC ya la llevaba; el
+programador de GDB la cubre ahora hasta su final, `fram_fin()`), y **una
+reasignación por función** (`Fr2Fn::rmp`): la FR2476 tiene cinco bits
+(USCIB0RMP en SYSCFG2; USCIA0RMP, TA2RMP, TA3RMP y USCIB1RMP en SYSCFG3), y
+cada función reasignable lleva el suyo.
+
+El chip, **`fr2476/soc_fr2476.h`** [DS SLASEO7C]: P1-P6 (P6.0-P6.2), todos
+con interrupción; Timer0_A3 a Timer3_A3 y Timer0_B7; eUSCI_A0/A1/B0/B1;
+MPY32; el ADC de 12 bits con A8-A11 en P4 y P5 (sin ADCPCTL: PxSEL = 11); la
+referencia mejorada; el eCOMP0 con la de 1,2 V y COUT en P3.4; las
+conexiones TA0→TA1, TA2→TA3 y TA3→TB0 por las capturas B; XT1 en P2.1/P2.0
+con PxSEL = 01. Sin ICC, sin SAC y sin FRWPOA. **El TMP235**
+(`parts/tmp235.h`): con VDD, 500 mV + 10 mV/°C (el mando `temperatura`).
+`lp_msp430fr2476.xml` (U1 tras J9, LED1 tras J7, el RGB tras J8, S1 y S2
+con sus 47 kohm, S3, el cristal sin conectar, el backchannel en el 3364 y
+los cuatro conectores BoosterPack) y su SVG.
+
+**Cierre del FR2476:** `testfr2476` (19): K1 el descriptor (la FRAM hasta
+0x17FFF) y la TLV; K2 `fr247_basico.c` con `-mlarge`: código en 0x1000A y
+una tabla en 0x10000 (CALLA y lecturas de 20 bits), PFWP también allí
+(0x17F00 no se escribe con él y sí sin él), el ADC de 12 bits con REFVSEL =
+2,5 V, TA2.1 en P3.3 y con TA2RMP en P5.7 (el otro pin quieto), TB0.6 en
+P4.4, el eCOMP0 contra la de 1,2 V y la interrupción de P6; y **K3 la demo
+de fábrica de TI, su binario**, con el TMP235: a 25 °C verde (la calibración
+del arranque); a 25,5 °C rojo 16 y verde 239 de 256 (la media entera de la
+demo se para 9 cuentas por debajo); S2 manda «Ambient Temperature: 25.48 C»
+a 9600; S1 recalibra y vuelve el verde; a 24,5 °C, azul 72 de 256. `make
+gdb-g2` con la FR2476 por los dos caminos, con la ruptura en una función de
+por encima de 0x10000. SLAZ726B clasificada (9: TB25 y **COMP12**, el eCOMP0
+que no llega a TB0.CCI1B, modeladas).
+
+**Queda del FR2476 [de modelo]:** el RTC a TA0/TA2 CCI1B, el VLO a CCI0B,
+TB0OUTH (TB0TRG y el eCOMP0), la modulación IR de SYSCFG1 y la BAKMEM (los
+32 bytes que pasan LPM3.5).
+
+**Cierre de M7 (17-11-2026).** Los cuatro chips, cada uno con su SoC como
+tabla de `soc_fr2.h`, su LaunchPad (XML y SVG), su suite (`testfr4`,
+`testfr2311`, `testfr2355`, `testfr2476`), la demo de fábrica de TI tal cual
+en ella, sus erratas clasificadas en `doc/todo.md` (SLAZ550AA, SLAZ679R,
+SLAZ695J, SLAZ726B; SYS23, TB25 y COMP12 modeladas) y `make gdb-g2` por
+`--gdb-dap` y por los pines. Y la segunda mitad de SLAA754 (`make
+fr2311-slaa754`). `testfr2`, `test430`, `testg2` y `testf5` no se movieron.
 
 ### M8 · FR5xx/FR6xx: FR5969, FR5994 y FR6989
 
