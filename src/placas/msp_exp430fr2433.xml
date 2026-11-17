@@ -21,7 +21,7 @@
      pines (SBW en TEST/RST con la sonda de bancada). La demo de fábrica:
 
          ./build/mcu-sim placas/msp_exp430fr2433.xml \
-             --fw verif/fw/fr2433/OutOfBox_MSP430FR2433.txt
+             verif/fw/fr2433/OutOfBox_MSP430FR2433.txt 20000
 
          ./build/mcu-sim placas/msp_exp430fr2433.xml --valida
 -->

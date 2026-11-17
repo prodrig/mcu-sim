@@ -51,6 +51,7 @@
 #include "spi_flash.h"
 #include "auto_reset_esp.h"
 #include "ws2812.h"
+#include "lcd_fh1138p.h"
 
 namespace stm32 {
 
@@ -3077,6 +3078,24 @@ REGISTRA_PARTE(Ws2812,
       .nota("Observables: colorN (0xRRGGBB) y luzN (de 0 a 1)."),
     [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
         return new Ws2812(d.id.c_str(), n[d.nodo_de("din")], unsigned(d.num("n", 1)));
+    });
+
+REGISTRA_PARTE(LcdFh1138p,
+    Ayuda("El vidrio LCD FH-1138P de la MSP-EXP430FR4133: 4-mux, seis caracteres de 14 "
+          "segmentos y simbolos. Mira las TENSIONES de sus 38 patillas (las ondas del LCD_E): "
+          "en la fase de cada COM, un segmento esta encendido si su patilla va al extremo "
+          "contrario. Las patillas 21-24 son COM3-COM0; 25-31 no van a nada [SLAU595B tabla 3].")
+      .pin("1 .. 38", "los que se usen", "Las patillas del vidrio, por su numero.")
+      .atr("muestra", "no", "si: escribe el texto cada vez que cambia")
+      .nota("Observables: car1..car6 (el codigo ASCII de cada caracter) y tramas. "
+            "La S y el 5 son el mismo glifo (hal_LCD.c): el vidrio lo lee como 5."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        std::vector<analog_net_if*> p(LcdFh1138p::NP, nullptr);
+        for (unsigned k = 0; k < LcdFh1138p::NP; ++k) {
+            const std::string& s = d.nodo_de(std::to_string(k + 1));
+            if (!s.empty()) p[k] = &n[s];
+        }
+        return new LcdFh1138p(d.id.c_str(), p, d.si("muestra", false));
     });
 
 REGISTRA_PARTE(AutoResetEsp,

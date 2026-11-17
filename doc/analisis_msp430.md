@@ -1516,7 +1516,8 @@ RTC, un flanco de P1/P2 (o una bandera que ya estaba puesta) y RST, con un
 BOR: SYSRSTIV = 0x08, PMMLPM5IFG, la bandera del despertar puesta y los
 pines quietos hasta borrar LOCKLPM5; en LPM4.5 la BAKMEM se pierde. El TAP
 de las FRAM (JTAG ID 0x98) da el **JSTATE** (64 bits: LPMx.5, LPM, la parada
-del EEM). La firma de JTAG de 0xFF80. `fr2433_mcu.h` lo pone en `mcu-sim`
+del EEM). La firma de JTAG de 0xFF80. `fr2433_mcu.h` (desde M7,
+`fr2/fr2_mcu.h`) lo pone en `mcu-sim`
 con `--gdb-dap` y `--gdb` por los pines (la sonda de bancada con las
 secuencias de Xv2; si la CPU está en LPMx.5, un BOR por JTAG, como la
 herramienta), con el `load` en la FRAM abriendo SYSCFG0 (`ProgramadorFram`).
@@ -1557,6 +1558,61 @@ Un chip por subfase, en este orden, porque así cada uno añade poco:
 4. **FR2476**: FRAM por encima de 0x10000, 4 × TA3 + TB7 y ADC de 12 bits.
 
 **Cierre:** la demo de fábrica de cada LaunchPad y las erratas de cada chip.
+
+**Hecho, el FR4133 (17-11-2026).** Primero, la familia: el SoC del FR2433 se
+hizo **`soc/msp430/fr2/soc_fr2.h`**, uno para todas, con el chip como una
+tabla (`ChipFr2`): los puertos (cuántos, qué bits, cuáles con interrupción),
+los Timer_A (base, CCR, el NOMBRE de sus vectores, que el SoC busca en el
+descriptor generado), las eUSCI, el MPY32 si lo hay, la base del RTC, la
+función de cada pin con cada PxSEL, las conexiones internas de los Timer y
+los disparos del ADC, los canales del ADC y el sensor, XT1, el JTAG de 4
+hilos, el backchannel, el ID y la CRC de la TLV, el LCD_E y sus pines, y
+rasgos sueltos (SYSCFG0 sin contraseña en las FR413x; la errata SYS23).
+`soc_fr2433.h` es ya solo su tabla, y `testfr2` no se mueve. El adaptador
+pasó a `fr2/fr2_mcu.h`, con un `McuCapsFr2` por chip (su tabla, su
+encapsulado y si su LaunchPad lleva cristal). Por el camino, tres cosas de
+la familia que el FR2433 no pedía: **los Timer piden su reloj** en LPM (UG
+FR2 §3.2.12: el antirrebote de la demo del FR4133 cuenta con SMCLK en
+LPM3), **PxIFG no se borra con LOCKLPM5** (§8.3.4: la demo la borra antes
+de soltar los pines y el despertar se atiende igual) y P2IV se lee (daba 0).
+
+El chip, **`fr4133/soc_fr4133.h`** [DS SLAS865F]: P1-P8 con un solo PxSEL0,
+TA0/TA1 en 0x300/0x340, eUSCI_A0 y B0, sin MPY, el ADC con A8/A9 en P8, el
+RTC en 0x3C0 y **el LCD_E** (`periph/ti/lcd_e.h`, UG FR2 cap. 17): LCDCTL0/1,
+el parpadeo (los cuatro LCDBLKMOD con LCDBLKPRE), LCDMEMCTL (LCDDISP,
+LCDCLRM y LCDCLRBM en el borde de la trama), LCDVCTL (VLCD de la bomba de
+carga), LCDPCTL, LCDCSSEL con el COM de cada pin en su LCDMx, LCDIV y las
+tres IFG, la memoria y la de parpadeo; fLCD = fSOURCE / ((LCDDIV + 1) ×
+MUXDIVIDER) y **las ondas en los pines**, con sus cuatro niveles (VLCD, 2/3,
+1/3 y 0). Sigue en LPM3.5 (cuenta como el RTC para el dominio de LPM3.5),
+sus pines no se quedan quietos con LOCKLPM5 y sus registros pasan el
+despertar. **El vidrio FH-1138P** (`parts/lcd_fh1138p.h`) no lee memoria:
+mira las tensiones de sus 38 patillas, decide en cada fase qué COM está en
+un extremo y qué segmentos van al contrario, y lee los seis caracteres con
+las tablas de `hal_LCD.c` de la demo (la S y el 5 son el mismo glifo). Lo que
+se ve es lo que se queda dos tramas. `msp_exp430fr4133.xml` (con el vidrio,
+JP1, los LED, S1-S3, Y1 y el backchannel en el 3361) y su SVG, en
+`dibuja_ti.py`, del esquema de SLAU595B.
+
+**Cierre del FR4133:** `testfr4` (27 comprobaciones): F1 el SoC contra el
+descriptor y la TLV; F2 `fr4_basico.c` con la DriverLib y el vidrio colgado
+de los pines («HOLA43» y el corazón, «FR4133» con LCDDISP, 9 tramas en 100
+ms por LCDIV, el parpadeo a 1,33 Hz, 2,96 V de VLCD, el sensor, el PWM de
+TA1.1); F3 LPM3.5 con el LCD encendido (el vidrio sigue viendo «LPM35» sin
+núcleo; el RTC desde XT1 lo despierta y el LCD sigue sin volver a
+configurarlo) y SYS23; y **F4 la demo de fábrica de TI, su binario tal
+cual**: pasan «WELCOME TO THE FR4133 LAUNCHPAD», el recorrido de los
+segmentos y «HOLD S1 AND S2 TO SWITCH MODES»; S1+S2, el cronómetro (parado
+en LPM3.5, S1 cuenta en LPM3 con el RTC cada 10 ms: 2,04 s); S1+S2 otra vez,
+el termómetro (el ADC disparado por TA1.1: «25.2C», y «77.3F» con S2). Y `make
+gdb-g2` con la FR4133 por los dos caminos. SLAZ550AA, clasificada en P-20.
+
+Lo que salió por el camino: [error de TI] la tabla 3 de SLAU595B pone «A3R» y
+«A4R» donde va la E.
+
+**Queda del FR4133 [de modelo]:** la modulación IR de SYSCFG1, el CapTIvate
+IO (CAPTIO0) y el RTC a CCI1B de TA0, declarados; en 8-mux, 1/3 de
+polarización como en los demás.
 
 ### M8 · FR5xx/FR6xx: FR5969, FR5994 y FR6989
 

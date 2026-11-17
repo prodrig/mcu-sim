@@ -1,23 +1,25 @@
 // =============================================================================
-// fr2433_mcu.h — El ADAPTADOR del MSP430FR2433 a `mcu_if`, y su alta en la
-// factoría (M6: el FR2433 en el binario `mcu-sim` y en las placas)
+// fr2_mcu.h — El ADAPTADOR de las FR2xx/FR4xx a `mcu_if`, y su alta en la
+// factoría (M6: el FR2433; M7: el FR4133...)
 //
 // Como el del F5529 (f5529_mcu.h), con lo que cambia:
-//   * los PINES son P1.0-P1.7, P2.0-P2.7 y P3.0-P3.2 (VQFN-24);
+//   * los PINES son los del encapsulado de cada chip (P1-P8 como mucho);
 //   * la memoria es FRAM: el `load` de GDB la escribe abriendo SYSCFG0
 //     (ProgramadorFram), por los dos caminos: --gdb-dap contra el núcleo y
 //     --gdb por los pines (SBW en TEST/RST, la sonda de bancada con las
 //     secuencias de Xv2).
 //
-// La familia que despacha la factoría es "MSP430FR2". [soc/mcu_if.h]
+// Un chip es su tabla (`ChipFr2`), su encapsulado y si su LaunchPad lleva
+// cristal. La familia que despacha la factoría es "MSP430FR2". [soc/mcu_if.h]
 // =============================================================================
-#ifndef STM32_SOC_MSP430_FR2433_FR2433_MCU_H
-#define STM32_SOC_MSP430_FR2433_FR2433_MCU_H
+#ifndef STM32_SOC_MSP430_FR2_FR2_MCU_H
+#define STM32_SOC_MSP430_FR2_FR2_MCU_H
 
 #include <cstdio>
 #include <memory>
 #include "../../mcu_if.h"
-#include "soc_fr2433.h"
+#include "../fr2433/soc_fr2433.h"
+#include "../fr4133/soc_fr4133.h"
 #include "../../../pins/nomenclatura.h"
 #include "../../../parts/netlist.h"
 #include "../../../common/nombres_nodo.h"
@@ -25,17 +27,21 @@
 
 namespace stm32 {
 
-// --- Encapsulados [DS SLASE59F, «Pin Diagrams»] ---------------------------------
-// VQFN-24 (el de la LaunchPad, MSP430FR2433IRGE): P1 y P2 enteros, P3.0-P3.2
+// --- Encapsulados [DS, «Pin Diagrams»] -------------------------------------------
+// FR2433 VQFN-24 (el de la LaunchPad, MSP430FR2433IRGE): P1 y P2 enteros,
+// P3.0-P3.2 [SLASE59F]
 inline constexpr Encapsulado ENC_FR2433_RGE24{"VQFN24", 24, 19, {0xFFu, 0xFFu, 0x07u}, true};
+// FR4133 LQFP-64 (el de la LaunchPad, MSP430FR4133IPM): P1-P7 enteros,
+// P8.0-P8.3 [SLAS865F figura 7-1]
+inline constexpr Encapsulado ENC_FR4133_PM64{"LQFP64", 64, 60, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x0Fu}, true};
 
 namespace fr2 {
 inline bool pad_fr2(const std::string& t, unsigned& puerto, unsigned& pin) {
     std::string s = t;
     for (char& c : s) if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
-    if (s.size() == 4 && s[0] == 'P' && s[2] == '.' && s[3] >= '0' && s[3] <= '7' && s[1] >= '1' && s[1] <= '3') {
+    if (s.size() == 4 && s[0] == 'P' && s[2] == '.' && s[3] >= '0' && s[3] <= '7' && s[1] >= '1' && s[1] <= '8') {
         puerto = unsigned(s[1] - '1'); pin = unsigned(s[3] - '0');
-        return puerto < 2 || pin <= 2;
+        return true;                                // lo que existe lo dice el encapsulado
     }
     return false;
 }
@@ -47,21 +53,31 @@ inline const char* const ALIM_FR2[] = {"DVCC", "DVSS", "RST", "TEST", nullptr};
 
 inline const Nomenclatura NOM_MSP430FR2{"MSP430FR2", &fr2::pad_fr2, &fr2::canonico_fr2, fr2::ALIM_FR2};
 struct RegistroNomFr2 {
-    RegistroNomFr2() { ContextoNomenclatura::g().registra_tipo("MSP430FR2", &NOM_MSP430FR2); }
+    RegistroNomFr2() {
+        ContextoNomenclatura::g().registra_tipo("MSP430FR2", &NOM_MSP430FR2);
+        ContextoNomenclatura::g().registra_tipo("MSP430FR4", &NOM_MSP430FR2);   // el FR4133: la misma
+    }
 };
 inline const RegistroNomFr2 g_registro_nom_fr2{};
 
-struct McuCapsFr2 { const char* nombre; Encapsulado enc; };
-inline constexpr McuCapsFr2 MCU_MSP430FR2433{"MSP430FR2433", ENC_FR2433_RGE24};
+// `cristal`: la LaunchPad lleva uno de 32 768 Hz en XIN/XOUT (y conectado)
+struct McuCapsFr2 { const char* nombre; Encapsulado enc; const ChipFr2* chip; bool cristal; };
+inline constexpr McuCapsFr2 MCU_MSP430FR2433{"MSP430FR2433", ENC_FR2433_RGE24, &CHIP_FR2433, false};
+inline constexpr McuCapsFr2 MCU_MSP430FR4133{"MSP430FR4133", ENC_FR4133_PM64, &CHIP_FR4133, true};
 struct RegistroCatalogoFr2 {
-    RegistroCatalogoFr2() { CatalogoMcu::registra(McuDesc{MCU_MSP430FR2433.nombre, "MSP430FR2", &MCU_MSP430FR2433.enc, &MCU_MSP430FR2433}); }
+    RegistroCatalogoFr2() {
+        for (const McuCapsFr2* m : {&MCU_MSP430FR2433, &MCU_MSP430FR4133})
+            CatalogoMcu::registra(McuDesc{m->nombre, "MSP430FR2", &m->enc, m});
+    }
 };
 inline const RegistroCatalogoFr2 g_registro_catalogo_fr2{};
 
-class McuFR2433 : public mcu_if {
+class McuFR2 : public mcu_if {
 public:
-    McuFR2433(const char* nm, DebugCaps dbg, const Cableado& cab, const McuDesc& d) : desc_(d) {
-        chip_ = new SocFR2433(nm, &cab);
+    McuFR2(const char* nm, DebugCaps dbg, const Cableado& cab, const McuDesc& d)
+        : desc_(d), caps_(*static_cast<const McuCapsFr2*>(d.propio)) {
+        chip_ = new SocFR2(nm, *caps_.chip, &cab);
+        chip_->cristal_xt1 = caps_.cristal;
         chip_->monitor_uart = false;                 // el backchannel es el PuenteSerie de la placa
         auto net = [&](const char* n) -> analog_net_if* {
             if (analog_net_if* x = cab.busca_alim(n)) return x;
@@ -75,25 +91,25 @@ public:
         chip_->rst.set_hiz(d_rst_);
         if (dbg.attach == DebugAttach::Interno && dbg.puerto) {
             directo_.reset(new DbgDirectoM430(chip_->nucleo, chip_->eem));
-            SocFR2433* c = chip_;
+            SocFR2* c = chip_;
             directo_->al_reset = [c] { c->reset(true); sc_core::wait(1, sc_core::SC_US); c->reset(false); };
             directo_->despierta = [c] { c->despierta_por_depurador(); };
             gdb_.reset(new GdbStubM430((std::string(nm) + "_gdb").c_str(), *directo_, dbg.puerto, "gdb-430"));
-            gdb_->pon_fram(0xC400, 0xFFFF, 0x1800, 0x19FF);
+            gdb_->pon_fram(chip_->fram_ini(), 0xFFFF, 0x1800, 0x19FF);
             gdb_->set_enabled(false);
         }
     }
-    ~McuFR2433() override {
+    ~McuFR2() override {
         gdb_.reset(); gdb_pines_.reset(); dbg_sonda_.reset(); sonda_xv2_.reset(); sonda_.reset();
         directo_.reset();
         delete chip_;
         for (AnalogNet* n : propios_) delete n;
     }
-    SocFR2433& chip() { return *chip_; }
+    SocFR2& chip() { return *chip_; }
     const McuDesc& desc() const override { return desc_; }
 
     std::vector<congela::Nucleo> nucleos() override {
-        SocFR2433* c = chip_;
+        SocFR2* c = chip_;
         return {{std::string(c->name()) + ".nucleo", [c] { return c->nucleo.parado() && !c->nucleo.en_reset(); },
                  [c](sc_core::sc_event_or_list& l) {
                      l |= c->nucleo.ev_parado();
@@ -112,8 +128,9 @@ public:
         apunta_mcu_en_placa(chip_);
         const std::string pre = prefijo.empty() ? std::string() : prefijo + ".";
         const Encapsulado& e = *desc_.enc;
-        for (unsigned p = 0; p < 3; ++p)
-            for (unsigned i = 0; i < (p < 2 ? 8u : 3u); ++i) {
+        for (unsigned p = 0; p < caps_.chip->npuertos; ++p)
+            for (unsigned i = 0; i < 8; ++i) {
+                if (!chip_->existe(p * 8 + i)) continue;
                 const std::string canon = fr2::canonico_fr2(p, i);
                 analog_net_if& a = chip_->p(p + 1, i);
                 if (AnalogNet* x = dynamic_cast<AnalogNet*>(&a)) x->nombre_esq = pre + canon;
@@ -125,7 +142,7 @@ public:
         n.registra(pre + "TEST", chip_->test, true);
     }
     analog_net_if& nodo_analogico(unsigned puerto, unsigned pin) override {
-        if (puerto >= 3 || (puerto == 2 && pin > 2)) return chip_->p(1, 0);
+        if (!chip_->existe(puerto * 8 + (pin & 7u))) return chip_->p(1, 0);
         return chip_->p(puerto + 1, pin & 7u);
     }
     analog_net_if* nodo_swclk() override { return nullptr; }
@@ -158,8 +175,9 @@ public:
         static const uint16_t p[] = {0x40B2, 0x5A80, 0x01CC,     // mov #WDTPW|WDTHOLD,&WDTCTL
                                      0xD032, 0x00F0,             // bis #LPM4,SR
                                      0x3FFD};                    // jmp $-4
-        for (unsigned i = 0; i < 6; ++i) poke16(0xC400u + 2 * i, p[i]);
-        poke16(0xFFFE, 0xC400);
+        const uint32_t a = chip_->fram_ini();
+        for (unsigned i = 0; i < 6; ++i) poke16(a + 2 * i, p[i]);
+        poke16(0xFFFE, uint16_t(a));
     }
     std::string sin_firmware() override { aparca_en_wfe(); return "el nucleo para el perro y duerme en LPM4"; }
     void set_ondas_reloj(bool) override {}
@@ -176,14 +194,15 @@ public:
         sonda_xv2_.reset(new SondaXv2(*sonda_, 0x2000));
         dbg_sonda_.reset(new DbgSondaXv2(*sonda_xv2_, chip_->eem.disparadores()));
         gdb_pines_.reset(new GdbStubM430(nombre.c_str(), *dbg_sonda_, puerto, "gdb-pines"));
-        gdb_pines_->pon_fram(0xC400, 0xFFFF, 0x1800, 0x19FF);
+        gdb_pines_->pon_fram(chip_->fram_ini(), 0xFFFF, 0x1800, 0x19FF);
         gdb_pines_->set_enabled(false);
         return gdb_pines_.get();
     }
 
 private:
-    SocFR2433* chip_;
+    SocFR2* chip_;
     McuDesc desc_;
+    McuCapsFr2 caps_;
     std::vector<AnalogNet*> propios_;
     analog_net_if* dvcc_ = nullptr;
     analog_net_if* dvss_ = nullptr;
@@ -199,8 +218,8 @@ private:
 };
 
 REGISTRA_MCU(MSP430FR2, [](const char* nm, DebugCaps d, const Cableado& c, const McuDesc& desc) -> mcu_if* {
-    return new McuFR2433(nm, d, c, desc);
+    return new McuFR2(nm, d, c, desc);
 });
 
 } // namespace stm32
-#endif // STM32_SOC_MSP430_FR2433_FR2433_MCU_H
+#endif // STM32_SOC_MSP430_FR2_FR2_MCU_H

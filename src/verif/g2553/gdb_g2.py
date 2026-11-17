@@ -19,7 +19,8 @@
 # Y la MSP-EXP430F5529LP por los dos caminos (M4): --gdb-dap y --gdb, este
 # por SBW con las secuencias de Xv2 (DbgSondaXv2): load en la Flash de 5xx con
 # las rutinas del Replicator430Xv2, ruptura en 0x10000, finish, stepi, Ctrl-C.
-# Y la MSP-EXP430FR2433 (M6), igual: load en la FRAM, main, hbreak, stepi, Ctrl-C.
+# Y la MSP-EXP430FR2433 (M6) y la MSP-EXP430FR4133 (M7), igual: load en la
+# FRAM, main, hbreak, stepi, Ctrl-C.
 #
 #   python3 verif/g2553/gdb_g2.py [--sim build/mcu-sim] [--gdb msp430-elf-gdb]
 #
@@ -209,14 +210,14 @@ def una_f5(sim, prog, modo):
         check(vivo, "%s: el simulador sigue en pie tras las dos sesiones" % n)
 
 
-def una_fr2(sim, prog, modo):
-    """La MSP-EXP430FR2433 (M6) por --gdb-dap o por los pines (--gdb, SBW):
-    load en la FRAM (el programador abre SYSCFG0), ruptura en main, hbreak en
-    la rutina del Timer0_A3, paso y Ctrl-C"""
-    elf = os.path.join("verif", "fr2433", "elf", "fr2_basico.elf")
+def una_fr2(sim, prog, modo, chip="FR2433", placa="msp_exp430fr2433.xml", elf=None):
+    """Una LaunchPad de las FR2xx/FR4xx (M6, M7) por --gdb-dap o por los pines
+    (--gdb, SBW): load en la FRAM (el programador abre SYSCFG0), ruptura en
+    main, hbreak en la rutina del Timer0_A3, paso y Ctrl-C"""
+    elf = elf or os.path.join("verif", "fr2433", "elf", "fr2_basico.elf")
     pu = puerto_libre()
-    s = Sim(sim, [os.path.join("placas", "msp_exp430fr2433.xml"), modo], pu)
-    n = "FR2433 %s" % modo
+    s = Sim(sim, [os.path.join("placas", placa), modo], pu)
+    n = "%s %s" % (chip, modo)
     try:
         if not check(s.listo, "%s: el stub escucha" % n):
             return
@@ -272,6 +273,10 @@ def main():
     for modo in ("--gdb-dap", "--gdb"):
         print("\n--- FR2433 %s ---" % modo)
         una_fr2(a.sim, prog, modo)
+    for modo in ("--gdb-dap", "--gdb"):
+        print("\n--- FR4133 %s ---" % modo)
+        una_fr2(a.sim, prog, modo, "FR4133", "msp_exp430fr4133.xml",
+                os.path.join("verif", "fr4133", "elf", "fr4_basico.elf"))
     print("\nTOTAL GDB G2: %s" % ("0 fallos" if not fallos else "%d fallos" % fallos))
     return 1 if fallos else 0
 

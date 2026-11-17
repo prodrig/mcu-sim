@@ -1128,6 +1128,21 @@ grupos, porque son 79:
 | BSL18 | el vector vacío no llama al BSL | no aplica (M10) | con el vector borrado el modelo duerme en LPM4 |
 | EEM23 | el EEM con módulos con esperas (MPY, CRC, FRAM) | se documenta | el EEM del modelo no tiene esas carreras |
 
+**SLAZ550AA (MSP430FR4133, revisión B), clasificada** [§10.4 del análisis;
+M7]. Son 24; las que comparte con la FR2433 (SLAZ664S, arriba), con la misma
+clase:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22, CPU40, CPU46, ADC50, ADC63, CS13, PMM32, GC4, GC5, PORT28, RTC15, USCI42, USCI45, USCI47, USCI50, EEM23 | (las de la FR2433) | (las mismas) | (lo mismo) |
+| SYS23 | la RAM en 0x20FE-0x20FF no se conserva tras un BOR por RST, por PMMSWBOR, por la seguridad o por SVSH | **se modela** | esos dos bytes quedan a 0x00 [de modelo: TI no dice qué queda] y avisa una vez; `testfr4` F3 lo comprueba |
+| ADC39 | resultados erróneos en el muestreo extendido (ADCSHP = 0) con ADCCLK asíncrono a SHI | se documenta | el ADC del modelo no tiene esa carrera |
+| CS11 | el FLL no engancha a -40 °C o 85 °C si DCO estaba cerca de un extremo a temperatura ambiente | se documenta | el DCO del modelo no deriva con la temperatura |
+| GC1 | UBDIFG no da NMI | se documenta | la FRAM del modelo no falla (GCCTL1 a 0) |
+| USCI41 | UCBUSY de la eUSCI_A en SPI se queda a 1 o conmuta | se documenta | la eUSCI es la del MSP432P4, sin esa avería |
+| EEM28 | los relojes de salida se ven en el pin durante una parada de depuración en LPMx | se documenta | los relojes de salida del modelo son un nivel (corren o no) |
+| EEM30 | una ruptura en la primera instrucción que lee la FRAM se pierde con FRPWR = 0 | se documenta | GCCTL0.FRPWR no apaga nada en el modelo |
+
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)

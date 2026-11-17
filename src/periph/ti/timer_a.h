@@ -105,6 +105,10 @@ public:
     std::function<void(unsigned n, bool v)> al_cambiar_salida;
 
     const TimerACaps& caps() const { return caps_; }
+    // La petición de reloj (TASSEL: 1 ACLK, 2 SMCLK) de un Timer en marcha (MC
+    // distinto de 0) [UG FR2 §3.2.12: «if a timer selects ACLK as its clock
+    // source and the timer is enabled, the timer generates an ACLK_REQ»]
+    bool pide_reloj(unsigned s) const { return mc() != 0 && tassel() == s; }
     // El MSP430 borra CCIFG de CCR0 al aceptar su vector (el MSP432, no): lo
     // llama el SoC cuando la CPU reconoce la interrupción TAx_0
     void reconoce_ccr0() { cctl_[0] &= uint16_t(~CC_IFG); borrado(); }

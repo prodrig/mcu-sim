@@ -1,0 +1,10 @@
+OutOfBox_MSP430FR4133.txt: el binario TI-TXT de la demo de fábrica de la
+MSP-EXP430FR4133, TAL CUAL (MSP-EXP430FR4133 Software Examples,
+Firmware/Binary/OutOfBox_MSP430FR4133; los fuentes, en Firmware/Source, son
+BSD de TI). Al encender pasa por el LCD «WELCOME TO THE FR4133 LAUNCHPAD»,
+recorre los segmentos y pasa «HOLD S1 AND S2 TO SWITCH MODES». S1 y S2 a la
+vez cambian de modo: el cronómetro (S1 arranca y para; LPM3.5 parado, LPM3
+contando con el RTC cada 10 ms) y el termómetro (el sensor con el ADC
+disparado por TA1.1 cuatro veces por segundo; S2 cambia °C y °F). El estado
+va en la BAKMEM y el LCD_E sigue en LPM3.5. Lo usa testfr4 F4 (M7 de
+doc/analisis_msp430.md).
