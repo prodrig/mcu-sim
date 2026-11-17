@@ -1,0 +1,17 @@
+# Los programas de testfr2 (M6). Los ELF se versionan en elf/: regenerarlos pide
+# msp430-elf-gcc, las cabeceras de TI y la DriverLib de FR2xx/FR4xx que trae el
+# paquete de software de la MSP-EXP430FR2433 (BSD-3), todo en doc/refs.
+#   make -f Makefile.fr2433 [MSPGCC=<bin>]
+MSPGCC ?= msp430-elf-
+REFS   ?= ../../../doc/refs/msp430
+TI     ?= $(REFS)/ti/msp430/include_gcc
+DL     ?= $(REFS)/launchpads/MSP-EXP430FR2433/sw/Firmware/Source/BlinkLED_MSP430FR2433/driverlib/MSP430FR2xx_4xx
+CFLAGS := -mmcu=msp430fr2433 -I$(TI) -L$(TI) -I$(DL) -Ishim -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
+DLSRC  := cs.c eusci_a_uart.c framctl.c adc.c gpio.c wdt_a.c pmm.c crc.c timer_a.c sfr.c rtc.c sysctl.c
+PROGS  := fr2_basico
+
+all: $(PROGS:%=elf/%.elf)
+
+elf/%.elf: %.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -o $@ $< $(DLSRC:%=$(DL)/%)

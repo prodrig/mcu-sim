@@ -126,12 +126,13 @@ SC_MODULE(SocF5529), public m430_irq_if {
             if (i < 64) std::snprintf(n, sizeof n, "P%u_%u", 1 + i / 8, i % 8);
             else std::snprintf(n, sizeof n, "PJ_%u", i - 64);
             analog_net_if* x = cab ? cab->busca(i < 64 ? i / 8 : 10, i < 64 ? i % 8 : i - 64) : nullptr;
-            n[2] = '.';
             if (!x) {
-                propios_.emplace_back(new AnalogNet(n));
+                propios_.emplace_back(new AnalogNet(n));          // P1_0 (SystemC no admite el punto)
+                n[2] = '.';
                 propios_.back()->nombre_esq = n;
                 x = propios_.back().get();
             }
+            n[2] = '.';
             pin.push_back(x);
             id_pin_[i] = x->register_driver(n);
             x->set_hiz(id_pin_[i]);

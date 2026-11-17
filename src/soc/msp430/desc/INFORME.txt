@@ -109,6 +109,7 @@
   msp430fr2433   §2.2 bsl2 0xFFC00-0xFFFFF
   msp430fr2433   21 módulos
   msp430fr2433   274 registros del targetdb; 187 contrastados con GCC, 0 distintos
+  msp430fr2433   RESUELTA vector-comentario:TIMER0_A0: la cabecera dice 0xFFE8 y su número (56) da 0xFFF8 -- vale el número
   msp430fr2433   19 vectores, iguales en CCS y GCC
   msp430fr2433   devicedb: id 0x8240, 12 eemTimers, 0 eemClocks
   msp430fr4133   CPU_TYPE 2 = devicedb CpuXv2
@@ -128,6 +129,7 @@
   msp430fr4133   §2.2 bsl 0x1000-0x13FF
   msp430fr4133   24 módulos
   msp430fr4133   276 registros del targetdb; 187 contrastados con GCC, 0 distintos
+  msp430fr4133   RESUELTA vector-comentario:TIMER0_A0: la cabecera dice 0xFFE8 y su número (56) da 0xFFF8 -- vale el número
   msp430fr4133   15 vectores, iguales en CCS y GCC
   msp430fr4133   devicedb: id 0x81F0, 9 eemTimers, 0 eemClocks
   msp430fr2476   CPU_TYPE 2 = devicedb CpuXv2

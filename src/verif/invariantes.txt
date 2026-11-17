@@ -488,3 +488,13 @@ testg2                 40       4948892901984        total
 # ReadCpuRegXv2 en LPM). F1-F9 acaban donde antes (20005009000000: F10 empieza
 # ahi); test430 y testg2 no se mueven. Igual en dos pasadas.
 testf5                 59       25861134250000       total
+
+# testfr2: el MSP430FR2433 (M6 de doc/analisis_msp430.md). R1 el SoC contra el
+# descriptor y la TLV; R2 fr2_basico.c con la DriverLib (el FLL a 16 MHz con
+# el recorte de DCOFTRIM por programa, la UCA0 a 115200 leida en P1.4, el
+# sensor con la referencia de 1,5 V, MPY32, CRC16, la proteccion de la FRAM
+# con SYSCFG0, Timer0_A3); R3 LPM3.5 con el RTC (el BOR al despertar, la
+# BAKMEM, la RAM perdida, LOCKLPM5); R4 LPM4.5 y el despertar por P2.3; R5
+# el JSTATE por SBW; R6 la demo de fabrica de TI, su binario (la CTPL en
+# LPM3.5, S1 y S1+S2). Sin sockets: total. Igual en dos pasadas.
+testfr2                26       13367796000000       total

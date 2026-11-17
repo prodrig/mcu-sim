@@ -351,7 +351,7 @@ public:
         // El código, con el LSB primero (como JTAG_defs.h: los bits al revés)
         uint32_t rev = 0;
         for (unsigned i = 0; i < 8; ++i) if ((ir >> i) & 1u) rev |= 0x80u >> i;
-        const uint32_t r = desplaza(8, rev);
+        const uint32_t r = uint32_t(desplaza(8, rev));
         if (traza) traza->back() += hex(">", 2, r);
         return r;
     }
@@ -359,9 +359,15 @@ public:
         if (traza) traza->push_back(hex("D", 0, n) + hex(" ", (n + 3) / 4, v));
         // RTI -> Select-DR -> Capture-DR -> Shift-DR
         tck_ciclo(true, tclk_); tck_ciclo(false, tclk_); tck_ciclo(false, tclk_);
-        const uint32_t r = desplaza(n, v);
+        const uint32_t r = uint32_t(desplaza(n, v));
         if (traza) traza->back() += hex(">", (n + 3) / 4, r);
         return r;
+    }
+    // Uno de 64 bits (el JSTATE de las FRAM)
+    uint64_t dr_shift64(uint64_t v) {
+        if (traza) traza->push_back("D64");
+        tck_ciclo(true, tclk_); tck_ciclo(false, tclk_); tck_ciclo(false, tclk_);
+        return desplaza(64, v);
     }
     void tclk(bool nivel) {
         if (traza) traza->push_back(nivel ? "T1" : "T0");
@@ -433,8 +439,8 @@ private:
     }
     // n bits, el MSB primero; TMS a 1 en el último (Shift de JTAGfunc430.c).
     // Termina en Run-Test/Idle con TDI = TCLK.
-    uint32_t desplaza(unsigned n, uint32_t v) {
-        uint32_t r = 0;
+    uint64_t desplaza(unsigned n, uint64_t v) {
+        uint64_t r = 0;
         for (unsigned i = n; i > 0; --i) {
             const bool b = (v >> (i - 1)) & 1u;
             const bool t = tck_ciclo(i == 1, b);

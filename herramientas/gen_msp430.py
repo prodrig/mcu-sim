@@ -473,6 +473,20 @@ def genera_chip(chip, refs, filas, ddb, inf, versiones):
 
     # --- Los vectores: CCS frente a GCC, y dentro del área
     vecs = []
+    # La dirección de cada vector sale de su número (RESET, el último, en
+    # 0xFFFE); la del comentario de la cabecera se contrasta con ella: en las
+    # de TI del FR2433 (y otras FR2xx) TIMER0_A0 dice 0xFFE8, la del RTC, y
+    # es 0xFFF8 [DS SLASE59F, tabla «Interrupt Sources»]
+    if 'RESET' in vccs:
+        ir = vccs['RESET'][0]
+        for n, (i, a) in list(vccs.items()):
+            de_num = 0xFFFE - 2 * (ir - i)
+            if de_num != a:
+                inf.ok(chip, f'RESUELTA vector-comentario:{n}: la cabecera dice 0x{a:X} y su número ({i}) da '
+                             f'0x{de_num:X} -- vale el número')
+                vccs[n] = (i, de_num)
+                if n in vgcc:
+                    vgcc[n] = (vgcc[n][0], de_num)
     for n, (i, a) in sorted(vccs.items(), key=lambda x: x[1][1]):
         if n not in vgcc:
             inf.dif(chip, 'vector:' + n, f'{n} en CCS y no en GCC')

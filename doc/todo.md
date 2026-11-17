@@ -1009,8 +1009,9 @@ la sonda de bancada portada de la MSP Debug Stack y el *backend* de GDB) y su
 SoC de laboratorio (`test430`); encima, la capa de familia en `src/periph/ti/`
 (compartida con el P4) y los chips.
 
-**Estado (2026-11-17):** **M0-M5 hechas, y cerrado lo que quedaba de M2-M5
-que no depende de fases posteriores**; sigue M6 (las FR2xx/FR4xx). El
+**Estado (2026-11-17):** **M0-M6 hechas, y cerrado lo que quedaba de M2-M5
+que no depende de fases posteriores**; sigue M7 (FR2311, FR2355, FR4133 y
+FR2476). El
 detalle, en §11 del análisis. Lo cerrado:
 
 * **M2**: DATA_QUICK, PSA y el fusible (con VPP por TEST en 4 hilos y por
@@ -1043,7 +1044,14 @@ detalle, en §11 del análisis. Lo cerrado:
   (`m430/sonda/sonda_xv2.h`, `DbgSondaXv2`), con `make gdb-g2` por los dos
   caminos.
 
-**Lo que queda, con su fase**: el JSTATE, que es de FRAM (**M6**); el BSL de ROM, el de
+* **M6** (`testfr2`): lo común de las FR2xx/FR4xx (CS con FLL, PMM con
+  LPM3.5 y LPM4.5, la FRAM con SYSCFG0, el RTC contador, el ADC de 10 bits,
+  la BAKMEM) con el FR2433 y su LaunchPad; el JSTATE; la demo de fábrica de
+  TI, su binario, con la CTPL en LPM3.5; GDB por los dos caminos con el
+  `load` en la FRAM. SLAZ664S clasificada (abajo).
+
+**Lo que queda, con su fase**: el tiempo y el ECC de la FRAM (**M8**, con las
+FR5xx/FR6xx, que tienen más estados de espera); el BSL de ROM, el de
 `slaa450g` y el USB BSL (**M9**); el G2553 en `mcu-sim-gui` (**M12**).
 
 **Dos cosas que se aprendieron en el camino**, dichas aquí porque no son del
@@ -1103,6 +1111,22 @@ grupos, porque son 79:
 | COMP10 | la salida del comparador en LPM3/4 | se documenta | CBOUT no sale a los pines |
 | TAB23 | leer TAR = CCR0 | se documenta | — |
 | USCI26, USCI30, USCI31 | I2C multimaestro, receptor, error de trama tras UCSWRST | se documenta | (las mismas que en el G2553) |
+
+**SLAZ664S (MSP430FR2433), clasificada** [§10.4 del análisis; M6]. Son 18:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22, CPU40 | POPM con el SR, @PC como origen, el PC tras ciertas instrucciones | **se modela** | avisan una vez (M1); las corrige el compilador |
+| CPU46 | POPM lee una palabra de más y puede poner VMAIFG | se documenta | el modelo no lee de más |
+| ADC50 | el sensor en LPM3 con ACLK como reloj del ADC | se documenta | el sensor del modelo no depende del modo |
+| ADC63 | escribir el byte alto de ADCCTL2 puede borrar ADCHI/ADCLO | se documenta | — |
+| CS13, PMM32 | bloqueo al pasar de AM a LPM3/4 con el DCO por encima de 2 MHz | se documenta | el modelo no tiene esa carrera; la CTPL ya baja el DCO a 4 MHz al despertar |
+| GC4, GC5 | errores de bit de la FRAM que no existen (al ejecutar de la FRAM, al salir de LPM1-4) | se documenta | la FRAM del modelo no falla; GCCTL1 queda a 0 |
+| PORT28 | la resistencia de bajada de TEST/SBWTCK | se documenta | TEST sin conducir es «suelto» |
+| RTC15 | el RTC se para si se le cambia la fuente desde XT1CLK con XT1 parado | se documenta | — |
+| USCI42, USCI45, USCI47, USCI50 | UCTXCPTIFG por byte, estiramiento del reloj SPI, SPI esclavo con UCCKPH = 1, SPI maestro de 4 hilos con UCSTEM = 0 | se documenta | la eUSCI es la del MSP432P4 (las mismas, sin modelar) |
+| BSL18 | el vector vacío no llama al BSL | no aplica (M10) | con el vector borrado el modelo duerme en LPM4 |
+| EEM23 | el EEM con módulos con esperas (MPY, CRC, FRAM) | se documenta | el EEM del modelo no tiene esas carreras |
 
 ---
 

@@ -1430,7 +1430,7 @@ ADDA/SUBA/CMPA es #2 (el DECDA/INCDA de 2 bytes de CCS).
   entradas de reloj de los Timer_A (TA0CLK en P1.0, TA1CLK en P1.6, TA2CLK en
   P2.2): F11.
 
-El JSTATE es de FRAM (M6).
+El JSTATE es de FRAM: está, con M6.
 
 ### M5 · F5529: USB
 
@@ -1486,6 +1486,62 @@ remota la contesta el anfitrión al momento.
 **Cierre:** la demo de fábrica del FR2433; LPM3.5 con el RTC y salida por BOR
 con LOCKLPM5, con la depuración siguiéndolo por JSTATE; la protección de
 escritura de la FRAM.
+
+**Hecho (17-11-2026):** `soc/msp430/fr2433/soc_fr2433.h` y, para la familia,
+cuatro módulos nuevos de `periph/ti/`:
+
+* `cs_fr.h`, el CS de las FR2xx/FR4xx: el FLL (FLLN, FLLD, FLLREFDIV, SELREF
+  con REFO si no hay XT1), el DCO de 512 grifos en ocho márgenes con
+  DCOFTRIM [de modelo: el grifo 256 es la frecuencia nominal con el recorte
+  de fábrica], FLLUNLOCK y su historia durante el enganche, DCOFFG en los
+  extremos, XT1OFFG, las peticiones de reloj en LPM (SMCLKREQEN y
+  ACLKREQEN). El recorte por programa de DriverLib
+  (`CS_initFLLCalculateTrim`) converge como en el chip;
+* `rtc_fr.h`, el RTC contador (RTCSS, RTCPS, RTCMOD con su sombra, RTCSR,
+  RTCIV y el disparo hacia el ADC), que sigue en LPM3.5;
+* `adc_fr.h`, el ADC de 10 bits (los cuatro modos de ADCCONSEQ, ADCSHP,
+  ADCDF, la ventana, ADCIV y los disparos de fuera);
+* `eusci_fr.h`, la eUSCI del MSP432P4 tal cual con la cara que espera el SoC
+  de MSP430.
+
+En el SoC: SYS con SYSCFG0 (PFWP y DFWP, con la contraseña FRWPPW en una
+palabra), SYSCFG2 (ADCPCTL) y los vectores de SYSRSTIV/SYSSNIV/SYSUNIV de la
+hoja de datos; el PMM de las FRAM (PMMREGOFF, los reset por programa,
+PMMCTL2 con la referencia de 1,5 V y el sensor, PMMIFG, PM5CTL0); el
+controlador de la FRAM (FRCTL0 con su contraseña, GCCTL0/1); CRC16; WDT_A;
+P1-P3 con SEL0/SEL1; TA0-TA3 con sus conexiones internas; MPY32; la BAKMEM.
+**LPMx.5:** PMMREGOFF con LPM3/LPM4 apaga el núcleo (LPM3.5 si el RTC
+corre); la RAM se pierde, los pines se quedan como estaban; despiertan el
+RTC, un flanco de P1/P2 (o una bandera que ya estaba puesta) y RST, con un
+BOR: SYSRSTIV = 0x08, PMMLPM5IFG, la bandera del despertar puesta y los
+pines quietos hasta borrar LOCKLPM5; en LPM4.5 la BAKMEM se pierde. El TAP
+de las FRAM (JTAG ID 0x98) da el **JSTATE** (64 bits: LPMx.5, LPM, la parada
+del EEM). La firma de JTAG de 0xFF80. `fr2433_mcu.h` lo pone en `mcu-sim`
+con `--gdb-dap` y `--gdb` por los pines (la sonda de bancada con las
+secuencias de Xv2; si la CPU está en LPMx.5, un BOR por JTAG, como la
+herramienta), con el `load` en la FRAM abriendo SYSCFG0 (`ProgramadorFram`).
+`msp_exp430fr2433.xml` y su SVG, del esquema de SLAU739. El generador de
+descriptores corrige el vector TIMER0_A0 (las cabeceras de TI dicen 0xFFE8,
+el del RTC; su número da 0xFFF8, como la hoja de datos).
+
+**Cierre:** `testfr2` (25 comprobaciones): R1 el SoC contra el descriptor y
+la TLV; R2 `fr2_basico.c` con la DriverLib (16 MHz con el recorte de
+DCOFTRIM, el sensor, MPY32, CRC16, la protección de la FRAM, Timer_A); R3
+LPM3.5 con el RTC y LOCKLPM5; R4 LPM4.5 y el despertar por P2.3; R5 el
+JSTATE por SBW en LPM0 y en LPM3.5; y **R6 la demo de fábrica de TI, su
+binario tal cual**: registra la temperatura en la FRAM despertando de
+LPM3.5 cada ~5 s (la CTPL guarda y devuelve el contexto), S1 la manda en
+JSON por el backchannel y S1+S2 pasan al modo en vivo. Y `make gdb-g2` con
+la FR2433 por los dos caminos. SLAZ664S, clasificada en P-20.
+
+Lo que salió por el camino: la demo pone el FLL a 16 MHz sin el estado de
+espera de la FRAM que pide la hoja de datos por encima de 8 MHz; el modelo
+lo avisa (y lo comprueba R6).
+
+**Queda [de modelo]:** el tiempo de la FRAM (los estados de espera y la
+caché: NWAITS solo avisa) y su ECC (GCCTL1 nunca se pone); la modulación de
+infrarrojos de SYSCFG1; el JTAG de 4 hilos de P1.4-P1.7 está cableado pero
+sin prueba propia; el BSL de ROM (M10).
 
 ### M7 · FR2311, FR2355, FR4133 y FR2476
 

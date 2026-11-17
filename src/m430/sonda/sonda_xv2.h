@@ -158,6 +158,12 @@ public:
         h_.ir_shift(IR430_EMEX_DATA_EXCHANGE32); h_.dr_shift(32, dir); h_.dr_shift(32, v);
     }
 
+    // El BOR por JTAG (TEST_REG = 0x0200: ReleaseDevice_430Xv2(V_BOR))
+    void bor() { h_.ir_shift(IR430_TEST_REG); h_.dr_shift(16, 0x0200); sc_core::wait(1, sc_core::SC_MS); }
+
+    // --- El JSTATE de las FRAM (64 bits) [MSPDS PollJStateReg.c] ---------------------
+    uint64_t lee_jstate() { h_.ir_shift(IR430_JSTATE_ID); return h_.dr_shift64(0); }
+
     // --- El JMB ------------------------------------------------------------------
     uint32_t lee_jmb() {
         h_.ir_shift(IR430_JMB_EXCHANGE);

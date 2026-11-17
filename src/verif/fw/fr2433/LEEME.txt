@@ -1,0 +1,7 @@
+OutOfBox_MSP430FR2433.txt: el binario TI-TXT de la demo de fábrica de la
+MSP-EXP430FR2433, TAL CUAL (MSP-EXP430FR2433 Software Examples,
+Firmware/Binary/OutOfBox_MSP430FR2433; los fuentes, en Firmware/Source, son
+BSD de TI). Registra la temperatura en la FRAM cada ~5 s despertando de
+LPM3.5 con el RTC (la CTPL guarda y devuelve el contexto); S1 manda por el
+backchannel (UCA0, 115200) lo registrado en JSON; S1 y S2 a la vez pasan al
+modo en vivo. Lo usa testfr2 R6 (M6 de doc/analisis_msp430.md).

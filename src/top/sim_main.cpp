@@ -140,6 +140,7 @@
 #include "../soc/esp32c3/esp32c3_mcu.h"
 #include "../soc/msp430/g2553/g2553_mcu.h"
 #include "../soc/msp430/f5529/f5529_mcu.h"
+#include "../soc/msp430/fr2433/fr2433_mcu.h"
 #include "../soc/esp32c6/esp32c6_mcu.h"
 
 using namespace sc_core;

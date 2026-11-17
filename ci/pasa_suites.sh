@@ -77,8 +77,9 @@ fallos=0
 # (S0-S3), detras; y `testrv`, el del nucleo RISC-V (E1-E2 del plan de los
 # ESP32); `testc3`, el del ESP32-C3 (E3), y `testc6`, el del ESP32-C6 (E9); y
 # `test430`, el del nucleo MSP430 (M1 de doc/analisis_msp430.md), y
-# `testg2`, el del MSP430G2553 (M3), y `testf5`, el del F5529 (M4), la ultima.
-for s in test407 test446 test417 testserie testgui testp4 teste4 testf3 testrv testc3 testc6 test430 testg2 testf5; do
+# `testg2`, el del MSP430G2553 (M3), `testf5`, el del F5529 (M4), y
+# `testfr2`, el del FR2433 (M6), la ultima.
+for s in test407 test446 test417 testserie testgui testp4 teste4 testf3 testrv testc3 testc6 test430 testg2 testf5 testfr2; do
     echo "  [suites] $s (presupuesto ${presupuesto}s)"
 
     # El `echo $?` dentro del subshell es como se recoge el estado a traves de

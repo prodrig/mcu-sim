@@ -66,7 +66,11 @@
 //   * la protección por firma de 5xx [UG5 §1.11]: la pone el SoC al
 //     arrancar (`pon_bloqueo`) y se ve como el fusible: registros de 1 bit.
 //
-// El JSTATE es de FRAM (M6). Las instrucciones se comprueban contra las de
+// M6, las FRAM (JTAG ID 0x98 y 0x99, también Xv2): JSTATE_ID (0x62), un DR de
+// 64 bits que da el SoC (`jstate`): LPMx.5, el modo de bajo consumo y la
+// parada del EEM, lo que sondea PollJStateReg de la MSPDS.
+//
+// Las instrucciones se comprueban contra las de
 // JTAG_defs.h con sus bits invertidos (test430 N7).
 // =============================================================================
 #ifndef STM32_M430_DEBUG_TAP_M430_H
@@ -126,13 +130,15 @@ public:
     enum Estado : uint8_t { TLR, RTI, SEL_DR, CAP_DR, SH_DR, EX1_DR, PAU_DR, EX2_DR, UPD_DR,
                             SEL_IR, CAP_IR, SH_IR, EX1_IR, PAU_IR, EX2_IR, UPD_IR };
 
-    TapM430(uint8_t jtag_id, bool cpux, EemM430* eem) : id_(jtag_id), cpux_(cpux), xv2_(jtag_id == 0x91), eem_(eem) { reset(); }
+    TapM430(uint8_t jtag_id, bool cpux, EemM430* eem) : id_(jtag_id), cpux_(cpux), xv2_(jtag_id == 0x91 || jtag_id == 0x98 || jtag_id == 0x99), eem_(eem) { reset(); }
     bool xv2() const { return xv2_; }
     // Lo que el TAP de Xv2 pide al SoC: el buzón (JMB) y el BOR
     std::function<uint16_t()> jmb_estado;                  // IN0RDY 1, IN1RDY 2, OUT0RDY 4, OUT1RDY 8
     std::function<void(unsigned, uint16_t)> jmb_entra;     // JMBIn0/1 desde JTAG
     std::function<uint16_t(unsigned)> jmb_sale;            // JMBOut0/1 hacia JTAG (las vacía)
     std::function<void()> al_bor;
+    // El JSTATE de las FRAM (IR 0x62, 64 bits) [MSPDS PollJStateReg.c]: lo da el SoC
+    std::function<uint64_t()> jstate;
     uint16_t coreip_id = 0;
     uint32_t device_id_ptr = 0;
     // La firma de 5xx: bloqueado, como el fusible fundido
@@ -279,12 +285,13 @@ private:
         case IR430_CNTRL_SIG_HIGH_BYTE: case IR430_CNTRL_SIG_LOW_BYTE: return 8;
         case IR430_DEVICE_ID: return xv2_ ? 20 : 16;
         case IR430_EMEX_DATA_EXCHANGE32: return 32;
+        case IR430_JSTATE_ID: return jstate ? 64 : 16;
         default: return 16;
         }
     }
     void captura_dr() {
         n_ = largo_dr();
-        uint32_t v = 0;
+        uint64_t v = 0;
         if (fusible()) { n_ = 1; sr_ = 0; return; }  // fundido o con firma: todo es BYPASS
         switch (ir_) {
         case IR430_CNTRL_SIG_16BIT: case IR430_CNTRL_SIG_CAPTURE: v = estado_cntrl(); break;
@@ -305,6 +312,7 @@ private:
             else if (jmb_fase_ >= 3) v = jmb_sale ? jmb_sale(jmb_fase_ - 3) : 0;
             else v = jmb_estado ? jmb_estado() : 0;
             break;
+        case IR430_JSTATE_ID: v = jstate ? jstate() : 0; break;
         default: v = 0; break;
         }
         sr_ = invierte(v, n_);

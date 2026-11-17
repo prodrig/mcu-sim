@@ -25,6 +25,7 @@
 #define STM32_M430_GDB_GDB_M430_H
 
 #include <systemc>
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <vector>
@@ -67,8 +68,12 @@ public:
     bool parado() override { return n_.parado(); }
     void parar() override {
         n_.pide_parada(true);
+        // Un núcleo sin alimentación (LPMx.5 de las FRAM) no para: el SoC lo
+        // despierta (como la herramienta, con un BOR por JTAG) y para al salir
+        if (n_.en_reset() && despierta) despierta();
         while (!n_.parado()) sc_core::wait(n_.ev_parado());
     }
+    std::function<void()> despierta;
     void seguir() override { n_.pide_parada(false); }
     void paso() override {
         n_.pide_parada(true);
@@ -199,7 +204,8 @@ public:
     DbgSondaXv2(SondaXv2& s, unsigned disparadores, uint32_t info_a_ini = 0x1980, uint32_t info_a_fin = 0x19FF)
         : s_(s), n_tb_(disparadores), a_ini_(info_a_ini), a_fin_(info_a_fin) {}
     bool enganchar() override {
-        if (s_.conecta() != 0x91) return false;
+        const uint8_t id = s_.conecta();
+        if (id != 0x91 && id != 0x98 && id != 0x99) return false;      // 5xx/6xx y las FRAM
         return parar_(), true;
     }
     bool parado() override {
@@ -282,7 +288,11 @@ private:
     }
     void parar_() {
         if (bajo_jtag_) return;
-        s_.sincroniza();
+        if (!s_.sincroniza()) {
+            // ¿En LPMx.5 (una FRAM: el JSTATE con 0x40 arriba)? Como la
+            // herramienta: un BOR por JTAG, y parar al despertar
+            if (((s_.lee_jstate() >> 56) & 0x40) != 0) { s_.bor(); s_.sincroniza(); }
+        }
         bajo_jtag_ = true;
         pc_ = s_.lee_pc();
         sr_ = uint16_t(s_.lee_reg(2));
@@ -386,6 +396,58 @@ private:
     unsigned n_principal() const { return (p_fin_ + 1 - p_ini_) / 512u; }
 };
 
+// --- El programador de la FRAM (FR2xx/FR4xx) -------------------------------------------
+// La FRAM se escribe como la RAM; lo que la guarda es SYSCFG0 (PFWP y DFWP, con
+// la contraseña 0xA5 en el byte alto) [UG FR2 §1.16.2.1]. El programador la
+// abre al empezar y la cierra al acabar (MSPDS: WriteFramQuickXv2 hace lo
+// mismo). «Borrar» es escribir 0xFFFF [de modelo: la FRAM no tiene borrado;
+// GDB lo pide antes de cargar]. Sectores de 512 B, como los de la herramienta.
+class ProgramadorFram : public programador_nv_if {
+public:
+    ProgramadorFram(m430_dbg_if& d, uint32_t p_ini, uint32_t p_fin, uint32_t i_ini, uint32_t i_fin, uint32_t syscfg0 = 0x160)
+        : d_(d), p_ini_(p_ini), p_fin_(p_fin), i_ini_(i_ini), i_fin_(i_fin), syscfg0_(syscfg0) {}
+    const char* nombre() const override { return "MSP430 FRAM (FR2xx/FR4xx)"; }
+    int sector_de(uint32_t a) const override {
+        if (a >= p_ini_ && a <= p_fin_) return int((a - p_ini_) / 512u);
+        if (a >= i_ini_ && a <= i_fin_) return int(n_principal() + (a - i_ini_) / 512u);
+        return -1;
+    }
+    uint32_t tam_sector(int) const override { return 512u; }
+    unsigned n_sectores() const override { return n_principal() + (i_fin_ + 1 - i_ini_ + 511) / 512u; }
+    bool borrar(acceso_nv_if&, uint32_t a, uint32_t n) override {
+        abre();
+        for (uint32_t x = a; x < a + (n ? n : 1u); ) {
+            const int s = sector_de(x);
+            if (s < 0) return false;
+            const uint32_t ini = s < int(n_principal()) ? p_ini_ + 512u * uint32_t(s) : i_ini_ + 512u * uint32_t(s - int(n_principal()));
+            const uint32_t fin = std::min(ini + 512u, s < int(n_principal()) ? p_fin_ + 1 : i_fin_ + 1);
+            for (uint32_t y = ini; y < fin; y += 2) d_.escribe16(y, 0xFFFF);
+            x = fin;
+        }
+        return true;
+    }
+    bool programar(acceso_nv_if&, uint32_t a, const uint8_t* dat, unsigned n, unsigned& palabras) override {
+        abre();
+        const uint32_t ini = a & ~1u;
+        for (uint32_t x = ini; x < a + n; x += 2) {
+            auto b = [&](uint32_t y) -> uint16_t { return (y >= a && y < a + n) ? dat[y - a] : uint16_t(d_.lee16(y & ~1u) >> ((y & 1u) * 8)) & 0xFFu; };
+            d_.escribe16(x, uint16_t(b(x) | (b(x + 1) << 8)));
+            ++palabras;
+        }
+        return true;
+    }
+    void terminar(acceso_nv_if&) override {
+        if (abierta_) d_.escribe16(syscfg0_, 0xA503);                // PFWP y DFWP otra vez
+        abierta_ = false;
+    }
+private:
+    m430_dbg_if& d_;
+    uint32_t p_ini_, p_fin_, i_ini_, i_fin_, syscfg0_;
+    bool abierta_ = false;
+    unsigned n_principal() const { return (p_fin_ + 1 - p_ini_ + 511) / 512u; }
+    void abre() { if (!abierta_) { d_.escribe16(syscfg0_, 0xA500); abierta_ = true; } }
+};
+
 // --- El protocolo ------------------------------------------------------------------
 class GdbRspM430 : public GdbRspBase {
 protected:
@@ -396,6 +458,10 @@ public:
     // La Flash del chip (FLASH2): el programador, sobre el mismo camino de depuración
     void pon_flash_2xx(uint32_t principal_ini, uint32_t info_ini, uint32_t info_a_ini) {
         prog_.reset(new ProgramadorF2xx(d_, principal_ini, info_ini, info_a_ini));
+        pon_programador(prog_.get());
+    }
+    void pon_fram(uint32_t p_ini, uint32_t p_fin, uint32_t i_ini, uint32_t i_fin) {
+        prog_.reset(new ProgramadorFram(d_, p_ini, p_fin, i_ini, i_fin));
         pon_programador(prog_.get());
     }
     void pon_flash_5xx(uint32_t p_ini, uint32_t p_fin, uint32_t i_ini, uint32_t i_fin) {

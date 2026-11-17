@@ -19,6 +19,7 @@
 # Y la MSP-EXP430F5529LP por los dos caminos (M4): --gdb-dap y --gdb, este
 # por SBW con las secuencias de Xv2 (DbgSondaXv2): load en la Flash de 5xx con
 # las rutinas del Replicator430Xv2, ruptura en 0x10000, finish, stepi, Ctrl-C.
+# Y la MSP-EXP430FR2433 (M6), igual: load en la FRAM, main, hbreak, stepi, Ctrl-C.
 #
 #   python3 verif/g2553/gdb_g2.py [--sim build/mcu-sim] [--gdb msp430-elf-gdb]
 #
@@ -208,6 +209,49 @@ def una_f5(sim, prog, modo):
         check(vivo, "%s: el simulador sigue en pie tras las dos sesiones" % n)
 
 
+def una_fr2(sim, prog, modo):
+    """La MSP-EXP430FR2433 (M6) por --gdb-dap o por los pines (--gdb, SBW):
+    load en la FRAM (el programador abre SYSCFG0), ruptura en main, hbreak en
+    la rutina del Timer0_A3, paso y Ctrl-C"""
+    elf = os.path.join("verif", "fr2433", "elf", "fr2_basico.elf")
+    pu = puerto_libre()
+    s = Sim(sim, [os.path.join("placas", "msp_exp430fr2433.xml"), modo], pu)
+    n = "FR2433 %s" % modo
+    try:
+        if not check(s.listo, "%s: el stub escucha" % n):
+            return
+        o = gdb(prog, pu, ["load", "compare-sections", "break main", "monitor reset halt", "continue",
+                           "hbreak t0", "continue", "p ticks", "p/x $pc", "stepi", "p/x $pc"], elf)
+        a = [prog, "-q", "-batch", "-ex", "set remotetimeout 60", "-ex",
+             "target extended-remote localhost:%d" % pu, "-ex", "continue", "-ex", "p/x $pc", elf]
+        g = subprocess.Popen(a, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        time.sleep(4)
+        g.send_signal(signal.SIGINT)
+        try:
+            o2 = g.communicate(timeout=120)[0]
+        except subprocess.TimeoutExpired:
+            g.kill()
+            o2 = g.communicate()[0]
+        check("Start address" in o and "MIS-MATCHED" not in o and o.count("matched.") >= 3,
+              "%s: load en la FRAM y compare-sections" % n)
+        check("Breakpoint 1, main ()" in o, "%s: la ruptura en main" % n)
+        check(re.search(r"(Hardware assisted )?[Bb]reakpoint 2, t0 \(\)", o) is not None and "$1 = 0" in o,
+              "%s: hbreak en la rutina del Timer0_A3 (ticks = 0)" % n)
+        m = re.findall(r"\$(\d+) = (0x[0-9a-f]+)", o)
+        v = dict((int(k), int(x, 16)) for k, x in m)
+        check(v.get(2) is not None and v.get(3) is not None and 0xC400 <= v[3] <= 0xFFFF and v[3] != v[2],
+              "%s: stepi en la FRAM" % n)
+        check("Program received signal SIGINT" in o2 and re.search(r"\$1 = 0x[0-9a-f]+", o2) is not None,
+              "%s: Ctrl-C (interrupt) para la CPU en marcha" % n)
+        if fallos:
+            print(o[-2500:])
+            print(o2[-1500:])
+    finally:
+        vivo = s.p.poll() is None
+        s.fin()
+        check(vivo, "%s: el simulador sigue en pie tras las dos sesiones" % n)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sim", default="build/mcu-sim")
@@ -225,6 +269,9 @@ def main():
     for modo in ("--gdb-dap", "--gdb"):
         print("\n--- F5529 %s ---" % modo)
         una_f5(a.sim, prog, modo)
+    for modo in ("--gdb-dap", "--gdb"):
+        print("\n--- FR2433 %s ---" % modo)
+        una_fr2(a.sim, prog, modo)
     print("\nTOTAL GDB G2: %s" % ("0 fallos" if not fallos else "%d fallos" % fallos))
     return 1 if fallos else 0
 
