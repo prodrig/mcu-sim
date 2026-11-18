@@ -1813,6 +1813,95 @@ Y el **Replicator430FR** en el F5529 de M4, contra el FR5969.
 * el Replicator430FR programa y desbloquea el FR5969 (con la contraseña de
   JTAG de 0xFF80).
 
+**Hecho (noviembre de 2026).** Las FR5xx/FR6xx no tienen SoC propio: son
+el de las FR2 (`soc/msp430/fr2/soc_fr2.h`) con `ChipFr2::fr5`. Lo que
+cambia:
+
+* **El mapa del sistema.** FRCTL en 0x140, CRC16 en 0x150, WDT en 0x15C, CS
+  en 0x160 y SYS en 0x180 se traducen a sus direcciones de FR2 y los lleva
+  el mismo código (`traduce5`); SYSCFG0-3 y PMMCTL2 no existen. PJ (0x320)
+  es el 11.º puerto (índice `FR5_PJ`, registros como los de 0x2A0); `NPIN`
+  pasa a 88.
+* **El CS** (`cs_fr.h` con `fr5`): el DCO de frecuencias fijas (DCORSEL,
+  DCOFSEL; 1 MHz de MCLK tras el reset, DCO/8), SELA/SELS/SELM, DIVx, CSKEY,
+  LFXTOFFG puesta tras el POR y la caída a LFMODCLK/MODCLK de un cristal que
+  falta. [De modelo] HFXTOFFG no se pone en el POR: los ejemplos de TI solo
+  borran LFXTOFFG. SMCLK a petición (SMCLKREQEN) para la eUSCI en LPM3: un
+  arranque en RXD con SMCLK parado se recibe (la demo del FR5969 duerme en
+  LPM3 esperando al PC).
+* **Módulos.** El ADC12_B (`adc12_b.h`, nuevo: 32 memorias, las cuatro
+  secuencias, SHT0/SHT1, la ventana, el diferencial, el sensor por TCMAP y
+  AVCC/2 por BATMAP, la petición de referencia); REF_A (el del MSP432 con las
+  tensiones de las FR5: 1,2, 2,0 y 2,5 V); el Comp_E, el AES256 y el CRC32
+  del MSP432 (el CRC32 con el mapa de las FR5994: DIRB y RESR con las
+  palabras al revés); el RTC_B (el RTC_A en calendario, con su propio
+  dominio de reset para que LPM3.5 no lo borre) y el RTC_C; el DMA de 5xx
+  con los disparos de los Timer, las eUSCI y el ADC; la TLV de las FR5 (la
+  calibración del ADC12 y de REF, el aleatorio, el BSL).
+* **La MPU y la IPE** (UG FR5 cap. 9): los tres segmentos de la principal y
+  el de información, con lectura, escritura y ejecución; la violación no se
+  hace (se lee 0x3FFF, JMP $) y da la NMI (MPUSEGIE, SYSSNIV 0x08-0x10) o el
+  PUC (MPUSEGxVS, SYSRSTIV 0x26-0x2E); MPUPW con PUC por palabra; MPULOCK y
+  MPUIPLOCK. La IPE: solo la lee código que se ejecuta dentro (pasados sus
+  ocho primeros bytes); ni el DMA, ni JTAG, ni el depurador; el arranque con
+  las firmas de 0xFF88/0xFF8A y la estructura con su paridad (una mala lo
+  borra todo). El depurador (`--gdb-dap`) se salta la MPU (la herramienta la
+  abre) y el programador de FRAM de GDB, por los pines, la apaga cada vez
+  que la encuentra encendida (MSPDS).
+* **JTAG.** La contraseña de 0xFF80 (0xAAAA y la longitud; la contraseña en
+  0xFF88): la TAP deja el buzón abierto con la firma; con 0xA55A y 0x1E1E en
+  el buzón al arrancar, lo que entra por JMBIN0 se compara palabra a palabra.
+  El borrado por el buzón (0x1A1A, sin la IPE; 0x1B1B, con ella). [De
+  modelo] La herramienta escribe esas órdenes con el chip retenido en la
+  entrada con RST bajo, que aquí no se modela por SBW: al bajar TEST con una
+  orden puesta, un BOR como el del pin RST.
+* **Una SNMI aceptada tapa las demás hasta su RETI** (UG FR5 y FR2 §1.3.4.1).
+  Antes, una NMI pendiente volvía a entrar antes de que la rutina leyera
+  SYSSNIV; las suites de las FR2 no se mueven.
+* **El monitor del backchannel** descarta los errores de trama (la demo del
+  FR5969 deja TXD en GPIO a 0 entre envíos).
+* **El LCD_C** (FR6989) va sobre el LcdE de M7: LCDCCTL0 con LCDSSEL de un
+  bit y LCDPRE (`div_fijo`), los COM fijos en P6.3-P6.6 (L60-L63, `com_c`) y
+  la memoria en el mismo sitio (LCDM1 en +0x20).
+
+Los chips: `soc_fr5969.h`, `soc_fr5994.h` (6 Timer, 8 eUSCI, RTC_C, CRC32,
+la RAM del LEA como RAM; el LEA declarado) y `soc_fr6989.h` (LCD_C, RTC_C, 4
+eUSCI; el ESI declarado). Las placas: `msp_exp430fr5969.xml`,
+`msp_exp430fr5994.xml` (con la microSD: la pieza nueva **SdSpi**, una tarjeta
+SDHC en modo SPI a nivel de pin) y `msp_exp430fr6989.xml` (con el vidrio
+FH-1138P de M7).
+
+**`testfr5`:**
+* L1 el FR5969 contra su descriptor y la TLV.
+* L2 `fr59_basico.c`: DCO, LFXT, ADC12_B (el sensor con la calibración de la
+  TLV da 25,0 °C), Comp_E, AES-128 (FIPS-197), DMA, RTC_B, TB0.3, la IPE
+  (0x3FFF desde fuera y para el depurador; el dato desde dentro), la MPU con
+  su NMI y con su PUC, LPM3.5 con el RTC_B.
+* L3 la demo de fábrica del FR5969 (su binario): el parpadeo, el ping, la
+  temperatura en vivo, el registro en FRAM con LPM3.5 y S2 que lo despierta.
+* L4 `fr5994_basico.c`: la RAM del LEA, la FRAM hasta 0x43FFF, CRC32 y
+  CRC16 de «123456789», el RTC_C con RTCKEY y la microSD por la UCB0.
+* L5 la demo de fábrica del FR6989 con el LCD_C y el vidrio: el texto que se
+  desplaza; S1 y S2, el cronómetro.
+* L6 el Replicator430FR de TI en el F5529 de M4 programa el FR5969 por SBW
+  (apaga la MPU, borra por el buzón, carga y suelta); y con la contraseña de
+  JTAG puesta, la da por el buzón antes.
+
+Y en `gdb_g2.py`, la FR5969 por `--gdb-dap` y por `--gdb`: la MPU puesta
+por el programa, el secreto de la IPE que se lee 0x3FFF, y el `load` de otro
+programa con la MPU puesta, con `compare-sections`.
+
+**[Error de TI] en el Replicator430FR (SLAU320AJ):** el bucle de
+`UnlockDevice_430Xv2` no incrementa `i` y manda la primera palabra de la
+contraseña para siempre; en `verif/f5529/replicator_fr` va con su `i++`
+marcado.
+
+**Queda [de modelo]:** el HFXT se modela solo como presente o ausente; el LEA
+y el ESI, declarados; RAMCTL no; las erratas de las FR5 (SLAZ473, SLAZ517,
+SLAZ681) no se han repasado; de las funciones de los pines del FR6989 solo
+las que usan la LaunchPad y sus programas; el cronómetro de la demo del
+FR6989 corre algo deprisa (2,00 s mostrados en 1,6 s: sin mirar).
+
 ### M9 · BSL de 2xx, 5xx y FR5xx/FR6xx
 
 **Entregas:**

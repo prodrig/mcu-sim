@@ -545,7 +545,7 @@ testfr2476: $(TESTFR2476)
 	$(TESTFR2476)
 
 # LA SUITE DE LAS FR5xx/FR6xx (fase M8): make testfr5
-$(TESTFR5): top/sc_main_fr5.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/fr2/*.h soc/msp430/fr5969/*.h periph/ti/*.h)
+$(TESTFR5): top/sc_main_fr5.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/fr2/*.h soc/msp430/fr5969/*.h soc/msp430/fr5994/*.h soc/msp430/fr6989/*.h soc/msp430/f5529/*.h periph/ti/*.h) parts/sd_spi.h parts/lcd_fh1138p.h
 	@mkdir -p $(B)
 	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_fr5.cpp $(LDFLAGS) $(LDLIBS)
 

@@ -24,6 +24,8 @@
 #include "../fr2355/soc_fr2355.h"
 #include "../fr2476/soc_fr2476.h"
 #include "../fr5969/soc_fr5969.h"
+#include "../fr5994/soc_fr5994.h"
+#include "../fr6989/soc_fr6989.h"
 #include "../../../pins/nomenclatura.h"
 #include "../../../parts/netlist.h"
 #include "../../../common/nombres_nodo.h"
@@ -48,6 +50,12 @@ inline constexpr Encapsulado ENC_FR2476_PT48{"LQFP48", 48, 43, {0xFFu, 0xFFu, 0x
 // FR5969 VQFN-48 (el de la LaunchPad, MSP430FR5969IRGZ): P1-P4 y PJ enteros
 // [SLAS704G figura 4-1] (PJ es el puerto de índice FR5_PJ)
 inline constexpr Encapsulado ENC_FR5969_RGZ48{"VQFN48", 48, 40, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0, 0, 0, 0, 0, 0, 0xFFu}, true};
+// FR5994 LQFP-80 (el de la LaunchPad, MSP430FR5994IPN): P1-P8 y PJ enteros
+// [SLASE54D figura 4-1]
+inline constexpr Encapsulado ENC_FR5994_PN80{"LQFP80", 80, 72, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0, 0, 0xFFu}, true};
+// FR6989 LQFP-100 (el de la LaunchPad, MSP430FR6989IPZ): P1-P9, P10.0-P10.2
+// y PJ [SLAS789D figura 4-1]
+inline constexpr Encapsulado ENC_FR6989_PZ100{"LQFP100", 100, 83, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x07u, 0xFFu}, true};
 inline constexpr Encapsulado ENC_FR4133_PM64{"LQFP64", 64, 60, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x0Fu}, true};
 
 namespace fr2 {
@@ -89,10 +97,12 @@ inline constexpr McuCapsFr2 MCU_MSP430FR2311{"MSP430FR2311", ENC_FR2311_PW20, &C
 inline constexpr McuCapsFr2 MCU_MSP430FR2355{"MSP430FR2355", ENC_FR2355_PT48, &CHIP_FR2355, true};
 inline constexpr McuCapsFr2 MCU_MSP430FR2476{"MSP430FR2476", ENC_FR2476_PT48, &CHIP_FR2476, false};
 inline constexpr McuCapsFr2 MCU_MSP430FR5969{"MSP430FR5969", ENC_FR5969_RGZ48, &CHIP_FR5969, true};
+inline constexpr McuCapsFr2 MCU_MSP430FR5994{"MSP430FR5994", ENC_FR5994_PN80, &CHIP_FR5994, true};
+inline constexpr McuCapsFr2 MCU_MSP430FR6989{"MSP430FR6989", ENC_FR6989_PZ100, &CHIP_FR6989, true};
 struct RegistroCatalogoFr2 {
     RegistroCatalogoFr2() {
         for (const McuCapsFr2* m : {&MCU_MSP430FR2433, &MCU_MSP430FR4133, &MCU_MSP430FR2311, &MCU_MSP430FR2355, &MCU_MSP430FR2476,
-                                  &MCU_MSP430FR5969})
+                                  &MCU_MSP430FR5969, &MCU_MSP430FR5994, &MCU_MSP430FR6989})
             CatalogoMcu::registra(McuDesc{m->nombre, "MSP430FR2", &m->enc, m});
     }
 };

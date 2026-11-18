@@ -254,6 +254,39 @@ def una_fr2(sim, prog, modo, chip="FR2433", placa="msp_exp430fr2433.xml", elf=No
         check(vivo, "%s: el simulador sigue en pie tras las dos sesiones" % n)
 
 
+def una_fr5(sim, prog, modo):
+    """La MSP-EXP430FR5969 (M8): load, main, hbreak en t0; el programa pone la
+    MPU (sin escritura en la FRAM) y la IPE; con la MPU puesta, el load de
+    OTRO programa (fr59_basico) y compare-sections; el secreto de la IPE no se
+    lee (0x3fff) ni por el depurador ni por JTAG"""
+    elf = os.path.join("verif", "fr5969", "elf", "fr59_gdb.elf")
+    pu = puerto_libre()
+    s = Sim(sim, [os.path.join("placas", "msp_exp430fr5969.xml"), modo], pu)
+    n = "FR5969 %s" % modo
+    try:
+        if not check(s.listo, "%s: el stub escucha" % n):
+            return
+        o = gdb(prog, pu, ["load", "break main", "monitor reset halt", "continue", "hbreak t0", "continue",
+                           "p ticks", "p/x *(short*)0x5A0", "p/x *(short*)0x13000",
+                           "file " + os.path.join("verif", "fr5969", "elf", "fr59_basico.elf"), "load", "compare-sections",
+                           "p/x *(short*)0x5A0"], elf)
+        check("Breakpoint 1, main ()" in o and re.search(r"[Bb]reakpoint 2, (0x[0-9a-f]+ in )?t0 \(", o) is not None,
+              "%s: load, la ruptura en main y el hbreak en t0" % n)
+        m = re.findall(r"\$(\d+) = (0x[0-9a-f]+|\d+)", o)
+        v = dict((int(k), int(x, 0)) for k, x in m)
+        check(v.get(2, 0) & 0x01 == 1, "%s: la MPU puesta por el programa (MPUCTL0 = 0x%x)" % (n, v.get(2, 0)))
+        check(v.get(3) == 0x3fff, "%s: el secreto de la IPE no se lee: 0x%x [UG FR5 tabla 9-2]" % (n, v.get(3, 0)))
+        ult = o.split("Start address")[-1]
+        check(o.count("Start address") == 2 and "MIS-MATCHED" not in ult and ult.count("matched.") >= 5,
+              "%s: el load de otro programa con la MPU puesta (MPUCTL0 = 0x%x después) y compare-sections" % (n, v.get(4, 0)))
+        if fallos:
+            print(o[-2500:])
+    finally:
+        vivo = s.p.poll() is None
+        s.fin()
+        check(vivo, "%s: el simulador sigue en pie" % n)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sim", default="build/mcu-sim")
@@ -291,6 +324,9 @@ def main():
         # La ruptura, en una función de la FRAM de arriba de 0x10000 (-mlarge)
         una_fr2(a.sim, prog, modo, "FR2476", "lp_msp430fr2476.xml",
                 os.path.join("verif", "fr2476", "elf", "fr247_basico.elf"), "suma_alta", "p6irq", 0x8000, 0x17FFF)
+    for modo in ("--gdb-dap", "--gdb"):
+        print("\n--- FR5969 %s ---" % modo)
+        una_fr5(a.sim, prog, modo)
     print("\nTOTAL GDB G2: %s" % ("0 fallos" if not fallos else "%d fallos" % fallos))
     return 1 if fallos else 0
 

@@ -556,7 +556,10 @@ testfr2476             19        6629302000000       total
 # L2 fr59_basico.c con -mlarge (el DCO, el LFXT, el ADC12_B con el sensor y
 # AVCC/2, el Comp_E, AES-128, el DMA, el RTC_B, TB0.3, la IPE, la MPU con su NMI
 # y su PUC, LPM3.5 con el RTC_B); L3 la demo de fabrica de TI, su binario (el
-# ping, la temperatura en vivo, LPM3.5 y S2). Crece con el resto de M8 (el
-# FR5994 y el FR6989): cada grupo nuevo la mueve, y se dice aqui. Sin sockets:
+# ping, la temperatura en vivo, LPM3.5 y S2); L4 el FR5994 (la RAM del LEA,
+# la FRAM hasta 0x43FFF, CRC32, RTC_C y la microSD por SPI); L5 la demo de
+# fabrica del FR6989 con el LCD_C y el vidrio FH-1138P; L6 el Replicator430FR
+# en un F5529 programa el FR5969 por SBW, tambien con la contrasena de JTAG.
+# Movida de 25/8081812000000 al anadir L4-L6 (los mismos L1-L3). Sin sockets:
 # total. Igual en dos pasadas.
-testfr5                25        8081812000000       total
+testfr5                43       35628516000000       total

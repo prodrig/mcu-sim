@@ -62,6 +62,11 @@ SC_MODULE(LcdE) {
     std::function<void()> al_cambiar;           // las IFG o las IE
     std::function<void()> al_fase;              // otra fase: el SoC repinta los pines
     unsigned npines = 40;                       // los Lx que tiene el chip
+    // El LCD_C de las FR6xx (M8) lo lleva el SoC sobre este: `div_fijo`, el
+    // divisor de la fuente a fLCD que da su LCDDIV y LCDPRE [UG FR5 §36.2.4];
+    // `com_c`, los COM fijos (COM0-COM3 en L60-L63, solo con el LCD en marcha)
+    unsigned div_fijo = 0;
+    bool com_c = false;
 
     SC_CTOR(LcdE) { SC_THREAD(hilo); reset(); }
 
@@ -78,11 +83,18 @@ SC_MODULE(LcdE) {
     bool on() const { return ctl0_ & 1u; }
     unsigned fuente() const { return (ctl0_ >> 6) & 3u; }
     unsigned mux() const { return ((ctl0_ >> 3) & 7u) + 1u; }
-    bool pin_lcd(unsigned l) const { return l < npines && ((pctl_[l / 16] >> (l % 16)) & 1u); }
-    bool es_com(unsigned l) const { return l < npines && ((cssel_[l / 16] >> (l % 16)) & 1u); }
+    bool pin_lcd(unsigned l) const {
+        if (com_c && l >= 60) return l < 64 && on();
+        return l < npines && ((pctl_[l / 16] >> (l % 16)) & 1u);
+    }
+    bool es_com(unsigned l) const {
+        if (com_c) return l >= 60 && l < 64;
+        return l < npines && ((cssel_[l / 16] >> (l % 16)) & 1u);
+    }
     double f_lcd() const {
         static const unsigned DIV[8] = {64, 32, 16, 16, 12, 8, 8, 8};
         const double f = f_fuente ? f_fuente(fuente()) : 0.0;
+        if (div_fijo) return f > 0.0 ? f / double(div_fijo) : 0.0;
         return f > 0.0 ? f / (double(((ctl0_ >> 11) & 31u) + 1u) * DIV[mux() - 1]) : 0.0;
     }
     double vlcd() const {
@@ -115,6 +127,7 @@ SC_MODULE(LcdE) {
     }
     // El COM del pin Lx (su configuración en LCDMx) [§17.2.3.2]
     unsigned com_de(unsigned l) const {
+        if (com_c) return l >= 60 ? l - 60 : 99;
         const unsigned mx = mux();
         if (mx <= 4) {
             const uint8_t nib = uint8_t((m_[(l / 2) & 31] >> ((l & 1u) * 4)) & 0x0F);

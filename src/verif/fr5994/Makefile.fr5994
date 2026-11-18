@@ -1,0 +1,15 @@
+# Los programas de testfr5 (M8). Los ELF se versionan en elf/: regenerarlos pide
+# msp430-elf-gcc y las cabeceras de TI, en doc/refs. Con -mlarge: el programa
+# pone código y datos en la FRAM de arriba de 0x10000 (el LEA y la FRAM hasta 0x43FFF).
+#   make -f Makefile.fr5994 [MSPGCC=<bin>]
+MSPGCC ?= msp430-elf-
+REFS   ?= ../../../doc/refs/msp430
+TI     ?= $(REFS)/ti/msp430/include_gcc
+CFLAGS := -mmcu=msp430fr5994 -mlarge -I$(TI) -Ishim -L$(TI) -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
+PROGS  := fr5994_basico
+
+all: $(PROGS:%=elf/%.elf)
+
+elf/%.elf: %.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -o $@ $<

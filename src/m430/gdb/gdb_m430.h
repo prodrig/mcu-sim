@@ -450,7 +450,12 @@ private:
     uint32_t p_ini_, p_fin_, i_ini_, i_fin_, syscfg0_, mpuctl0_;
     bool abierta_ = false;
     unsigned n_principal() const { return (p_fin_ + 1 - p_ini_ + 511) / 512u; }
-    void abre() { if (!abierta_) { d_.escribe16(mpuctl0_ ? mpuctl0_ : syscfg0_, 0xA500); abierta_ = true; } }
+    void abre() {
+        // FR5: la MPU, apagada cada vez que la encuentra encendida (el programa
+        // la pudo poner entre dos `load`)
+        if (mpuctl0_) { if (d_.lee16(mpuctl0_) & 0x0001) d_.escribe16(mpuctl0_, 0xA500); abierta_ = true; return; }
+        if (!abierta_) { d_.escribe16(syscfg0_, 0xA500); abierta_ = true; }
+    }
 };
 
 // --- El protocolo ------------------------------------------------------------------

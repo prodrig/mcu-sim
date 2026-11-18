@@ -235,6 +235,12 @@ struct ChipFr2 {
     uint8_t dma_tsel_adc = 0, dma_canales = 3;
     // El HFXT (HFXIN/HFXOUT, PxSEL0 = 1)
     uint8_t hfxt_puerto = 0, hfxt_bits = 0;
+    // El RTC_C (FR5994, FR6989) en vez del RTC_B; los nombres de sus vectores
+    uint32_t rtcc_base = 0;
+    // El LCD_C (FR6989) en lcd_base, sobre el LcdE: COM0-COM3 en L60-L63
+    bool lcd_c = false;
+    const char* v_rtc5 = "RTC";
+    const char* v_adc5 = "ADC12";
 };
 
 SC_MODULE(SocFR2), public m430_irq_if {
@@ -278,9 +284,10 @@ SC_MODULE(SocFR2), public m430_irq_if {
     std::unique_ptr<RefAFr> ref5;
     std::unique_ptr<Adc12B> adc5;
     std::unique_ptr<CompEP4> ce5;
-    std::unique_ptr<RtcB> rtc5;
+    std::unique_ptr<sc_core::sc_module> rtc5_mod_;       // el RTC_B o el RTC_C
+    Rtc5If* rtc5 = nullptr;
     std::unique_ptr<Aes256P4> aes5;
-    std::unique_ptr<Crc32P4> crc5;
+    std::unique_ptr<Crc32Fr> crc5;
     std::unique_ptr<Dma5xx> dma5;
     bool cristal_hfxt = false;                // lo pone la placa: un cristal en HFXIN/HFXOUT
     double f_hfxt = 16e6;
@@ -318,7 +325,7 @@ SC_MODULE(SocFR2), public m430_irq_if {
         }
         for (unsigned i = 0; i < NPIN; ++i) { adc_ch_[i] = -1; lcd_l_[i] = -1; pot_[i] = false; }
         for (unsigned ch = 0; ch < 16; ++ch) if (c.adc_pin[ch] >= 0) adc_ch_[unsigned(c.adc_pin[ch])] = int8_t(ch);
-        for (unsigned l = 0; l < c.nlcd; ++l) lcd_l_[c.lcd_l[l]] = int8_t(l);
+        for (unsigned l = 0; l < c.nlcd; ++l) if (c.lcd_l[l] < NPIN) lcd_l_[c.lcd_l[l]] = int8_t(l);   // 0xFF: Lx sin pin
         for (unsigned k = 0; k < c.nlcd_pot; ++k) pot_[c.lcd_pot[k]] = true;
         for (unsigned k = 0; k < c.nfn; ++k) fn_[c.fn[k].pin][c.fn[k].sel & 3u] = c.fn[k];
         for (unsigned k = 0; k < c.nfn; ++k) if (c.fn[k].tipo == 9) trg_pines_.push_back(c.fn[k].pin);
@@ -353,6 +360,11 @@ SC_MODULE(SocFR2), public m430_irq_if {
             if (clave_espera_ && (i & 1) == 0) { clave_entra(v); return; }
             sfrifg1_ |= 0x40;                                          // JMBINIFG
             nucleo.nota_irq();
+            if (chip.fr5 && (i & 1) == 1 && jmbi_[0] == 0xA55A && (v == 0x1A1A || v == 0x1B1B || v == 0x1E1E)) {
+                buzon_pendiente_ = true;                                // una orden al código de arranque
+                return;
+            }
+            if (chip.fr5 && (i & 1) == 0 && v == 0xA55A) { ev_patron_.notify(sc_core::sc_time(1, sc_core::SC_MS)); return; }
             if (arranque_espera_ && i == 0) mira_patron();
         };
         tap.jmb_sale = [this](unsigned i) {
@@ -405,6 +417,7 @@ SC_MODULE(SocFR2), public m430_irq_if {
         if (c.lcd_base) {
             lcd.reset(new LcdE("lcd_e"));
             lcd->npines = c.nlcd;
+            lcd->com_c = c.lcd_c;
             lcd->f_fuente = [this](unsigned s) { return s == 0 ? (xt1_en_marcha() ? 32768.0 : 0.0) : s == 1 ? f_aclk_ : s == 2 ? CsFr::F_VLO : 0.0; };
             lcd->vcc = [this] { return vcc; };
             lcd->al_cambiar = [this] { avisa_irq(); };
@@ -449,6 +462,8 @@ SC_MODULE(SocFR2), public m430_irq_if {
         SC_METHOD(puc_fin_proc); sensitive << ev_puc_fin_; dont_initialize();
         SC_METHOD(bor_fin_proc); sensitive << ev_bor_fin_; dont_initialize();
         SC_METHOD(test_bajo_proc); sensitive << ev_test_bajo_; dont_initialize();
+        SC_METHOD(buzon_proc); sensitive << ev_buzon_; dont_initialize();
+        SC_METHOD(patron_proc); sensitive << ev_patron_; dont_initialize();
         SC_METHOD(test_proc); sensitive << test.value_changed_event(); dont_initialize();
         SC_METHOD(rst_pin_proc); sensitive << rst.value_changed_event() << ev_rst_pin_; dont_initialize();
         SC_METHOD(lpm5_proc); sensitive << ev_lpm5_; dont_initialize();
@@ -607,7 +622,7 @@ private:
     std::vector<std::unique_ptr<tlm_utils::simple_initiator_socket<SocFR2>>> a_ta_;
     std::vector<std::unique_ptr<sc_core::sc_signal<bool>>> irq_t_;   // 0 y n de cada Timer
 
-    bool es_ram(uint32_t a) const { return desc.ram.contiene(a); }
+    bool es_ram(uint32_t a) const { return desc.ram.contiene(a) || desc.ram_lea.contiene(a); }   // la del LEA (FR5994): la CPU la usa
     bool es_fram_principal(uint32_t a) const { return (a >= desc.principal.ini && a < 0x10000) || desc.principal2.contiene(a); }
     bool es_info(uint32_t a) const { return desc.info.contiene(a); }
     bool es_fram(uint32_t a) const { return es_fram_principal(a) || es_info(a); }
@@ -737,7 +752,7 @@ private:
         for (auto& t : ta) t->recalcula();
         for (auto& u : usci) u->recalcula();
         rtc.recalcula();
-        if (rtc5) rtc5->recalcula_a();
+        if (rtc5) rtc5->recalcula5();
         if (lcd) lcd->recalcula();
         ev_wdt_.notify(sc_core::SC_ZERO_TIME);
         mira_lpm5();
@@ -961,6 +976,7 @@ private:
     bool magico_ = false, arranque_espera_ = false;
     void arranque() {
         if (chip.fr5) {
+            borrado_buzon();
             arranque_ipe();
             // La contraseña (0xAAAA y una longitud que no sea 0x5555) [UG FR5 §1.13.2]
             const bool clave = mem16(0xFF80) == 0xAAAA && mem16(0xFF82) != 0x5555;
@@ -989,12 +1005,32 @@ private:
     }
     void suelta_arranque() { magico_ = arranque_espera_ = false; nucleo.espera(false); }
     sc_core::sc_event ev_test_bajo_;
+    // FR5: la orden del buzón (borrar, la contraseña) la ve el código de
+    // arranque. La herramienta la escribe con el chip retenido en la entrada
+    // con RST bajo y lo suelta (TEST abajo, RST arriba): aquí, al bajar TEST
+    // con la orden puesta, un BOR como el del pin RST [de modelo: la
+    // retención con RST bajo por Spy-Bi-Wire no se modela]
+    bool buzon_pendiente_ = false;
+    unsigned fase_buzon_ = 0;
+    sc_core::sc_event ev_buzon_, ev_patron_;
+    void patron_proc() { if (!buzon_pendiente_ && arranque_espera_) mira_patron(); }
+    void buzon_proc() {
+        if (fase_buzon_ == 0) { rst_n.write(false); fase_buzon_ = 1; ev_buzon_.notify(sc_core::sc_time(2, sc_core::SC_US)); return; }
+        fase_buzon_ = 0;
+        buzon_pendiente_ = false;
+        pon_rstiv(0x04);
+        reset_regs(true, true);
+        pmmifg_ |= 0x0200;
+        arranque();
+        rst_n.write(true);
+    }
     void test_bajo_proc() {
+        if (buzon_pendiente_ && fase_buzon_ == 0) { ev_buzon_.notify(sc_core::SC_ZERO_TIME); return; }
         if (arranque_espera_ && !magico_ && (test.floating() || test.voltage() < 0.5f * float(vcc))) suelta_arranque();
     }
     void test_proc() {
         pines_salida();
-        if (arranque_espera_ && (test.floating() || test.voltage() < 0.5f * float(vcc)))
+        if ((arranque_espera_ || buzon_pendiente_) && (test.floating() || test.voltage() < 0.5f * float(vcc)))
             ev_test_bajo_.notify(sc_core::sc_time(150, sc_core::SC_US));
     }
     sc_core::sc_event ev_rst_pin_;
@@ -1043,7 +1079,7 @@ private:
         for (unsigned i = 0; i < NPIN; ++i) retenido_[i] = conducido_[i];
         lpm5_ = true;
         // LPM3.5: el RTC con XT1 o VLO, o el LCD_E [DS: modos de bajo consumo]
-        lpm5_rtc_ = chip.fr5 ? (rtc5 && rtc5->en_marcha() && xt1_en_marcha()) || lcd_lento()
+        lpm5_rtc_ = chip.fr5 ? (rtc5 && rtc5->en_marcha5() && xt1_en_marcha()) || lcd_lento()
                              : (rtc.activo() && rtc.fuente() >= 2) || lcd_lento();
         xt1_retenido_ = lpm5_rtc_ && xt1_en_marcha();
         // LPM4.5: el dominio del RTC, apagado, y la BAKMEM con él
@@ -1166,8 +1202,8 @@ private:
         for (unsigned k = 0; k < chip.ntimers; ++k) { pon(Fuente::TIMER0, k, chip.timers[k].v0); pon(Fuente::TIMERN, k, chip.timers[k].vn); }
         if (chip.fr5) {
             // 0 RTC_B, 1 ADC12_B, 2 Comp_E, 3 AES256, 4 DMA (linea5)
-            if (rtc5) pon(Fuente::LINEA, 0, "RTC");
-            if (adc5) pon(Fuente::LINEA, 1, "ADC12");
+            if (rtc5) pon(Fuente::LINEA, 0, chip.v_rtc5);
+            if (adc5) pon(Fuente::LINEA, 1, chip.v_adc5);
             if (ce5) pon(Fuente::LINEA, 2, "COMP_E");
             if (aes5) pon(Fuente::LINEA, 3, "AES256");
             if (dma5) pon(Fuente::LINEA, 4, "DMA");
@@ -1178,7 +1214,7 @@ private:
             const std::string n = "PORT" + std::to_string(k + 1);
             pon(Fuente::PUERTO, k, n.c_str());
         }
-        if (lcd) pon(Fuente::LCD, 0, "LCD_E");
+        if (lcd) pon(Fuente::LCD, 0, chip.lcd_c ? "LCD_C" : "LCD_E");
         for (unsigned k = 0; k < chip.necomps; ++k) pon(Fuente::ECOMP, k, chip.ecomps[k].vec);
         for (unsigned k = 0; k < chip.nsacs; ++k) if (chip.sacs[k].vec) pon(Fuente::SAC, k, chip.sacs[k].vec);
     }
@@ -1330,7 +1366,7 @@ private:
         if (!lcd) return;
         for (unsigned l = 0; l < chip.nlcd; ++l) {
             const unsigned i = chip.lcd_l[l];
-            if (!pin[i]) continue;
+            if (i >= NPIN || !pin[i]) continue;
             if (lcd->pin_lcd(l)) pin_lcd(i);
             else if (v_lcd_[i] != -2.0) { v_lcd_[i] = -2.0; pines_salida(); return; }   // vuelve a ser un pin normal
         }
@@ -1787,7 +1823,7 @@ private:
         }
         if (es_mpy(a)) { v = mpy.lee16(a - 0x4C0); return true; }
         if (EusciFr* u = usci_de(a, off)) { v = u->lee(off, dbg); return true; }
-        if (es_lcd(a)) { v = lcd->lee(a - chip.lcd_base, dbg); return true; }
+        if (es_lcd(a)) { v = chip.lcd_c ? lee_lcdc(a - chip.lcd_base, dbg) : lcd->lee(a - chip.lcd_base, dbg); return true; }
         for (unsigned k = 0; k < chip.necomps; ++k)
             if (a >= chip.ecomps[k].base && a < chip.ecomps[k].base + 0x20) { v = ecomp[k]->lee(a - chip.ecomps[k].base, dbg); return true; }
         for (unsigned k = 0; k < chip.nsacs; ++k)
@@ -1849,7 +1885,10 @@ private:
         }
         if (es_mpy(a)) { mpy.escribe(a - 0x4C0, v, m != 0xFFFF); return; }
         if (EusciFr* u = usci_de(a, off)) { u->escribe(off, v, m); return; }
-        if (es_lcd(a)) { lcd->escribe(a - chip.lcd_base, v, m); relojes(); pines_salida(); return; }
+        if (es_lcd(a)) {
+            if (chip.lcd_c) escribe_lcdc(a - chip.lcd_base, v, m); else lcd->escribe(a - chip.lcd_base, v, m);
+            relojes(); pines_salida(); return;
+        }
         for (unsigned k = 0; k < chip.necomps; ++k)
             if (a >= chip.ecomps[k].base && a < chip.ecomps[k].base + 0x20) { ecomp[k]->escribe(a - chip.ecomps[k].base, v, m); return; }
         for (unsigned k = 0; k < chip.nsacs; ++k)
@@ -1970,11 +2009,18 @@ private:
             SC_METHOD(ce5_proc); sensitive << ce5->salida; dont_initialize();
         }
         if (c.rtcb_base) {
-            rtc5.reset(new RtcB("rtc_b", c.rtcb_base));
-            ata5(*rtc5, c.rtcb_base, 0x20, &rst_rtc5_);
-            rtc5->irq(irq_rtc5_);
-            rtc5->f_bclk = [this] { return xt1_en_marcha() ? 32768.0 : 0.0; };
-            rtc5->f_smclk = [this] { return f_smclk_; };
+            RtcB* r = new RtcB("rtc_b", c.rtcb_base);
+            rtc5_mod_.reset(r); rtc5 = r;
+            ata5(*r, c.rtcb_base, 0x20, &rst_rtc5_);
+            r->irq(irq_rtc5_);
+            r->f_bclk = [this] { return xt1_en_marcha() ? 32768.0 : 0.0; };
+            r->f_smclk = [this] { return f_smclk_; };
+        } else if (c.rtcc_base) {
+            RtcC5* r = new RtcC5("rtc_c", c.rtcc_base);
+            rtc5_mod_.reset(r); rtc5 = r;
+            ata5(*r, c.rtcc_base, 0x20, &rst_rtc5_);
+            r->irq(irq_rtc5_);
+            r->f_bclk = [this] { return xt1_en_marcha() ? 32768.0 : 0.0; };
         }
         if (c.aes_base) {
             aes5.reset(new Aes256P4("aes256", c.aes_base, 0x10));
@@ -1982,8 +2028,8 @@ private:
             aes5->irq(irq_aes5_);
         }
         if (c.crc32_base) {
-            crc5.reset(new Crc32P4("crc32", c.crc32_base, 0x30));
-            ata5(*crc5, c.crc32_base, 0x30);
+            crc5.reset(new Crc32Fr("crc32", c.crc32_base));
+            ata5(*crc5, c.crc32_base, 0x20);
         }
         if (c.adc12b_base) {
             adc5.reset(new Adc12B("adc12_b"));
@@ -2244,6 +2290,23 @@ private:
     bool clave_espera_ = false;
     unsigned clave_n_ = 0;
     unsigned n_desbloqueos_ = 0;
+    // El borrado por el buzón [SLAU320AJ §2.4.4 (EraseFRAMViaBootCode); UG FR5
+    // §9.6.2]: con 0xA55A y 0x1A1A en JMBIN0/1 al arrancar, el código de
+    // arranque borra la FRAM principal (y con ella las firmas de JTAG) salvo
+    // la zona de la IPE; con 0x1B1B, también la IPE y su puntero
+    unsigned n_borrados_jmb_ = 0;
+    void borrado_buzon() {
+        if ((sysjmbc_ & 0x03) != 0x03 || jmbi_[0] != 0xA55A || (jmbi_[1] != 0x1A1A && jmbi_[1] != 0x1B1B)) return;
+        const bool todo = jmbi_[1] == 0x1B1B;
+        sysjmbc_ = uint16_t(sysjmbc_ & ~0x03);
+        auto borra = [&](uint32_t ini, uint32_t fin) {
+            for (uint32_t a = ini; a <= fin; ++a) if (todo || !en_ipe(a)) mem_[a] = 0xFF;
+        };
+        borra(desc.principal.ini, 0xFFFF);
+        if (desc.principal2.existe()) borra(desc.principal2.ini, desc.principal2.fin);
+        if (todo) { ipe_ptr_ = 0; mpuipc0_ = mpuipsegb1_ = mpuipsegb2_ = 0; }
+        ++n_borrados_jmb_;
+    }
     void arranque_clave() {
         clave_espera_ = false;
         if ((sysjmbc_ & 0x03) == 0x03 && jmbi_[0] == 0xA55A && jmbi_[1] == 0x1E1E) {
@@ -2260,9 +2323,41 @@ private:
 public:
     unsigned violaciones_mpu() const { return n_violaciones_; }
     unsigned desbloqueos_jtag() const { return n_desbloqueos_; }
+    unsigned borrados_buzon() const { return n_borrados_jmb_; }
     uint16_t ipe_puntero() const { return ipe_ptr_; }
     bool jtag_bloqueado() const { return tap.fusible(); }
 private:
+    // --- El LCD_C de las FR6xx [UG FR5 cap. 36], sobre el LcdE ----------------------
+    // LCDCCTL0: LCDDIV (15-11), LCDPRE (10-8), LCDSSEL (6: ACLK o VLO), LCDMX
+    // (5-3), LCDSON, LCDLP, LCDON, como los del LCD_E salvo LCDSSEL y LCDPRE:
+    // fLCD = fFUENTE / ((LCDDIV + 1) × 2^LCDPRE). LCDCVCTL y LCDCCPCTL se
+    // guardan (VLCD = VCC [de modelo]); la memoria, LCDM1 en +20, como la del
+    // LCD_E (S0 en el nibble bajo).
+    uint16_t lcdc_ctl0_ = 0, lcdc_vctl_ = 0, lcdc_cpctl_ = 0;
+    uint16_t lee_lcdc(uint32_t off, bool dbg) {
+        off &= 0x7E;
+        if (off == 0x00) return lcdc_ctl0_;
+        if (off == 0x08) return lcdc_vctl_;
+        if (off == 0x12) return lcdc_cpctl_;
+        if (off >= 0x14 && off < 0x1C) return 0;
+        return lcd->lee(off, dbg);
+    }
+    void escribe_lcdc(uint32_t off, uint16_t v, uint16_t m) {
+        off &= 0x7E;
+        auto mz = [&](uint16_t cur) { return uint16_t((cur & ~m) | (v & m)); };
+        if (off == 0x00) {
+            lcdc_ctl0_ = uint16_t(mz(lcdc_ctl0_) & 0xFF7Fu);
+            lcd->div_fijo = (((lcdc_ctl0_ >> 11) & 31u) + 1u) << ((lcdc_ctl0_ >> 8) & 7u);
+            const uint16_t e = uint16_t((lcdc_ctl0_ & 0x003Fu) | ((lcdc_ctl0_ & 0x0040u) ? 0x0080u : 0x0040u));
+            lcd->escribe(0x00, e, 0xFFFF);
+            return;
+        }
+        if (off == 0x08) { lcdc_vctl_ = mz(lcdc_vctl_); return; }
+        if (off == 0x12) { lcdc_cpctl_ = mz(lcdc_cpctl_); return; }
+        if (off >= 0x14 && off < 0x1C) return;
+        lcd->escribe(off, v, m);
+    }
+
     // El POR por programa: como el PUC, con su causa (0x14)
     void puc_por() { puc(false, 0x14); }
 

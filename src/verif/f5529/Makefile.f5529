@@ -43,3 +43,29 @@ elf/repx_jtag.elf: $(REPX) replicator_xv2/*.h
 elf/repx_firma.elf: $(REPX) replicator_xv2/*.h
 	@mkdir -p elf
 	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -DMCUSIM_FIRMA -o $@ $(REPX)
+
+# El Replicator430FR de TI en el F5529, que programa el FR5969 (M8): por SBW,
+# y por SBW con la contraseña de JTAG (el bloque de TI activado con
+# MCUSIM_CLAVE, y su bucle arreglado). La parte baja, la del Replicator430Xv2
+# de aquí (es la misma de TI).
+REPFR  := replicator_fr/Replicator430FR.c replicator_fr/JTAGfunc430FR.c replicator_fr/LowLevelFunc430Xv2.c replicator_fr/JSBW.c
+all: elf/repfr_sbw.elf elf/repfr_clave.elf
+elf/repfr_sbw.elf: $(REPFR) replicator_fr/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -o $@ $(REPFR)
+elf/repfr_clave.elf: $(REPFR) replicator_fr/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -DMCUSIM_CLAVE -o $@ $(REPFR)
+
+# El Replicator430FR de TI en el F5529, que programa el FR5969 (M8): por SBW,
+# y por SBW con la contraseña de JTAG (el bloque de TI activado con
+# MCUSIM_CLAVE, y su bucle arreglado). La parte baja, la del Replicator430Xv2
+# de aquí (es la misma de TI).
+REPFR  := replicator_fr/Replicator430FR.c replicator_fr/JTAGfunc430FR.c replicator_fr/LowLevelFunc430Xv2.c replicator_fr/JSBW.c
+all: elf/repfr_sbw.elf elf/repfr_clave.elf
+elf/repfr_sbw.elf: $(REPFR) replicator_fr/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -o $@ $(REPFR)
+elf/repfr_clave.elf: $(REPFR) replicator_fr/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -DMCUSIM_CLAVE -o $@ $(REPFR)

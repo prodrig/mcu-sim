@@ -49,6 +49,7 @@
 #include "mems_st.h"
 #include "xds110.h"
 #include "spi_flash.h"
+#include "sd_spi.h"
 #include "auto_reset_esp.h"
 #include "ws2812.h"
 #include "lcd_fh1138p.h"
@@ -3208,6 +3209,26 @@ REGISTRA_PARTE(SpiFlash,
         }
         return new SpiFlash(d.id.c_str(), *m, n[d.nodo_de("cs")], opt("clk"), opt("di"), opt("do"),
                             opt("wp"), opt("hold"));
+    });
+
+REGISTRA_PARTE(SdSpi,
+    Ayuda("Una tarjeta microSD (SDHC) en modo SPI, a nivel de pin: CS, SCK, "
+          "MOSI y MISO, modo 0, el bit alto primero. Contesta CMD0, CMD8, "
+          "CMD9, CMD10, CMD12, CMD13, CMD16, CMD17, CMD24, CMD55, ACMD41 y "
+          "CMD58 como una tarjeta de verdad (direcciones de bloque, CCS = 1). "
+          "La de la MSP-EXP430FR5994, en la UCB0.")
+      .ejemplo("<componente tipo=\"SdSpi\" id=\"SD\" mb=\"1024\">\n"
+               "  <pin nombre=\"cs\"   nodo=\"P4.0\"/>\n"
+               "  <pin nombre=\"sck\"  nodo=\"P2.2\"/>\n"
+               "  <pin nombre=\"mosi\" nodo=\"P1.6\"/>\n"
+               "  <pin nombre=\"miso\" nodo=\"P1.7\"/>\n"
+               "</componente>")
+      .pin("cs, sck, mosi, miso", "obligatorios", "El bus SPI; MISO en alta impedancia sin CS.")
+      .atr("mb", "1024", "La capacidad en MB (bloques de 512 B).")
+      .atr("imagen", "ninguna", "Un fichero con la imagen de la tarjeta desde el bloque 0 (FAT, por ejemplo)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new SdSpi(d.id.c_str(), n[d.nodo_de("cs")], n[d.nodo_de("sck")], n[d.nodo_de("mosi")], n[d.nodo_de("miso")],
+                         uint32_t(d.num("mb", 1024)), d.txt("imagen", ""));
     });
 
 REGISTRA_PARTE(CameraSensor,

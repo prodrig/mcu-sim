@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MSP-EXP430FR5994: la LaunchPad del MSP430FR5994 (M8 de doc/analisis_msp430.md)
+
+     Lo que lleva la placa aparte del chip [SLAU678C, §2]:
+
+         U1    el MSP430FR5994IPN (LQFP-80)
+         LED1  rojo en P1.0 y LED2 verde en P1.1 [de modelo: 470 ohm]
+         S1    en P5.6 y S2 en P5.5, a masa (el pull-up, el de dentro)
+         S3    RESET, con 47 kohm a 3V3
+         Y4    32 768 Hz en PJ.4/PJ.5 (LFXT): cristal_xt1 = true, de la factoría
+         SD    la microSD [§2.2.5.1, tabla 2-3]: la UCB0 en SPI (P1.6 MOSI,
+               P1.7 MISO, P2.2 CLK) y P4.0 de CS; la detección, P7.2, a masa
+               con la tarjeta dentro (R7 sin montar: el pull-up, el de dentro).
+               Las placas de 2022 en adelante no montan el zócalo; aquí está.
+         J101  el bloque de aislamiento con el eZ-FET
+         BCL   el backchannel: la UCA0 en P2.0 (TXD) y P2.1 (RXD), por RFC
+               2217 en el 3364
+
+     El supercondensador y los conectores BoosterPack no se modelan.
+
+         ./build/mcu-sim placas/msp_exp430fr5994.xml programa.elf 20000
+-->
+<placa nombre="msp-exp430fr5994">
+  <mcu tipo="MSP430FR5994" id="u0"/>
+
+  <componente tipo="Led" id="LED1" a_vss="si" vf="2.0" r="470" color="rojo">
+    <pin nombre="anodo" nodo="P1.0"/>
+  </componente>
+  <componente tipo="Led" id="LED2" a_vss="si" vf="2.9" r="470" color="verde">
+    <pin nombre="anodo" nodo="P1.1"/>
+  </componente>
+  <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P5.6"/>
+  </componente>
+  <componente tipo="Button" id="S2" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P5.5"/>
+  </componente>
+
+  <nodo id="RST" bus="si"/>
+  <componente tipo="Button" id="S3" v_cerrado="0" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="RST"/>
+  </componente>
+  <componente tipo="Rpull" id="R3" v="3.3" r="47000" visible="no">
+    <pin nombre="a" nodo="RST"/>
+  </componente>
+
+  <componente tipo="SdSpi" id="SD" mb="1024">
+    <pin nombre="cs" nodo="P4.0"/>
+    <pin nombre="sck" nodo="P2.2"/>
+    <pin nombre="mosi" nodo="P1.6"/>
+    <pin nombre="miso" nodo="P1.7"/>
+  </componente>
+  <!-- El interruptor de la detección: la tarjeta, dentro -->
+  <componente tipo="Rpull" id="CD" v="0" r="10" visible="no">
+    <pin nombre="a" nodo="P7.2"/>
+  </componente>
+
+  <nodo id="5V" bus="si"/>
+  <nodo id="DVSS" bus="si"/>
+  <componente tipo="Fuente" id="USB" v="5" limite_ma="500">
+    <pin nombre="pin" nodo="J101.4"/>
+  </componente>
+  <componente tipo="Jumper" id="J101" filas="2" columnas="6"
+              puente="1 2, 3 4, 5 6, 7 8, 9 10, 11 12">
+    <pin nombre="1" nodo="DVSS"/>
+    <pin nombre="3" nodo="DVCC"/>
+    <pin nombre="5" nodo="P2.1"/>       <!-- RXD << -->
+    <pin nombre="7" nodo="P2.0"/>       <!-- TXD >> -->
+    <pin nombre="9" nodo="RST"/>
+    <pin nombre="11" nodo="TEST"/>
+  </componente>
+  <componente tipo="PuenteSerie" id="BCL" host="rfc2217:3364"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="J101.8"/>
+    <pin nombre="tx" nodo="J101.6"/>
+  </componente>
+</placa>
