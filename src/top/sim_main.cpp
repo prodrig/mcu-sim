@@ -1481,6 +1481,14 @@ SC_MODULE(Sim) {
         // firmware: lo que dice su <mcu> o `--rom/--tlv ID=`, y si no, lo que
         // vaya sin id en la linea de ordenes. Sin id, un chip que no lo tiene
         // se salta; con id, o en el XML, es un error.
+        // El HFXT de las FR5xx/FR6xx: solo del <mcu hfxt="Hz">
+        for (McuMontado& m : mcus) {
+            if (m.decl.hfxt.empty()) continue;
+            const char* quien = m.decl.id.empty() ? "(el mcu)" : m.decl.id.c_str();
+            const std::string e = m.mcu->opcion("hfxt", m.decl.hfxt);
+            if (!e.empty()) muere(std::string("hfxt de ") + quien + ": " + e);
+            std::printf("hfxt de %s: %s\n", quien, m.mcu->describe_opcion("hfxt").c_str());
+        }
         for (const char* clave : {"rom", "tlv", "bsl", "eth", "usb", "jtag"}) {
             const char c = clave[0];
             auto& lista = c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : c == 'e' ? g_eths

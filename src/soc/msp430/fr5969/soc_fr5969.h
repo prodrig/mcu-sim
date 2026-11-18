@@ -11,8 +11,8 @@
 //   en PJ.4/PJ.5 y HFXT en PJ.6/PJ.7; JTAG de 4 hilos en PJ.0-PJ.3; el
 //   backchannel de la LaunchPad, la UCA0 en P2.0 (TXD) y P2.1 (RXD).
 //
-// Las funciones de los pines [DS tablas 6-49 a 6-61], las conexiones de los
-// Timer [tablas 6-13 a 6-17: la salida del Comp_E a las CCI1B], los
+// Las funciones de todos los pines [DS tablas 6-49 a 6-62], las conexiones
+// de los Timer [tablas 6-13 a 6-17: la salida del Comp_E a las CCI1B], los
 // disparos del ADC12_B [tabla 6-18] y los del DMA [tabla 6-12].
 // =============================================================================
 #ifndef STM32_SOC_MSP430_FR5969_SOC_FR5969_H
@@ -38,33 +38,47 @@ inline constexpr Fr2Usci USCIS[] = {
     {"eusci_b0", 0x0640, true, "USCI_B0"},
 };
 enum : uint8_t { UA0 = 0, UA1 = 1, UB0 = 2 };
-// tipo: 1 Timer, 2 eUSCI, 3 analógico/cristal, 4 reloj, 10 COUT (Comp_E)
+// Las funciones de todos los pines [DS SLAS704G tablas 6-49 a 6-62], por
+// PxSEL (1: 01, 2: 10, 3: 11) y PxDIR (fn_sal: solo de salida; fn_ent: solo
+// de entrada; sin decir: las dos). Tipos: 1 Timer (CCInA), 11 Timer (CCInB),
+// 2 eUSCI (0 SIMO/TXD/SDA, 1 SOMI/RXD/SCL, 2 CLK, 3 STE), 3 analógica, 4
+// reloj (0 MCLK, 1 SMCLK, 2 ACLK), 5 TxCLK, 9 TB0OUTH, 10 COUT, 12 DMAE0, 13
+// RTCCLK, 14 un bit del SR. Los cristales (PJ.4-PJ.7) los lleva el SoC; los
+// canales del Comp_E, su CEPDx (C6-C9 en PJ.0-PJ.3 no tienen PxSEL).
 inline constexpr Fr2Fn FN[] = {
-    // P1: 01 los Timer; 10 RTCCLK/COUT/UCB0STE/UCA0STE/UCA0CLK/UCB0SIMO/UCB0SOMI; 11 analógica y TA0.0/TA1.0
-    {fr2_pin(1, 0), 1, 1, TA0, 1}, {fr2_pin(1, 1), 1, 1, TA0, 2}, {fr2_pin(1, 2), 1, 1, TA1, 1}, {fr2_pin(1, 3), 1, 1, TA1, 2},
-    {fr2_pin(1, 4), 1, 1, TB0, 1}, {fr2_pin(1, 5), 1, 1, TB0, 2}, {fr2_pin(1, 6), 1, 1, TB0, 3}, {fr2_pin(1, 7), 1, 1, TB0, 4},
-    {fr2_pin(1, 1), 2, 10, 0, 0}, {fr2_pin(1, 2), 2, 10, 0, 0}, {fr2_pin(1, 3), 2, 2, UB0, 3}, {fr2_pin(1, 4), 2, 2, UA0, 3},
-    {fr2_pin(1, 5), 2, 2, UA0, 2}, {fr2_pin(1, 6), 2, 2, UB0, 0}, {fr2_pin(1, 7), 2, 2, UB0, 1},
-    {fr2_pin(1, 0), 3, 3, 0, 0}, {fr2_pin(1, 1), 3, 3, 0, 0}, {fr2_pin(1, 2), 3, 3, 0, 0}, {fr2_pin(1, 3), 3, 3, 0, 0},
-    {fr2_pin(1, 4), 3, 3, 0, 0}, {fr2_pin(1, 5), 3, 3, 0, 0}, {fr2_pin(1, 6), 3, 1, TA0, 0}, {fr2_pin(1, 7), 3, 1, TA1, 0},
+    // P1
+    {fr2_pin(1, 0), 1, 1, TA0, 1}, fn_ent(fr2_pin(1, 0), 2, 12, 0, 0), fn_sal(fr2_pin(1, 0), 2, 13, 0, 0), {fr2_pin(1, 0), 3, 3, 0, 0},
+    {fr2_pin(1, 1), 1, 1, TA0, 2}, fn_ent(fr2_pin(1, 1), 2, 5, TA1, 0), fn_sal(fr2_pin(1, 1), 2, 10, 0, 0), {fr2_pin(1, 1), 3, 3, 0, 0},
+    {fr2_pin(1, 2), 1, 1, TA1, 1}, fn_ent(fr2_pin(1, 2), 2, 5, TA0, 0), fn_sal(fr2_pin(1, 2), 2, 10, 0, 0), {fr2_pin(1, 2), 3, 3, 0, 0},
+    {fr2_pin(1, 3), 1, 1, TA1, 2}, {fr2_pin(1, 3), 2, 2, UB0, 3}, {fr2_pin(1, 3), 3, 3, 0, 0},
+    {fr2_pin(1, 4), 1, 1, TB0, 1}, {fr2_pin(1, 4), 2, 2, UA0, 3}, {fr2_pin(1, 4), 3, 3, 0, 0},
+    {fr2_pin(1, 5), 1, 1, TB0, 2}, {fr2_pin(1, 5), 2, 2, UA0, 2}, {fr2_pin(1, 5), 3, 3, 0, 0},
+    {fr2_pin(1, 6), 1, 11, TB0, 3}, {fr2_pin(1, 6), 2, 2, UB0, 0}, {fr2_pin(1, 6), 3, 1, TA0, 0},
+    {fr2_pin(1, 7), 1, 11, TB0, 4}, {fr2_pin(1, 7), 2, 2, UB0, 1}, {fr2_pin(1, 7), 3, 1, TA1, 0},
     // P2
-    {fr2_pin(2, 0), 1, 1, TB0, 6}, {fr2_pin(2, 1), 1, 1, TB0, 0}, {fr2_pin(2, 2), 1, 1, TB0, 2}, {fr2_pin(2, 3), 1, 1, TA0, 0},
-    {fr2_pin(2, 4), 1, 1, TA1, 0}, {fr2_pin(2, 5), 1, 1, TB0, 0}, {fr2_pin(2, 6), 1, 1, TB0, 1},
-    {fr2_pin(2, 0), 2, 2, UA0, 0}, {fr2_pin(2, 1), 2, 2, UA0, 1}, {fr2_pin(2, 2), 2, 2, UB0, 2}, {fr2_pin(2, 3), 2, 2, UA1, 3},
-    {fr2_pin(2, 4), 2, 2, UA1, 2}, {fr2_pin(2, 5), 2, 2, UA1, 0}, {fr2_pin(2, 6), 2, 2, UA1, 1},
-    {fr2_pin(2, 0), 3, 4, 0, 2}, {fr2_pin(2, 3), 3, 3, 0, 0}, {fr2_pin(2, 4), 3, 3, 0, 0},
-    // P3: A12-A15; TB0.3-TB0.6; SMCLK, COUT
+    {fr2_pin(2, 0), 1, 11, TB0, 6}, {fr2_pin(2, 0), 2, 2, UA0, 0}, fn_ent(fr2_pin(2, 0), 3, 5, TB0, 0), fn_sal(fr2_pin(2, 0), 3, 4, 0, 2),
+    {fr2_pin(2, 1), 1, 1, TB0, 0}, {fr2_pin(2, 1), 2, 2, UA0, 1}, {fr2_pin(2, 1), 3, 1, TB0, 0},
+    fn_sal(fr2_pin(2, 2), 1, 1, TB0, 2), {fr2_pin(2, 2), 2, 2, UB0, 2},
+    {fr2_pin(2, 3), 1, 11, TA0, 0}, {fr2_pin(2, 3), 2, 2, UA1, 3}, {fr2_pin(2, 3), 3, 3, 0, 0},
+    {fr2_pin(2, 4), 1, 11, TA1, 0}, {fr2_pin(2, 4), 2, 2, UA1, 2}, {fr2_pin(2, 4), 3, 3, 0, 0},
+    {fr2_pin(2, 5), 1, 11, TB0, 0}, {fr2_pin(2, 5), 2, 2, UA1, 0},
+    fn_sal(fr2_pin(2, 6), 1, 1, TB0, 1), {fr2_pin(2, 6), 2, 2, UA1, 1},
+    // P3: A12-A15; TB0.3-TB0.6; SMCLK y COUT con PxSEL1 = 1
     {fr2_pin(3, 0), 3, 3, 0, 0}, {fr2_pin(3, 1), 3, 3, 0, 0}, {fr2_pin(3, 2), 3, 3, 0, 0}, {fr2_pin(3, 3), 3, 3, 0, 0},
-    {fr2_pin(3, 4), 1, 1, TB0, 3}, {fr2_pin(3, 5), 1, 1, TB0, 4}, {fr2_pin(3, 6), 1, 1, TB0, 5}, {fr2_pin(3, 7), 1, 1, TB0, 6},
-    {fr2_pin(3, 4), 2, 4, 0, 1}, {fr2_pin(3, 5), 2, 10, 0, 0},
-    // P4: A8-A11; TB0.5
+    {fr2_pin(3, 4), 1, 1, TB0, 3}, fn_sal(fr2_pin(3, 4), 2, 4, 0, 1), fn_sal(fr2_pin(3, 4), 3, 4, 0, 1),
+    {fr2_pin(3, 5), 1, 1, TB0, 4}, fn_sal(fr2_pin(3, 5), 2, 10, 0, 0), fn_sal(fr2_pin(3, 5), 3, 10, 0, 0),
+    {fr2_pin(3, 6), 1, 1, TB0, 5}, {fr2_pin(3, 7), 1, 1, TB0, 6},
+    // P4: A8-A11; TB0.5 (CCI5B)
     {fr2_pin(4, 0), 3, 3, 0, 0}, {fr2_pin(4, 1), 3, 3, 0, 0}, {fr2_pin(4, 2), 3, 3, 0, 0}, {fr2_pin(4, 3), 3, 3, 0, 0},
-    {fr2_pin(4, 4), 1, 1, TB0, 5},
-    // PJ: SMCLK, MCLK, ACLK; C6-C9; LFXIN/LFXOUT, HFXIN/HFXOUT
-    {fr2_pin(PJ, 0), 1, 4, 0, 1}, {fr2_pin(PJ, 1), 1, 4, 0, 0}, {fr2_pin(PJ, 2), 1, 4, 0, 2},
-    {fr2_pin(PJ, 0), 3, 3, 0, 0}, {fr2_pin(PJ, 1), 3, 3, 0, 0}, {fr2_pin(PJ, 2), 3, 3, 0, 0}, {fr2_pin(PJ, 3), 3, 3, 0, 0},
-    {fr2_pin(PJ, 4), 1, 3, 0, 0}, {fr2_pin(PJ, 5), 1, 3, 0, 0}, {fr2_pin(PJ, 6), 1, 3, 0, 0}, {fr2_pin(PJ, 7), 1, 3, 0, 0},
+    {fr2_pin(4, 4), 1, 11, TB0, 5},
+    // PJ.0-PJ.3: TB0OUTH/SMCLK, MCLK, ACLK; con 10, los bits del SR
+    fn_ent(fr2_pin(PJ, 0), 1, 9, TB0, 0), fn_sal(fr2_pin(PJ, 0), 1, 4, 0, 1), fn_sal(fr2_pin(PJ, 0), 2, 14, 0, 0x80),
+    fn_sal(fr2_pin(PJ, 1), 1, 4, 0, 0), fn_sal(fr2_pin(PJ, 1), 2, 14, 0, 0x40),
+    fn_sal(fr2_pin(PJ, 2), 1, 4, 0, 2), fn_sal(fr2_pin(PJ, 2), 2, 14, 0, 0x20),
+    fn_sal(fr2_pin(PJ, 3), 2, 14, 0, 0x10),
 };
+// TB0OUTH: solo el pin [UG FR5 §26.2.5.2]
+inline constexpr Fr2Outh OUTH[] = {{TB0, -1, 0xFF}};
 // ADC12SHS: 1 TA0.1, 2 TB0.0, 3 TB0.1, 4 TA1.1, 5 TA2.1, 6 TA3.1
 inline constexpr Fr2Disparo DISPAROS[] = {{TA0, 1, 1}, {TB0, 0, 2}, {TB0, 1, 3}, {TA1, 1, 4}, {TA2, 1, 5}, {TA3, 1, 6}};
 // COUT a las CCI1B de TA0, TA1, TB0, TA2 y TA3
@@ -109,6 +123,10 @@ inline constexpr ChipFr2 CHIP_FR5969 = [] {
     c.ce_ccib = fr5969::CE_CCIB; c.nce_ccib = 5;
     c.dma_tsel_ccr0 = fr5969::DMA_CCR0; c.dma_tsel_usci = fr5969::DMA_USCI; c.dma_tsel_adc = 26; c.dma_canales = 3;
     c.hfxt_puerto = FR5_PJ; c.hfxt_bits = 0xC0;
+    c.outh = fr5969::OUTH; c.nouth = 1;
+    // Las erratas que se modelan [SLAZ473AG] (TB25, con la de las FR2)
+    c.errata5 = E5_ADC41 | E5_ADC42 | E5_ADC43 | E5_ADC66 | E5_ADC69 | E5_ADC71 | E5_AES1 | E5_COMP10 | E5_REF9 | E5_WDG5;
+    c.errata_tb25 = true;
     return c;
 }();
 

@@ -10,7 +10,15 @@
 //            +1C/+1E (los del RTC_C). RTCOFIFG (la falta del LFXT) no se
 //            modela: el RTC lee la frecuencia que le dé el SoC.
 //   RtcC5    el RTC_C del MSP432P4 (rtc_c.h), el de las FR5994/FR6989 [UG FR5
-//            cap. 30]: el mismo bloque, en RTC_BASE (0x4A0)
+//            cap. 29]: el mismo bloque, en RTC_BASE (0x4A0), con tres
+//            diferencias de las FR5 [§29.2.3, §29.2.4]: la llave guarda los
+//            registros de control, del reloj y del calendario y los
+//            preescaladores (RTCCTL13, RTCOCAL, RTCPS, RTCTIM0/1, RTCDATE,
+//            RTCYEAR), pero no la alarma, RTCPSxCTL, RTCIV ni RTCTCMP;
+//            escribir un registro del reloj pone a cero RT0PS y RT1PS; y RT1PS
+//            cuenta sus 8 bits (su Q6, /128, es el segundo), así que RTCPS es
+//            la cuenta de LFXT módulo 65 536. [De modelo: el modo contador de
+//            las FR5994/FR6989 no está; RTCMODE se lee 1, como en el P4.]
 //   Crc32Fr  el CRC32 del MSP432P4 (crc32.h) con el mapa de las FR5994 [DS
 //            SLASE54D tabla 6-56]: las palabras de DIRB y RESR van al revés
 //            (W1 primero), y DIRB16 en +16
@@ -45,6 +53,12 @@ struct Rtc5If {
     virtual bool pide() const = 0;
     virtual void reset_bor() = 0;
     virtual void recalcula5() = 0;
+    // RTCCLK: la frecuencia de la salida de calibración (RTCCALF: 0 nada, 1
+    // 512 Hz, 2 256 Hz, 3 1 Hz) con el RTC en marcha [UG FR5 §28.2.5, §29.2.6]
+    virtual double rtcclk() const = 0;
+    static double rtcclk_de(unsigned calf) { return calf == 1 ? 512.0 : calf == 2 ? 256.0 : calf == 3 ? 1.0 : 0.0; }
+    // El despertar de LPM3.5 (RTC12 de las FR5994/FR6989: RTCTCOK se pierde)
+    virtual void despierta_lpm35(bool /*rtc12*/) {}
 };
 
 class RtcC5 : public RtcCP4, public Rtc5If {
@@ -56,6 +70,41 @@ public:
     }
     void reset_bor() override { valores_de_reset(); irq_ev_.notify(sc_core::SC_ZERO_TIME); ev_.notify(sc_core::SC_ZERO_TIME); }
     void recalcula5() override { recalcula(); }
+    double rtcclk() const override { return en_marcha() ? rtcclk_de((ctl13_ >> 8) & 3u) : 0.0; }
+    void despierta_lpm35(bool rtc12) override { if (rtc12) tcmp_ = uint16_t(tcmp_ & ~0x2000u); }   // RTCTCOK
+    uint16_t tcmp() const { return tcmp_; }
+
+protected:
+    uint16_t lee16(uint32_t off, bool dbg) override {
+        if (off == 0x0C) { if (!dbg) al_dia(); return uint16_t(tics_enteros() & 0xFFFFu); }
+        return RtcCP4::lee16(off, dbg);
+    }
+    void escribe16(uint32_t off, uint16_t v, uint16_t m) override {
+        if (off == 0x06) {                                    // RTCTCMP: sin llave
+            const bool a = abierto_; abierto_ = true;
+            RtcCP4::escribe16(off, v, m);
+            abierto_ = a;
+            return;
+        }
+        if (off == 0x0C) {                                    // RTCPS: con llave, los 16 bits
+            if (!abierto_) return;
+            al_dia();
+            const uint64_t t = tics_enteros();
+            const uint16_t w = uint16_t((uint16_t(t) & ~m) | (v & m));
+            tics_ = double((t & ~0xFFFFull) + w);
+            ev_.notify(sc_core::SC_ZERO_TIME);
+            return;
+        }
+        if (off >= 0x10 && off <= 0x16) {                     // el reloj y el calendario
+            if (!abierto_) return;
+            al_dia();
+            RtcCP4::escribe16(off, v, m);
+            tics_ = 0.0; ps_ifg_visto_[0] = ps_ifg_visto_[1] = 0;   // RT0PS y RT1PS a cero
+            ev_.notify(sc_core::SC_ZERO_TIME);
+            return;
+        }
+        RtcCP4::escribe16(off, v, m);
+    }
 };
 
 class Crc32Fr : public Crc32P4 {
@@ -81,6 +130,7 @@ public:
     // LPM3.5): el SoC lo ata a un rst_n propio que no baja
     bool en_marcha5() const override { return en_marcha(); }
     void recalcula5() override { recalcula_a(); }
+    double rtcclk() const override { return en_marcha() ? rtcclk_de((cal_ >> 8) & 3u) : 0.0; }
     void reset_bor() override {
         valores_de_reset(); a_valores(); calendario_ = true;
         irq_ev_.notify(sc_core::SC_ZERO_TIME); ev_.notify(sc_core::SC_ZERO_TIME); ev_cnt_.notify(sc_core::SC_ZERO_TIME);

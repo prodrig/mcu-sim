@@ -26,6 +26,16 @@
 //       carga su programa y lo suelta; y con la contraseña de JTAG en
 //       0xFF80 (0xAAAA, dos palabras: 0x1111 0x2222), que da por el buzón
 //       antes (0xA55A, 0x1E1E y la contraseña)
+//   L7  el FR5994 (fr5994_reloj.c): el HFXT con un cristal de 16 MHz (su
+//       arranque, HFFREQ fuera de margen, apagado en LPM3) y en bypass con
+//       un ExtClock de 12 MHz; el RAMCTL (la clave, RCRS2OFF = 1 y 2)
+//   L8  las funciones de los pines (por los registros, con un programa que
+//       duerme en LPM0): PxSEL sin función a DVSS, los bits del SR, los
+//       relojes, TB0OUTH, la captura B, DMAE0, RTCCLK, COUT, CEPDx, el LFXT
+//       y su bypass; en el FR6989, TA0.1 y MCLK con 11 y A4 en P8.7; en el
+//       FR5994, MCLK en P5.7 y P8.0-P8.3
+//   L9  las erratas que se modelan: REF9, COMP10, ADC41, ADC71, ADC42, AES1
+//       y WDG5 en el FR5969; TA22 y RTC12 en el FR6989
 // =============================================================================
 #include <systemc>
 #include <cmath>
@@ -57,6 +67,8 @@ SC_MODULE(TbFr5) {
     SocFR5969 fr{"fr5969"};
     SocFR5994 fr94{"fr5994"};
     SdSpi sd{"sd", fr94.p(4, 0), fr94.p(2, 2), fr94.p(1, 6), fr94.p(1, 7), 1024};
+    // L7: un reloj de 12 MHz en HFXIN (PJ.6), sin onda: lo declara en el nodo
+    ExtClock hfxin{"hfxin", fr94.p(11, 6), 0.0, 3.3, 50.0, false};
     int d_cd_ = -1;
     SocFR6989 fr69{"fr6989"};
     // El vidrio, como en la LaunchPad [SLAU627A tabla 4]: la patilla k+1
@@ -331,8 +343,13 @@ SC_MODULE(TbFr5) {
         fr69.p(1, 1).set_hiz(d69s1_);
         wait(1500, SC_MS);
         const std::string t = lcd1.texto();
-        check(t != "000000" && t.find_first_not_of("0123456789 ") == std::string::npos,
-              "S1 arranca el cronómetro (el RTC_C): «" + t + "» al cabo de 1,5 s");
+        // mmsscc: de la pulsación (100 ms) a la lectura (1,5 s), 1,60 s; la
+        // pantalla se refresca cada ms (RT0PS /32) [StopWatchMode.c]
+        const int cs = t.size() == 6 && t.find_first_not_of("0123456789") == std::string::npos
+                           ? std::stoi(t.substr(0, 2)) * 6000 + std::stoi(t.substr(2, 2)) * 100 + std::stoi(t.substr(4, 2)) : -1;
+        check(cs >= 155 && cs <= 161,
+              "S1 arranca el cronómetro (el RTC_C, RTCPS de 16 bits y los preescaladores a cero al escribir la hora): «" + t +
+                  "» al cabo de 1,6 s");
     }
 
     void rep(const char* elf, bool clave) {
@@ -379,6 +396,267 @@ SC_MODULE(TbFr5) {
         rep("repfr_clave.elf", true);
     }
 
+    void l7() {
+        grupo("L7 el FR5994: el HFXT (cristal, HFFREQ, LPM3 y bypass) y el RAMCTL");
+        fr94.reset(true);
+        wait(1, SC_US);
+        fr94.cristal_hfxt = true; fr94.f_hfxt = 16e6;               // un cristal de 16 MHz en PJ.6/PJ.7
+        const std::string e = fr94.carga("verif/fr5994/elf/fr5994_reloj.elf");
+        if (!e.empty()) std::printf("  %s\n", e.c_str());
+        fr94.uart_tx.clear();
+        fr94.reset(false);
+        auto lin = [&](const char* c) { return linea(fr94.uart_tx, c); };
+        auto espera = [&](const char* c, int ms) {
+            auto entera = [&] { const size_t i = fr94.uart_tx.find(c); return i != std::string::npos && fr94.uart_tx.find('\n', i) != std::string::npos; };
+            for (int i = 0; i < ms * 10 && !entera(); ++i) wait(100, SC_US);
+            return entera();
+        };
+        espera("hfxt", 200);
+        {
+            const std::string l = lin("hfxt");
+            const long t = num(l, "tics "), k = num(l, "smclk ");
+            // tSTART,HFXT a 16 MHz: 0,872 ms de subida [de modelo, entre los dos puntos de la tabla 5-5] y
+            // 1024 ciclos (64 µs): 0,936 ms, 30,7 tics de 32 768 Hz
+            check(l.find("falta 1") != std::string::npos && t >= 29 && t <= 32 && l.find("ok 1") != std::string::npos &&
+                      k >= 7900 && k <= 8100,
+                  "el cristal de 16 MHz con HFFREQ = 2: HFXTOFFG hasta que arranca (tSTART,HFXT, " + std::to_string(t) +
+                      " tics de ACLK) y SMCLK = HFXT/2: «" + l + "»");
+        }
+        espera("hffreq", 200);
+        {
+            const std::string l = lin("hffreq");
+            const long t = num(l, "tics "), k = num(l, "smclk ");
+            check(l.find("falta 1") != std::string::npos && t > 200 && k >= 2400 && k <= 2600,
+                  "HFFREQ = 3 con el cristal de 16 MHz: no oscila, la falta sigue y SMCLK cae a MODCLK/2: «" + l + "»");
+        }
+        espera("lpm", 200);
+        {
+            const std::string l = lin("lpm ");
+            const long t = num(l, "tics ");
+            check(l.find("antes 0 despues 1") != std::string::npos && t >= 29 && t <= 32 && l.find("desp 1") != std::string::npos,
+                  "HFXTOFF = 1 y solo SMCLK lo usa: LPM3 lo apaga y al despertar arranca otra vez: «" + l + "»");
+        }
+        espera("bypass listo", 200);
+        fr94.cristal_hfxt = false;
+        hfxin.set_freq(12e6);
+        espera("bypass tics", 300);
+        {
+            const std::string l = lin("bypass tics");
+            const long t = num(l, "tics "), k = num(l, "smclk ");
+            check(t >= 0 && t <= 4 && l.find("ok 1") != std::string::npos && k >= 11900 && k <= 12100,
+                  "HFXTBYPASS con 12 MHz en HFXIN (un ExtClock que lo declara en el nodo): el contador de 1024 ciclos y SMCLK = 12 MHz: «" +
+                      l + "»");
+        }
+        hfxin.set_freq(0.0);
+        espera("ram", 200);
+        check(lin("ram") == "ram clave 6900 6900 6900 6910 off1 CDCD 5A5A 1234 off2 3FFF 3FFF 4321",
+              "RCCTL0: 0x69 al leer, sin escribir de byte ni con otra clave; RCRS2OFF = 1, el sector 2 se pierde en LPM3 y el 0 no; "
+              "= 2, sigue apagado (0x3FFF, sin escribir) hasta volver a 0: «" + lin("ram") + "»");
+        check(fr94.ram_perdida() == 2 && !fr94.sector_apagado(2), "los dos apagados del sector 2, y vuelto a encender");
+    }
+
+    // --- L8: las funciones de los pines, por los registros (con el depurador) --
+    static void esc(SocFR2& c, uint32_t a, uint16_t v, unsigned n) {
+        tlm::tlm_generic_payload gp;
+        uint8_t d[2] = {uint8_t(v), uint8_t(v >> 8)};
+        gp.set_command(tlm::TLM_WRITE_COMMAND); gp.set_address(a); gp.set_data_ptr(d); gp.set_data_length(n);
+        c.acceso(gp, true);
+    }
+    static uint16_t lee(SocFR2& c, uint32_t a) {
+        tlm::tlm_generic_payload gp;
+        uint8_t d[2] = {0, 0};
+        gp.set_command(tlm::TLM_READ_COMMAND); gp.set_address(a); gp.set_data_ptr(d); gp.set_data_length(2);
+        c.acceso(gp, true);
+        return uint16_t(d[0] | (d[1] << 8));
+    }
+    // Un programa de cuatro instrucciones (verif/fr5969/dormilon.txt, TI-TXT):
+    // para el perro, suelta LOCKLPM5 y se queda en LPM0
+    void dormilon(SocFR2& c) {
+        c.reset(true);
+        wait(1, SC_US);
+        const std::string e = c.carga("verif/fr5969/dormilon.txt");
+        if (!e.empty()) std::printf("  %s\n", e.c_str());
+    }
+    // El estado de un pin: 'H', 'L' o 'Z'
+    static char estado(analog_net_if& n) { return n.floating() ? 'Z' : n.voltage() > 1.6f ? 'H' : 'L'; }
+    void l8() {
+        grupo("L8 las funciones de los pines de las FR5xx/FR6xx (las tablas de las hojas de datos)");
+        dormilon(fr); dormilon(fr69); dormilon(fr94);
+        fr.reset(false); fr69.reset(false); fr94.reset(false);
+        wait(1, SC_MS);
+        // FR5969: PxSEL sin función, de salida, a DVSS
+        esc(fr, 0x203, 0x80, 1); esc(fr, 0x205, 0x80, 1); esc(fr, 0x20B, 0x80, 1);      // P2.7: OUT, DIR, SEL0
+        esc(fr, 0x223, 0x20, 1); esc(fr, 0x225, 0x20, 1); esc(fr, 0x22D, 0x20, 1);      // P4.5: OUT, DIR, SEL1
+        wait(10, SC_US);
+        check(estado(fr.p(2, 7)) == 'L' && estado(fr.p(4, 5)) == 'L',
+              "un PxSEL sin función y de salida va a DVSS: P2.7 (01) y P4.5 (10) con PxOUT = 1, a 0 [DS FR5969 figuras 6-8 y 6-13]");
+        // Los bits del SR en PJ.0-PJ.3 con PJSEL = 10: la CPU en LPM0
+        esc(fr, 0x324, 0x0F, 1); esc(fr, 0x32C, 0x0F, 1);
+        wait(10, SC_US);
+        const std::string sr = {estado(fr.p(11, 0)), estado(fr.p(11, 1)), estado(fr.p(11, 2)), estado(fr.p(11, 3))};
+        check(sr == "LLLH", "la depuración de bajo consumo en PJ.0-PJ.3 (SCG1, SCG0, OSCOFF, CPUOFF) en LPM0: «" + sr + "» [tabla 6-62]");
+        // MCLK (PJ.1, 01), SMCLK (P3.4, 1X), ACLK (P2.0, 11, de salida)
+        esc(fr, 0x32C, 0x00, 1); esc(fr, 0x32A, 0x02, 1);
+        esc(fr, 0x224, 0x10, 1); esc(fr, 0x22C, 0x10, 1); esc(fr, 0x22A, 0x10, 1);
+        esc(fr, 0x205, 0x81, 1); esc(fr, 0x20B, 0x81, 1); esc(fr, 0x20D, 0x01, 1);
+        wait(10, SC_US);
+        check(estado(fr.p(11, 1)) == 'L' && estado(fr.p(3, 4)) == 'H' && estado(fr.p(2, 0)) == 'H',
+              "MCLK en PJ.1 (parado en LPM0), SMCLK en P3.4 (11) y ACLK en P2.0 (11, de salida) [tablas 6-52, 6-57, 6-62]");
+        esc(fr, 0x205, 0x80, 1);                                    // P2.0 de entrada: TB0CLK
+        wait(10, SC_US);
+        check(estado(fr.p(2, 0)) == 'Z', "P2.0 con 11 y de entrada es TB0CLK: sin salida");
+        // TB0OUTH en PJ.0 (01, de entrada): TB0.3 en P3.4 (01) a alta impedancia
+        esc(fr, 0x22C, 0x00, 1);                                    // P3.4: 01 (TB0.3)
+        esc(fr, 0x3C8, 0x0004, 2);                                  // TB0CCTL3: OUTMOD 0, OUT = 1
+        esc(fr, 0x324, 0x0E, 1); esc(fr, 0x32A, 0x01, 1);           // PJ.0: 01, de entrada
+        const int dpj = fr.p(11, 0).register_driver("outh");
+        fr.p(11, 0).set_drive(dpj, 0.0f, 10.0f);
+        wait(10, SC_US);
+        const char antes = estado(fr.p(3, 4));
+        fr.p(11, 0).set_drive(dpj, 3.3f, 10.0f);
+        wait(10, SC_US);
+        const char con = estado(fr.p(3, 4));
+        fr.p(11, 0).set_hiz(dpj);
+        check(antes == 'H' && con == 'Z', std::string("TB0OUTH en PJ.0 a 1 pone TB0.3 (P3.4) en alta impedancia: ") + antes + " → " + con +
+                                              " [UG FR5 §26.2.5.2]");
+        // La captura B: TB0.CCI3B en P1.6 (01, de entrada)
+        esc(fr, 0x3C0, 0x0220, 2);                                  // TB0CTL: SMCLK, continuo
+        esc(fr, 0x3C8, 0x5100, 2);                                  // TB0CCTL3: CM subida, CCIS = CCIB, CAP
+        esc(fr, 0x20A, 0x40, 1);
+        const int d16 = fr.p(1, 6).register_driver("cci3b");
+        fr.p(1, 6).set_drive(d16, 0.0f, 10.0f); wait(20, SC_US);
+        fr.p(1, 6).set_drive(d16, 3.3f, 10.0f); wait(20, SC_US);
+        fr.p(1, 6).set_hiz(d16);
+        check(lee(fr, 0x3C8) & 0x0001, "TB0.CCI3B en P1.6 (01): un flanco de subida, captura (CCIFG) [tabla 6-51]");
+        // DMAE0 en P1.0 (10, de entrada): el disparo 31
+        fr.poke(0x1C00, 0x34); fr.poke(0x1C01, 0x12);
+        esc(fr, 0x512, 0x1C00, 2); esc(fr, 0x514, 0, 2); esc(fr, 0x516, 0x1C10, 2); esc(fr, 0x518, 0, 2);
+        esc(fr, 0x51A, 1, 2); esc(fr, 0x500, 31, 2); esc(fr, 0x510, 0x0010, 2);
+        esc(fr, 0x20C, 0x01, 1);
+        const int d10 = fr.p(1, 0).register_driver("dmae0");
+        fr.p(1, 0).set_drive(d10, 0.0f, 10.0f); wait(20, SC_US);
+        fr.p(1, 0).set_drive(d10, 3.3f, 10.0f); wait(50, SC_US);
+        fr.p(1, 0).set_hiz(d10);
+        check(fr.mem16(0x1C10) == 0x1234, "DMAE0 en P1.0 (10): el flanco dispara el canal 0 con DMA0TSEL = 31 [tabla 6-12]");
+        // RTCCLK en P1.0 (10, de salida): el RTC_B en marcha con RTCCALF = 1
+        esc(fr, 0x204, 0x01, 1);
+        esc(fr, 0x4A0, 0x2000, 2);                                  // RTCMODE, sin RTCHOLD
+        wait(10, SC_US);
+        const char sin_cal = estado(fr.p(1, 0));
+        esc(fr, 0x4A2, 0x0100, 2);                                  // RTCCALF = 1: 512 Hz
+        wait(10, SC_US);
+        check(sin_cal == 'L' && estado(fr.p(1, 0)) == 'H', "RTCCLK en P1.0 (10, de salida): nada con RTCCALF = 0; 512 Hz con 1 [de modelo: nivel alto]");
+        // COUT en P3.5 (1X): de salida, el Comp_E apagado da 0; de entrada, nada
+        esc(fr, 0x225, 0x00, 1);
+        esc(fr, 0x223, 0x00, 1);
+        esc(fr, 0x224, 0x20, 1); esc(fr, 0x22C, 0x30, 1);
+        wait(10, SC_US);
+        const char cout = estado(fr.p(3, 5));
+        esc(fr, 0x224, 0x00, 1);
+        wait(10, SC_US);
+        check(cout == 'L' && estado(fr.p(3, 5)) == 'Z', std::string("COUT en P3.5 (10): de salida, ") + cout + "; de entrada, nada [tabla 6-57]");
+        // Comp_E: C0 (P1.0) con CEPD0 pierde la salida digital
+        esc(fr, 0x20C, 0x00, 1); esc(fr, 0x202, 0x01, 1);           // P1.0 GPIO, de salida, a 1
+        wait(10, SC_US);
+        const char gpio = estado(fr.p(1, 0));
+        esc(fr, 0x8C6, 0x0001, 2);                                  // CECTL3: CEPD0
+        wait(10, SC_US);
+        check(gpio == 'H' && estado(fr.p(1, 0)) == 'Z', "C0 en P1.0: con CEPD0, sin salida digital [tabla 6-49, nota 5]");
+        // El LFXT: PJ.4 con 01 hace de PJ.5 el cristal; con LFXTBYPASS, PJ.5 es un pin normal
+        esc(fr, 0x322, 0x20, 1); esc(fr, 0x324, 0x20, 1); esc(fr, 0x32A, 0x10, 1);
+        wait(10, SC_US);
+        const char xt = estado(fr.p(11, 5));
+        esc(fr, 0x161, 0xA5, 1); esc(fr, 0x168, 0xCDD9, 2); esc(fr, 0x161, 0x00, 1);
+        wait(10, SC_US);
+        check(xt == 'Z' && estado(fr.p(11, 5)) == 'H',
+              std::string("PJ.4 con 01: PJ.5 es LFXOUT (") + xt + "); con LFXTBYPASS, PJ.5 vuelve a ser un pin (PJOUT = 1) [tabla 6-60]");
+        // FR6989: TA0.1 en P1.6 con 11; MCLK en P4.0 con 11; A4 en P8.7
+        esc(fr69, 0x342 + 2, 0x0004, 2);                            // TA0CCTL1: OUT = 1
+        esc(fr69, 0x204, 0x40, 1); esc(fr69, 0x20A, 0x40, 1); esc(fr69, 0x20C, 0x40, 1);
+        esc(fr69, 0x225, 0x01, 1); esc(fr69, 0x22B, 0x01, 1); esc(fr69, 0x22D, 0x01, 1);
+        wait(10, SC_US);
+        check(estado(fr69.p(1, 6)) == 'H' && estado(fr69.p(4, 0)) == 'L',
+              "FR6989: TA0.1 en P1.6 con 11 (OUT = 1) y MCLK en P4.0 con 11 (parado en LPM0) [DS SLAS789D tablas 6-21 y 6-26]");
+        const int d87 = fr69.p(8, 7).register_driver("a4");
+        fr69.p(8, 7).set_drive(d87, 1.5f, 10.0f);
+        esc(fr69, 0x26B, 0x80, 1); esc(fr69, 0x26D, 0x80, 1);       // P8.7: 11
+        esc(fr69, 0x800, 0x0210, 2); esc(fr69, 0x802, 0x0200, 2); esc(fr69, 0x804, 0x0020, 2);
+        esc(fr69, 0x820, 0x0004, 2); esc(fr69, 0x80C, 0, 2); esc(fr69, 0x800, 0x0213, 2);
+        wait(1, SC_MS);
+        const unsigned a4 = lee(fr69, 0x860);
+        fr69.p(8, 7).set_hiz(d87);
+        check(a4 >= 1850 && a4 <= 1872, "FR6989: A4 es P8.7 (1,5 V con AVCC de referencia): " + std::to_string(a4) + " [tabla 6-36]");
+        // FR5994: MCLK en P5.7 con 11; P8 solo tiene P8.0-P8.3
+        esc(fr94, 0x244, 0x80, 1); esc(fr94, 0x24A, 0x80, 1); esc(fr94, 0x24C, 0x80, 1);
+        wait(10, SC_US);
+        check(estado(fr94.p(5, 7)) == 'L' && !fr94.existe(fr2_pin(8, 4)) && fr94.existe(fr2_pin(8, 3)),
+              "FR5994: MCLK en P5.7 con 11 (parado en LPM0); el PN80 tiene P8.0-P8.3 [DS SLASE54D tablas 9-31 y 9-35]");
+    }
+
+    void l9() {
+        grupo("L9 las erratas de las FR5xx/FR6xx que se modelan (fr59_errata.c, fr69_errata.c)");
+        fr.p(1, 2).set_drive(d_p12_, 0.6f, 10.0f);                 // C2 a 0,6 V
+        corre(std::string(DIR5969) + "fr59_errata.elf");
+        espera_uart("ref9", 200);
+        check(linea(fr.uart_tx, "ref9") == "ref9 con refon 1 sin 0",
+              "REF9: con REFON = 1 el Comp_E no tiene la de 1,2 V (0,6 V por encima de 0); pedida por CEREFL, sí: «" +
+                  linea(fr.uart_tx, "ref9") + "»");
+        fr.p(1, 2).set_hiz(d_p12_);
+        espera_uart("comp10 activo", 100);
+        wait(5, SC_MS);
+        const char am = alto(3, 5) ? 'H' : 'L';
+        wait(30, SC_MS);
+        const char lpm = alto(3, 5) ? 'H' : 'L';
+        check(am != lpm, std::string("COMP10: CEON = 0 y CEOUTPOL = 1, COUT en P3.5 cambia en LPM3: ") + am + " → " + lpm);
+        espera_uart("adc41", 300);
+        {
+            const std::string l = linea(fr.uart_tx, "adc41");
+            check(num(l, "tb0 ") == 0 && num(l, "ta0 ") >= 15,
+                  "ADC41: en LPM3 con ADC12OSC y sin REFON, TB0.0 (SHS = 2) no dispara el ADC12_B y TA0.1 (SHS = 1) sí: «" + l + "»");
+        }
+        espera_uart("adc71", 100);
+        check(linea(fr.uart_tx, "adc71") == "adc71 busy 1 sc 1 luego 0",
+              "ADC71: ENC y SC a la vez tras el disparo de TA0: BUSY y SC se quedan a 1 (de ellos sale con ON = 0): «" +
+                  linea(fr.uart_tx, "adc71") + "»");
+        espera_uart("adc42", 100);
+        check(linea(fr.uart_tx, "adc42") == "adc42 busy 1 ifg 0 tov 0 otra 1",
+              "ADC42: un SC con la conversión en curso (repetición de un canal) para el ADC: BUSY a 1, sin resultado ni TOV; "
+              "con ENC = 0 y ON = 0 vuelve: «" + linea(fr.uart_tx, "adc42") + "»");
+        espera_uart("aes1", 100);
+        check(linea(fr.uart_tx, "aes1") == "aes1 busy 1 errfg 0", "AES1: escribir AESAXIN con AESBUSY no pone AESERRFG: «" + linea(fr.uart_tx, "aes1") + "»");
+        espera_uart("wdg5 entra", 100);
+        wait(2, SC_MS);
+        check(fr.en_lpm5() && !fr.lpm35(), "WDG5: con el perro en marcha, LPM4.5 entra igual");
+        fr.p(1, 1).set_drive(d_s2_, 0.0f, 10.0f);
+        espera_uart("wdg5 despierta", 100);
+        fr.p(1, 1).set_hiz(d_s2_);
+        check(linea(fr.uart_tx, "wdg5 despierta") == "wdg5 despierta rstiv 08", "y despierta por P1.1 con SYSRSTIV = 0x08: «" + linea(fr.uart_tx, "wdg5 despierta") + "»");
+        // El FR6989
+        fr69.reset(true);
+        wait(1, SC_US);
+        fr69.carga("verif/fr6989/elf/fr69_errata.elf");
+        fr69.uart_tx.clear();
+        fr69.reset(false);
+        auto lin = [&](const char* c) { return linea(fr69.uart_tx, c); };
+        auto espera = [&](const char* c, int ms) {
+            auto entera = [&] { const size_t i = fr69.uart_tx.find(c); return i != std::string::npos && fr69.uart_tx.find('\n', i) != std::string::npos; };
+            for (int i = 0; i < ms * 10 && !entera(); ++i) wait(100, SC_US);
+            return entera();
+        };
+        espera("ta22 activo", 200);
+        wait(5, SC_MS);
+        const bool a = fr69.p(1, 6).voltage() > 1.6f;
+        wait(30, SC_MS);
+        const bool b = fr69.p(1, 6).voltage() > 1.6f;
+        check(a && !b, "TA22 (FR6989): TA0.1 en P1.6, a 1 con el Timer parado, pasa a 0 al entrar en LPM3");
+        espera("rtc12 tcmp", 200);
+        const bool ok_tc = lin("rtc12 tcmp") == "rtc12 tcmp E005";      // RTCTCMPS, RTCTCRDY, RTCTCOK y 5
+        espera("rtc12 despierta", 2000);
+        check(ok_tc && lin("rtc12 despierta") == "rtc12 despierta rstiv 08 tcmp C005",
+              "RTC12 (FR6989): RTCTCOK a 1 tras escribir RTCTCMP («" + lin("rtc12 tcmp") + "») y a 0 tras LPM3.5: «" +
+                  lin("rtc12 despierta") + "»");
+    }
+
     void run() {
         wait(10, SC_US);
         const char* solo = std::getenv("FR5_SOLO");
@@ -389,6 +667,9 @@ SC_MODULE(TbFr5) {
         if (toca('4')) l4();
         if (toca('5')) l5();
         if (toca('6')) l6();
+        if (toca('7')) l7();
+        if (toca('8')) l8();
+        if (toca('9')) l9();
         std::printf("\nTOTAL FR5 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

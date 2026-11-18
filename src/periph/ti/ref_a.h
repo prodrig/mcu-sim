@@ -61,6 +61,7 @@ public:
         ocupada_ = si ? (ocupada_ | quien) : (ocupada_ & ~quien);
     }
     bool activa() const { return (ctl0_ & ON) || pedidos_; }
+    bool refon() const { return (ctl0_ & ON) != 0; }
     bool lista()  const { return activa() && listo_; }
     // La tensión que da: 0 si no está activa
     double vref() const {

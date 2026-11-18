@@ -104,7 +104,9 @@ int main(void) {
             cad("adc t "); dec(t); cad(" c30 "); dec(c30); cad(" temp "); dec(dt); cad(" bat "); dec(b); pon('\n');
         }
 
-        /* Comp_E: C2 contra 1,2 V */
+        /* Comp_E: C2 contra 1,2 V. La referencia la pide el propio Comp_E
+         * (CEREFL): con REFON = 1 no le llega (REF9, SLAZ473AG) */
+        REFCTL0 = 0;
         P1SEL0 |= BIT2; P1SEL1 |= BIT2;
         CECTL0 = CEIPEN | CEIPSEL_2;
         CECTL2 = CEREFL_1 | CERS_3 | CERSEL;

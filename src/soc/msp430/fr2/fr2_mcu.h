@@ -15,6 +15,7 @@
 #ifndef STM32_SOC_MSP430_FR2_FR2_MCU_H
 #define STM32_SOC_MSP430_FR2_FR2_MCU_H
 
+#include <cstdlib>
 #include <cstdio>
 #include <memory>
 #include "../../mcu_if.h"
@@ -50,9 +51,9 @@ inline constexpr Encapsulado ENC_FR2476_PT48{"LQFP48", 48, 43, {0xFFu, 0xFFu, 0x
 // FR5969 VQFN-48 (el de la LaunchPad, MSP430FR5969IRGZ): P1-P4 y PJ enteros
 // [SLAS704G figura 4-1] (PJ es el puerto de índice FR5_PJ)
 inline constexpr Encapsulado ENC_FR5969_RGZ48{"VQFN48", 48, 40, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0, 0, 0, 0, 0, 0, 0xFFu}, true};
-// FR5994 LQFP-80 (el de la LaunchPad, MSP430FR5994IPN): P1-P8 y PJ enteros
-// [SLASE54D figura 4-1]
-inline constexpr Encapsulado ENC_FR5994_PN80{"LQFP80", 80, 72, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0, 0, 0xFFu}, true};
+// FR5994 LQFP-80 (el de la LaunchPad, MSP430FR5994IPN): P1-P7 y PJ enteros,
+// P8.0-P8.3 [SLASE54D figura 4-1, tabla 9-35]
+inline constexpr Encapsulado ENC_FR5994_PN80{"LQFP80", 80, 68, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x0Fu, 0, 0, 0xFFu}, true};
 // FR6989 LQFP-100 (el de la LaunchPad, MSP430FR6989IPZ): P1-P9, P10.0-P10.2
 // y PJ [SLAS789D figura 4-1]
 inline constexpr Encapsulado ENC_FR6989_PZ100{"LQFP100", 100, 83, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x07u, 0xFFu}, true};
@@ -143,6 +144,24 @@ public:
     }
     SocFR2& chip() { return *chip_; }
     const McuDesc& desc() const override { return desc_; }
+    // `hfxt="<Hz>"` en el <mcu>: un cristal en HFXIN/HFXOUT (las FR5xx/FR6xx;
+    // las LaunchPad no lo montan) [UG FR5 §3.2.3]
+    bool admite_opcion(const std::string& clave) const override { return clave == "hfxt" && caps_.chip->hfxt_bits; }
+    std::string opcion(const std::string& clave, const std::string& valor) override {
+        if (!admite_opcion(clave)) return mcu_if::opcion(clave, valor);
+        char* fin = nullptr;
+        const double f = std::strtod(valor.c_str(), &fin);
+        if (!fin || *fin || f < 4e6 || f > 24e6) return "hfxt: una frecuencia en Hz de 4e6 a 24e6 (DS tabla 5-5), no '" + valor + "'";
+        chip_->cristal_hfxt = true;
+        chip_->f_hfxt = f;
+        return "";
+    }
+    std::string describe_opcion(const std::string& clave) const override {
+        if (clave != "hfxt" || !chip_->cristal_hfxt) return "";
+        char b[80];
+        std::snprintf(b, sizeof b, "HFXT: un cristal de %.3f MHz en HFXIN/HFXOUT", chip_->f_hfxt / 1e6);
+        return b;
+    }
 
     std::vector<congela::Nucleo> nucleos() override {
         SocFR2* c = chip_;

@@ -41,19 +41,39 @@
 //   CSCTL2   SELA, SELS, SELM: 0 LFXTCLK, 1 VLO, 2 LFMODCLK (MODOSC/128), 3
 //            DCO, 4 MODCLK, 5 HFXTCLK (ACLK, solo las tres primeras).
 //   CSCTL3   DIVA, DIVS, DIVM: /1../32. Tras el PUC, MCLK = SMCLK = DCO/8.
-//   CSCTL4   LFXTOFF, SMCLKOFF, VLOOFF, HFXTOFF y el resto, guardados.
-//   CSCTL5   LFXTOFFG (puesta tras el POR), HFXTOFFG: un oscilador pedido
-//            (por un reloj o por su xxOFF = 0) que no oscila. El reloj que
-//            lo usa pasa a LFMODCLK (LFXT) o a MODCLK (HFXT) [§3.2.8]. [De
-//            modelo: HFXTOFFG a 0 tras el POR, porque los ejemplos de TI solo
-//            borran LFXTOFFG antes de esperar a OFIFG.]
+//   CSCTL4   LFXTOFF, SMCLKOFF, VLOOFF, HFXTOFF, LFXTBYPASS, HFXTBYPASS,
+//            HFFREQ y los DRIVE.
+//   CSCTL5   LFXTOFFG (1 tras el POR), HFXTOFFG (0 tras el POR) [tabla 3-9]:
+//            un oscilador encendido que no oscila. El reloj que lo usa pasa a
+//            LFMODCLK (LFXT) o a MODCLK (HFXT) [§3.2.8]. ENSTFCNT1/2, los
+//            contadores de arranque.
 //   CSCTL6   las peticiones condicionales (ACLKREQEN, MCLKREQEN, SMCLKREQEN).
+//
+// El HFXT [§3.2.3; DS FR5969 tabla 5-5]. Está encendido si su HFXIN tiene
+// PSEL y (HFXTOFF = 0, o MCLK lo usa con CPUOFF = 0, o SMCLK con SMCLKOFF = 0
+// y sin SCG1 o con su petición). Con cristal (HFXTBYPASS = 0) oscila si la
+// placa lo tiene y su frecuencia cae en el margen de HFFREQ (1: 4-8 MHz, 2:
+// 8,01-16, 3: 16,01-24; HFFREQ = 0 no vale con cristal, nota 2); en bypass,
+// con un reloj en HFXIN (el que declara el ExtClock del nodo) de al menos
+// fFault,HFXT = 800 kHz. Hasta que arranca, HFXTOFFG y MODCLK: el arranque
+// es la subida de la oscilación más el contador de 1024 ciclos (ENSTFCNT2;
+// en bypass, solo el contador). tSTART,HFXT de la tabla 5-5: 1,6 ms a 4 MHz
+// con HFXTDRIVE = 0 y 0,6 ms a 24 MHz con HFXTDRIVE = 3; [de modelo] la
+// subida, en línea recta entre esos dos puntos (1,344 ms y 0,557 ms sin el
+// contador), sea cual sea HFXTDRIVE. Apagado, se pierde: al encenderlo otra
+// vez, otro arranque (la nota de §3.2.3 sobre los LPM). Fuera de margen en
+// bypass: avisa y sigue [de modelo].
+// El LFXT: con LFXTBYPASS = 1 pide un reloj declarado en LFXIN (10,5-50 kHz;
+// por debajo de 3,5 kHz, falta); el cristal arranca al momento [de modelo:
+// tSTART,LFXT = 0,8-1 s no se modela].
 // =============================================================================
 #ifndef STM32_PERIPH_TI_CS_FR_H
 #define STM32_PERIPH_TI_CS_FR_H
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <systemc>
 
 namespace stm32 {
@@ -67,8 +87,11 @@ public:
         bool xt1 = false;                    // el cristal oscila (y sus pines están en XIN/XOUT)
         double f_xt1 = 32768.0;
         bool pide_smclk = false, pide_aclk = false;
-        bool hfxt = false;                   // FR5: el cristal de alta frecuencia oscila
-        double f_hfxt = 0.0;
+        bool hfxt = false;                   // FR5: el HFXIN tiene PSEL y la placa, un cristal
+        double f_hfxt = 0.0;                 // su frecuencia
+        double f_hfxt_ext = 0.0;             // FR5: el reloj declarado en HFXIN (bypass)
+        double f_lfxt_ext = 0.0;             // FR5: el de LFXIN (bypass del LFXT)
+        bool lfxt_psel = false;              // FR5: el LFXIN tiene PSEL (para el bypass)
     };
     // Las FR5xx/FR6xx (lo pone el SoC antes del primer reset)
     bool fr5 = false;
@@ -84,6 +107,7 @@ public:
             r_[0] = 0; r_[1] = 0x000C; r_[2] = 0x0033; r_[3] = 0x0033; r_[4] = 0xCDC9;
             r_[5] = uint16_t(0x00C0 | (r_[5] & 0x0003) | (por_ ? 0x0001 : 0)); r_[6] = 0x0007;
             por_ = false; abierto_ = false;
+            hf_on_ = false; hf_ok_ = false; desbloqueo_ = sc_core::SC_ZERO_TIME;
             return;
         }
         r_[0] = 0; r_[1] = 0x0033; r_[2] = 0x101F; r_[3] = 0; r_[4] = 0x0100; r_[5] = 0x1000;
@@ -171,8 +195,11 @@ public:
     }
     bool falta() const { return fr5 ? (r_[5] & 0x0003) != 0 : (r_[7] & 0x0003) != 0; }
     bool abierto() const { return abierto_; }
-    // El fin del desenganche (para recalcular entonces)
+    // El fin del desenganche (para recalcular entonces); en las FR5, el del
+    // arranque del HFXT
     sc_core::sc_time fin_desenganche() const { return desbloqueo_; }
+    // FR5: ¿da el HFXT su reloj? (para las pruebas)
+    bool hfxt_listo() const { return hf_ok_; }
     unsigned grifo() const { return tap_; }
     unsigned unlock() const { return unlock_; }
     bool fllulpuc() const { return !fr5 && (r_[7] & 0x1010) == 0x1010; }
@@ -193,7 +220,7 @@ private:
         case 1: r_[1] = uint16_t(n & 0x004Eu); break;
         case 2: r_[2] = uint16_t(n & 0x0777u); break;
         case 3: r_[3] = uint16_t(n & 0x0777u); break;
-        case 4: r_[4] = uint16_t(n & 0xFFDBu); break;
+        case 4: r_[4] = uint16_t(n & 0xDDDBu); break;   // 13, 9, 5 y 2: reservados
         case 5: {
             // las faltas se borran con 0 (y vuelven si siguen)
             const uint16_t borra = uint16_t(m & ~v & 0x0003u);
@@ -206,6 +233,22 @@ private:
         calcula5(e);
         return true;
     }
+    // HFFREQ: ¿cae f en su margen? [DS FR5969 tabla 5-5]
+    static bool en_margen_hf(unsigned hffreq, double f, bool bypass) {
+        switch (hffreq) {
+        case 0: return bypass && f >= 0.9e6 && f <= 4e6;
+        case 1: return f > 4e6 - 1 && f <= 8e6;
+        case 2: return f > 8e6 && f <= 16e6;
+        default: return f > 16e6 && f <= 24e6;
+        }
+    }
+    // El arranque del HFXT [tabla 5-5, de modelo en línea recta]
+    static double t_arranque_hf(double f, bool bypass, bool contador) {
+        const double cuenta = contador ? 1024.0 / f : 0.0;
+        if (bypass) return cuenta;
+        const double fm = std::min(24e6, std::max(4e6, f));
+        return 1.344e-3 - (fm - 4e6) / 20e6 * (1.344e-3 - 0.557e-3) + cuenta;
+    }
     void calcula5(const Entradas& e) {
         static const double D0[8] = {1e6, 2.667e6, 3.5e6, 4e6, 5.333e6, 7e6, 8e6, 8e6};
         static const double D1[8] = {1e6, 5.333e6, 7e6, 8e6, 16e6, 21e6, 24e6, 24e6};
@@ -213,11 +256,46 @@ private:
         f_dco = (r_[1] & 0x40) ? D1[fsel] : D0[fsel];
         const unsigned sela = (r_[2] >> 8) & 7u, sels = (r_[2] >> 4) & 7u, selm = r_[2] & 7u;
         const bool lf_pide = !(r_[4] & 0x0001) || sela == 0 || sels == 0 || selm == 0;
-        const bool hf_pide = !(r_[4] & 0x0100) || sels == 5 || selm == 5;
+        const bool smclk_en = !(r_[4] & 0x0002) && (!e.scg1 || (e.pide_smclk && (r_[6] & 0x04)));
+        const bool hf_pide = !(r_[4] & 0x0100) || (selm == 5 && !e.cpuoff) || (sels == 5 && smclk_en);
         xt1_pedido = lf_pide;
-        if (lf_pide && !e.xt1) r_[5] |= 0x0001;                     // LFXTOFFG
-        if (hf_pide && !e.hfxt) r_[5] |= 0x0002;                    // HFXTOFFG
-        const double lf = e.xt1 ? e.f_xt1 : F_LFMOD, hf = e.hfxt ? e.f_hfxt : F_MODOSC;
+        // El LFXT: con bypass, el reloj de LFXIN
+        const bool lf_bypass = (r_[4] & 0x0010) != 0;
+        const bool lf_ok = lf_bypass ? (e.lfxt_psel && e.f_lfxt_ext >= 3500.0) : e.xt1;
+        if (lf_pide && !lf_ok) r_[5] |= 0x0001;                     // LFXTOFFG
+        // El HFXT
+        const bool hf_bypass = (r_[4] & 0x1000) != 0;
+        const unsigned hffreq = (r_[4] >> 10) & 3u;
+        const sc_core::sc_time ahora = sc_core::sc_time_stamp();
+        const bool hf_psel = e.hfxt || (hf_bypass && e.f_hfxt_ext > 0.0);
+        const bool hf_enc = hf_pide && hf_psel;
+        double fhf = 0.0;
+        bool puede = false;
+        if (hf_enc) {
+            fhf = hf_bypass ? e.f_hfxt_ext : e.f_hfxt;
+            if (hf_bypass) {
+                puede = fhf >= 800e3;
+                if (puede && !en_margen_hf(hffreq, fhf, true) && !avisado_hffreq_) {
+                    avisado_hffreq_ = true;
+                    std::fprintf(stderr, "[CS] HFXT en bypass a %.3f MHz con HFFREQ = %u: fuera de su margen [DS tabla 5-5]\n", fhf / 1e6, hffreq);
+                }
+            } else {
+                puede = fhf > 0.0 && en_margen_hf(hffreq, fhf, false);
+                if (!puede && fhf > 0.0 && !avisado_hffreq_) {
+                    avisado_hffreq_ = true;
+                    std::fprintf(stderr, "[CS] cristal del HFXT de %.3f MHz con HFFREQ = %u: no oscila [de modelo; DS tabla 5-5]\n", fhf / 1e6, hffreq);
+                }
+            }
+        }
+        if (!hf_enc || !puede) { hf_on_ = false; hf_ok_ = false; }
+        else if (!hf_on_ || fhf != hf_f_) {
+            hf_on_ = true; hf_ok_ = false; hf_f_ = fhf;
+            hf_listo_ = ahora + sc_core::sc_time(t_arranque_hf(fhf, hf_bypass, (r_[5] & 0x80) != 0), sc_core::SC_SEC);
+        }
+        if (hf_on_ && !hf_ok_ && ahora >= hf_listo_) hf_ok_ = true;
+        desbloqueo_ = (hf_on_ && !hf_ok_) ? hf_listo_ : sc_core::SC_ZERO_TIME;
+        if (hf_pide && !hf_ok_) r_[5] |= 0x0002;                    // HFXTOFFG
+        const double lf = lf_ok ? (lf_bypass ? e.f_lfxt_ext : e.f_xt1) : F_LFMOD, hf = hf_ok_ ? hf_f_ : F_MODOSC;
         auto fuente = [&](unsigned s) {
             switch (s) {
             case 0: return lf;
@@ -233,13 +311,15 @@ private:
         f_fllref = 0;
         f_mclk_fuente = fuente(selm) / DIV[r_[3] & 7u];
         f_mclk = e.cpuoff ? 0.0 : f_mclk_fuente;
-        const bool smclk_on = !(r_[4] & 0x0002) && (!e.scg1 || (e.pide_smclk && (r_[6] & 0x04)));
-        f_smclk = smclk_on ? fuente(sels) / DIV[(r_[3] >> 4) & 7u] : 0.0;
+        f_smclk = smclk_en ? fuente(sels) / DIV[(r_[3] >> 4) & 7u] : 0.0;
         f_smclk_peticion = (!(r_[4] & 0x0002) && (r_[6] & 0x04)) ? fuente(sels) / DIV[(r_[3] >> 4) & 7u] : 0.0;
         const double fa = fuente(sela > 2 ? 0 : sela) / DIV[(r_[3] >> 8) & 7u];
         f_aclk = (!e.oscoff || (e.pide_aclk && (r_[6] & 0x01))) ? fa : 0.0;
         unlock_ = 0;
     }
+    bool hf_on_ = false, hf_ok_ = false, avisado_hffreq_ = false;
+    double hf_f_ = 0.0;
+    sc_core::sc_time hf_listo_{sc_core::SC_ZERO_TIME};
     unsigned tap_ = 256, unlock_ = 0, unlock_dir_ = 1;
     bool tap_escrito_ = false;
     sc_core::sc_time desbloqueo_{sc_core::SC_ZERO_TIME};

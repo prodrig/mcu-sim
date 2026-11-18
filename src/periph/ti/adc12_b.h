@@ -25,7 +25,22 @@
 // referencia (`v_vref`: la de REF_A), VeREF+ y VeREF- (`v_eref`).
 //
 // LOS DISPAROS: SHS = 0, el bit SC; los demás, del SoC (`dispara(shs)`, por
-// flanco), con su tabla de la hoja de datos.
+// flanco), con su tabla de la hoja de datos. Un disparo con la conversión
+// en curso da ADC12TOVIFG [§34.2.9]. El DMA (`al_dma`), tras cada conversión
+// en los modos de un canal y al acabar la secuencia en los de secuencia
+// [§34.2.9].
+//
+// LAS ERRATAS (`errata`, las del chip; avisan una vez) [SLAZ473AG, SLAZ517AG,
+// SLAZ681O]:
+//   ADC42  un disparo con la conversión en curso, en los modos de secuencia o
+//          de repetición, para el ADC (BUSY se queda a 1 y TOV no se pone)
+//          hasta ENC = 0 y ON = 0
+//   ADC43  el DMA se dispara tras cada conversión también en secuencia
+//   ADC66  ON a 0 con BUSY en esos modos: al volver a 1, el ADC parado igual
+//   ADC69  con SSEL = SMCLK, SMCLKOFF = 1 y DIV /3, /5 o /7, cambiar SSEL lo
+//          cuelga hasta un PUC (`smclkoff`, lo da el SoC)
+//   ADC71  ENC y SC a la vez, tras un disparo que no era SC: BUSY a 1 y SC
+//          sin borrar, para siempre [de modelo: hasta ON = 0]
 // =============================================================================
 #ifndef STM32_PERIPH_TI_ADC12_B_H
 #define STM32_PERIPH_TI_ADC12_B_H
@@ -33,6 +48,7 @@
 #include <systemc>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 
 namespace stm32 {
@@ -46,6 +62,10 @@ SC_MODULE(Adc12B) {
     std::function<void()> al_cambiar;           // IFG/IE: que el SoC arbitre
     std::function<void(unsigned)> al_convertir; // el IFGx que se ha puesto (DMA)
     std::function<void(bool)> pide_ref;         // la petición de referencia (REF_A)
+    std::function<void()> al_dma;               // el disparo 26 del DMA (fin de conversión)
+    std::function<bool()> smclkoff;             // CSCTL4.SMCLKOFF (ADC69)
+    enum : uint8_t { E_ADC42 = 1, E_ADC43 = 2, E_ADC66 = 4, E_ADC69 = 8, E_ADC71 = 16 };
+    uint8_t errata = 0;
 
     SC_CTOR(Adc12B) {
         SC_THREAD(conv_proc);
@@ -55,9 +75,12 @@ SC_MODULE(Adc12B) {
         ctl0_ = ctl1_ = ctl3_ = 0; ctl2_ = 0x0020; lo_ = 0; hi_ = 0x0FFF;
         ifg_ = ie_ = 0; ifg2_ = ie2_ = 0;
         for (unsigned i = 0; i < 32; ++i) { mctl_[i] = 0; mem_[i] = 0; }
-        busy_ = false;
+        busy_ = conv_ = parado_ = colgado_ = shs_usado_ = on_bajo_busy_ = false;
         if (pide_ref) pide_ref(false);
     }
+    // Lo que han hecho las erratas (para las pruebas)
+    bool parado() const { return parado_; }
+    bool colgado() const { return colgado_; }
 
     uint16_t lee(uint32_t off, bool dbg) {
         off &= ~1u;
@@ -96,12 +119,48 @@ SC_MODULE(Adc12B) {
             // Con ENC puesto, solo cambian SC y ENC [§34.2.7]
             if (enc) n = uint16_t((ctl0_ & ~0x0003u) | (n & 0x0003u));
             const bool sc = (n & SC) && (n & ENC) && (n & ON);
+            const bool on_antes = (ctl0_ & ON) != 0;
+            // ADC71: ENC y SC en la misma escritura, tras un disparo que no era SC
+            if ((errata & E_ADC71) && sc && !enc && shs() == 0 && shs_usado_ && !parado_) {
+                ctl0_ = n;                                      // SC se queda a 1
+                busy_ = true; parado_ = true; sc71_ = true;
+                aviso(E_ADC71, "ADC71", "ENC y SC a la vez tras un disparo que no era SC: BUSY se queda a 1");
+                return;
+            }
             ctl0_ = uint16_t(n & ~SC);
-            if (sc && shs() == 0) { dispara_ = true; ev_.notify(sc_core::SC_ZERO_TIME); }
+            if (sc71_) ctl0_ |= SC;
+            // La salida de una parada (ADC42, ADC66; ADC71 de modelo): ENC = 0 y ON = 0
+            if (parado_ && !(ctl0_ & ENC) && !(ctl0_ & ON)) {
+                parado_ = sc71_ = false; busy_ = false; shs_usado_ = false;
+                ctl0_ = uint16_t(ctl0_ & ~SC);
+            }
+            // ADC66: ON a 0 con la conversión en curso en un modo de secuencia o de repetición
+            if ((errata & E_ADC66) && on_antes && !(ctl0_ & ON) && busy_ && conseq() != 0) on_bajo_busy_ = true;
+            if ((errata & E_ADC66) && !on_antes && (ctl0_ & ON) && on_bajo_busy_) {
+                on_bajo_busy_ = false; parado_ = true; busy_ = true;
+                aviso(E_ADC66, "ADC66", "ON conmutado con la conversión en curso: el ADC se para");
+            }
+            if (!(ctl0_ & ON)) shs_usado_ = false;
+            if (sc && shs() == 0) {
+                if (conv_) un_disparo_en_curso();
+                else { dispara_ = true; ev_.notify(sc_core::SC_ZERO_TIME); }
+            }
             if (!(ctl0_ & ON) || !(ctl0_ & ENC)) ev_.notify(sc_core::SC_ZERO_TIME);
             return;
         }
-        case 0x02: if (!enc) ctl1_ = uint16_t(mz(ctl1_) & 0x7FFEu); return;
+        case 0x02: {
+            if (enc) return;
+            const uint16_t n = uint16_t(mz(ctl1_) & 0x7FFEu);
+            // ADC69: SSEL deja SMCLK con SMCLKOFF = 1 y DIV /3, /5 o /7
+            const unsigned div = (ctl1_ >> 5) & 7u;
+            if ((errata & E_ADC69) && ((ctl1_ >> 3) & 3u) == 3u && ((n >> 3) & 3u) != 3u &&
+                (div == 2 || div == 4 || div == 6) && smclkoff && smclkoff()) {
+                colgado_ = true;
+                aviso(E_ADC69, "ADC69", "SSEL cambia desde SMCLK con SMCLKOFF = 1 y DIV impar: el ADC se cuelga hasta un PUC");
+            }
+            ctl1_ = n;
+            return;
+        }
         case 0x04: if (!enc) ctl2_ = uint16_t(mz(ctl2_) & 0x0039u); return;
         case 0x06: if (!enc) ctl3_ = uint16_t(mz(ctl3_) & 0x0FDFu); return;
         case 0x08: lo_ = mz(lo_); return;
@@ -118,6 +177,7 @@ SC_MODULE(Adc12B) {
     // Un flanco de subida del disparo `s` (ADC12SHS)
     void dispara(unsigned s) {
         if (s == 0 || s != shs() || !(ctl0_ & ON) || !(ctl0_ & ENC)) return;
+        if (conv_) { un_disparo_en_curso(); return; }
         dispara_ = true;
         ev_.notify(sc_core::SC_ZERO_TIME);
     }
@@ -138,9 +198,29 @@ private:
     uint16_t mctl_[32] = {};
     uint16_t mem_[32] = {};
     bool busy_ = false, dispara_ = false;
+    bool conv_ = false;                          // muestreando o convirtiendo (no esperando un disparo)
+    bool parado_ = false, colgado_ = false, shs_usado_ = false, on_bajo_busy_ = false, sc71_ = false;
+    uint8_t avisadas_ = 0;
     sc_core::sc_event ev_;
 
     unsigned shs() const { return (ctl1_ >> 10) & 7u; }
+    unsigned conseq() const { return (ctl1_ >> 1) & 3u; }
+    void aviso(uint8_t b, const char* e, const char* q) {
+        if (avisadas_ & b) return;
+        avisadas_ = uint8_t(avisadas_ | b);
+        std::fprintf(stderr, "[adc12_b] errata %s: %s\n", e, q);
+    }
+    // Un disparo con la conversión en curso: TOV; con ADC42 en secuencia o
+    // repetición, el ADC se para
+    void un_disparo_en_curso() {
+        if ((errata & E_ADC42) && conseq() != 0) {
+            parado_ = true;
+            aviso(E_ADC42, "ADC42", "un disparo con la conversión en curso: el ADC se para (BUSY a 1)");
+            return;
+        }
+        ifg2_ |= 0x20;                                          // ADC12TOVIFG
+        avisa();
+    }
     void avisa() { if (al_cambiar) al_cambiar(); }
     uint16_t iv(bool dbg) {
         static const struct { uint16_t bit, v; } P[5] = {{0x10, 0x02}, {0x20, 0x04}, {0x08, 0x06}, {0x04, 0x08}, {0x02, 0x0A}};
@@ -208,6 +288,11 @@ private:
         ifg_ |= 1u << i;
         avisa();
         if (al_convertir) al_convertir(i);
+        // El DMA: tras cada conversión en los modos de un canal; en los de
+        // secuencia, al final de ella (con ADC43, tras cada una)
+        const unsigned cs = conseq();
+        const bool fin = (mctl_[i] & 0x80) != 0 || i == 31;
+        if (al_dma && (cs == 0 || cs == 2 || fin || (errata & E_ADC43))) al_dma();
     }
     bool usa_ref(unsigned i) const {
         const unsigned sel = (mctl_[i] >> 8) & 15u;
@@ -216,15 +301,19 @@ private:
     void conv_proc() {
         for (;;) {
             wait(ev_);
-            if (!(ctl0_ & ON) || !(ctl0_ & ENC) || !dispara_) continue;
+            if (!(ctl0_ & ON) || !(ctl0_ & ENC) || !dispara_ || parado_ || colgado_) { dispara_ = false; continue; }
             dispara_ = false;
+            if (shs() != 0) shs_usado_ = true;
             busy_ = true;
             const unsigned conseq = (ctl1_ >> 1) & 3u, inicio = ctl3_ & 31u;
             unsigned i = inicio;
             if (pide_ref) pide_ref(usa_ref(i));
             for (;;) {
                 const double t = t_conversion(i);
+                conv_ = true;
                 if (t > 0) wait(sc_core::sc_time(t, sc_core::SC_SEC));
+                conv_ = false;
+                if (parado_) break;                             // ADC42: BUSY se queda a 1
                 if (!(ctl0_ & ON)) break;
                 convierte(i);
                 const bool eos = (mctl_[i] & 0x80) != 0;
@@ -237,12 +326,12 @@ private:
                 if (pide_ref) pide_ref(usa_ref(i));
                 // Sin MSC, cada conversión espera su disparo
                 if (!(ctl0_ & MSC)) {
-                    while ((ctl0_ & ON) && (ctl0_ & ENC) && !dispara_) wait(ev_);
-                    if (!(ctl0_ & ON) || !(ctl0_ & ENC)) break;
+                    while ((ctl0_ & ON) && (ctl0_ & ENC) && !dispara_ && !parado_) wait(ev_);
+                    if (!(ctl0_ & ON) || !(ctl0_ & ENC) || parado_) break;
                     dispara_ = false;
                 }
             }
-            busy_ = false;
+            if (!parado_) busy_ = false;
             if (pide_ref) pide_ref(false);
         }
     }

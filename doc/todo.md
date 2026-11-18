@@ -1169,6 +1169,57 @@ mejorada, FRWPOA):
 | TB25 | (la de la FR2311) | **se modela** | `ChipFr2::errata_tb25` también en `CHIP_FR2476`, para su Timer0_B7 |
 | COMP12 | la salida del eCOMP0 no llega a TB0.CCI1B | **se modela** | `CHIP_FR2476` no la conecta (`ccib_timer = -1`): esa captura B es la salida de TA3 CCR1 [DS tabla 9-15] |
 
+**SLAZ473AG (MSP430FR5969, revisiones F-H), clasificada** [§10.4 del análisis;
+M8]. Son 51. Las que se modelan llevan su bit en `ChipFr2::errata5` (`E5_*`,
+`soc/msp430/fr2/soc_fr2.h`), avisan una vez y las prueba `testfr5` L9:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22, CPU40, CPU46 | (las de la FR2433) | (las mismas) | (lo mismo) |
+| CPU47 | VMAIFG por una instrucción que cambia el PC al final de una memoria sin otra contigua | se documenta | el modelo no busca de más |
+| ADC41 | en LPM3/LPM4, con ADC12OSC y sin REFON, TB0, TA1 y TA2 no disparan el ADC12_B | **se modela** | `E5_ADC41`: los SHS 2-5 no llegan (`adc41_bloquea`); L9 |
+| ADC42 | un disparo con la conversión en curso, en secuencia o repetición, para el ADC | **se modela** | `Adc12B::E_ADC42`: BUSY a 1, sin TOV, hasta ENC = 0 y ON = 0 (la salida que da TI); L9 |
+| ADC43 | el DMA se dispara tras cada conversión de una secuencia, no al final | **se modela** | `Adc12B::E_ADC43`; sin ella (FR5994), al final de la secuencia [UG FR5 §34.2.9] |
+| ADC66 | ON conmutado con BUSY en secuencia o repetición para el ADC | **se modela** | `Adc12B::E_ADC66`, la misma parada que ADC42 [de modelo: la misma salida] |
+| ADC69 | con SSEL = SMCLK, SMCLKOFF = 1 y DIV /3, /5, /7, cambiar SSEL cuelga el ADC hasta un PUC | **se modela** | `Adc12B::E_ADC69` |
+| ADC71 | ENC y SC a la vez tras un disparo que no era SC: BUSY y SC a 1 | **se modela** | `Adc12B::E_ADC71` [de modelo: sale con ON = 0; TI no dice cómo]; L9 |
+| ADC38 | un disparo de un Timer sin conmutar ENC al final de la secuencia o de la conversión puede parar el ADC | se documenta | «puede»; un programa que sigue la guía (ENC entre conversiones) no la ve |
+| ADC64 | resultados erróneos en el muestreo extendido con menos de 6 ciclos y VR sin búfer | se documenta | analógico |
+| ADC67 | la calibración del sensor en la TLV es mala en algunos lotes | no aplica | la TLV del modelo es buena (la de los lotes > 88XXXXX) |
+| ADC70 | el DMA se queda parado al cambiar de disparo por la CPU a disparo por flanco | se documenta | la secuencia exacta no está en la errata |
+| AES1 | escribir AESAXIN con AESBUSY ni aborta ni pone AESERRFG | **se modela** | `Aes256P4::errata_aes1` [de modelo: la escritura se pierde]; L9 |
+| COMP7 | salida falsa con poca sobretensión | se documenta | analógico |
+| COMP10 | con CEON = 0 y CEOUTPOL = 1, el pin de COUT cambia al entrar y salir de LPM3/LPM4 | **se modela** | `E5_COMP10`: en LPM3/LPM4 el pin se invierte; L9 |
+| CS3, CS7, CS12 | la sobrecarga del PMM al subir SMCLK, el DCO fuera de margen al despertar o al cambiar | se documenta | el DCO del modelo es exacto al momento |
+| DMA7, DMA11 | interrupciones perdidas en una lectura-modificación-escritura; un PUC por un disparo en la transición a LPM | se documenta | carreras de un ciclo que el modelo no tiene |
+| GC1, GC4, GC5 | UBDIFG sin NMI; errores de bit de la FRAM que no existen | se documenta | la FRAM del modelo no falla |
+| PMM24, PMM31, PMM32, PMM33 | bloqueos al entrar o salir de LPM2-LPM4 | se documenta | carreras de tiempo que el modelo no tiene |
+| PORT28 | la resistencia de bajada de TEST | (la de la FR2433) | (lo mismo) |
+| REF9 | con REFON = 1 el Comp_E no tiene la referencia | **se modela** | `CompEP4::errata_ref9` [de modelo, la lectura: aunque la pida con CEREFL]; `fr59_basico.c` usa la salida de TI (REFON = 0, que la pida el Comp_E); L9 |
+| RTC10 | una bandera del RTC perdida al entrar en LPM3.5 | se documenta | ventana de tiempo |
+| TB25 | (la de la FR2311) | **se modela** | `errata_tb25` en las tres FR5 |
+| USCI41, USCI42, USCI45, USCI47, USCI50 | (las de la FR2433 y la FR4133) | (las mismas) | (lo mismo) |
+| WDG5 | el perro en marcha no impide LPMx.5 | **se modela** | `E5_WDG5`: entra y el perro se apaga; L9 |
+| EEM19, EEM23, EEM27, EEM28, EEM30, EEM31, JTAG27 | de depuración | se documenta | — |
+
+**SLAZ517AG (MSP430FR6989), clasificada** [M8]. Son 56; las del FR5969 (sin
+ADC41, CS3, DMA11 ni PMM33), con la misma clase, y siete más:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| ESI2 | TSM1 se puede corromper si la CPU escribe en el ESI con la TSM en marcha | se documenta | «puede» |
+| PMM21, PMM27, PMM29 | el despertar de LPM4.5 a -40 °C, un BOR con cinco periféricos pidiendo ACLK, un bloqueo raro | se documenta | — |
+| RTC12 | RTCTCOK se pierde al despertar de LPM3.5 | **se modela** | `E5_RTC12` (`RtcC5::despierta_lpm35`); L9 |
+| TA22 | las salidas de TA0 cambian al entrar en LPM3/LPM4 | **se modela** | `E5_TA22` (`TimerAP4::invierte_salidas`, las de OUTMOD distinto de 0 [de modelo]); L9 |
+| EEM29 | de depuración | se documenta | — |
+
+**SLAZ681O (MSP430FR5994, revisión C), clasificada** [M8]. Son 25: ADC42,
+ADC69, ADC71, RTC12 y TB25 **se modelan** (como arriba; sin ADC43, el DMA
+del ADC12_B va al final de la secuencia); CPU21, CPU22, CPU40, CPU46,
+CPU47, CS12, PMM31, PMM32, USCI42, USCI45, USCI47 y USCI50 se documentan
+como arriba; ADC65 (el reloj del ADC no se apaga entre conversiones de una
+secuencia) se documenta (consumo); ADC67 no aplica.
+
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)

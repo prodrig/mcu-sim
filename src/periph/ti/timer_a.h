@@ -111,6 +111,9 @@ public:
     // --- Lo que mira el banco (y el ADC14, que se dispara con OUT1/OUT2) ----
     uint16_t tar()  { al_dia(); return tar_; }
     bool     salida(unsigned n) const { return o_out_[n]; }
+    // TA22 de las FR6989 [SLAZ517AG]: al entrar en LPM3/LPM4, las salidas con su
+    // unidad de salida en uso (OUTMOD distinto de 0 [de modelo]) cambian
+    void invierte_salidas() { al_dia(); for (unsigned n = 0; n < nc_; ++n) if (outmod(n) != 0) pon_salida(n, !o_out_[n]); }
     uint16_t ccr(unsigned n) const { return ccr_[n]; }
     double   f_tic() const { return f_; }
     uint64_t comparaciones() const { return n_cmp_; }

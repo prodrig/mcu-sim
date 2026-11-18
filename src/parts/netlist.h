@@ -348,6 +348,7 @@ struct DeclMcu {
     // Dónde va el JTAG de un ESP32-C3 (E6): "pines" (MTMS-MTDO, como con
     // EFUSE_DIS_USB_JTAG quemado) o "usb" (el USB-Serial-JTAG, de fábrica)
     std::string jtag;
+    std::string hfxt;                 // FR5xx/FR6xx: un cristal en HFXIN/HFXOUT, en Hz
     // El Ethernet de un MSP432E4 (T7): a donde da su PHY interno -memoria,
     // qemu:PUERTO o qemu-cliente:HOST:PUERTO, y ,pcap=FICHERO-. Vacío: nada
     std::string eth;

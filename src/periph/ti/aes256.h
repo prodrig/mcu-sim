@@ -44,6 +44,9 @@ namespace stm32 {
 class Aes256P4 : public Bus16P4 {
 public:
     sc_core::sc_out<bool> irq{"irq"};
+    // AES1 de las FR5969/FR6989 [SLAZ473AG]: escribir AESAXIN con AESBUSY ni
+    // aborta ni pone AESERRFG (la escritura se pierde [de modelo])
+    bool errata_aes1 = false;
     enum : uint16_t {
         OP = 0x0003, KL = 0x000C, CM = 0x0060, SWRST = 0x0080, RDYIFG = 0x0100,
         ERRFG = 0x0800, RDYIE = 0x1000, CMEN = 0x8000,
@@ -249,6 +252,7 @@ protected:
                 return;
             }
             case 0x08: case 0x0C: case 0x0E: {                          // DIN, XDIN, XIN
+                if (busy_ && off == 0x0E && errata_aes1) return;        // AES1: ni aborta ni ERRFG
                 if (busy_) { ctl0_ |= ERRFG; return; }
                 if (n_din_ >= 16) n_din_ = 0;
                 if (off == 0x08) bytes(din_, n_din_, 16, false);

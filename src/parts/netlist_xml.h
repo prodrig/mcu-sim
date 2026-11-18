@@ -467,6 +467,7 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
             else if (a.first == "eth")        m.eth        = a.second;
             else if (a.first == "usb")        m.usb        = a.second;
             else if (a.first == "jtag")       m.jtag       = a.second;
+            else if (a.first == "hfxt")       m.hfxt       = a.second;
             else if (a.first == "contenido")  m.contenido  = a.second;
             else if (a.first == "puerto_gdb") {
                 const long v = std::atol(a.second.c_str());

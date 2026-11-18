@@ -67,6 +67,18 @@ public:
     // El SoC lo llama cuando cambia la tensión de un canal o la referencia
     void recalcula() { ev_.notify(sc_core::SC_ZERO_TIME); }
     bool out() const { return (ctl1_ & CEOUT) != 0; }
+    bool encendido() const { return (ctl1_ & ON) != 0; }
+    bool outpol() const { return (ctl1_ & OUTPOL) != 0; }
+    // REF9 de las FR5969/FR6989: con REFON = 1, la referencia no llega
+    bool errata_ref9 = false;
+    // ¿Es analógico el canal `ch`? Su CEPDx, o elegido en una entrada
+    // (CEIPEN/CEIPSEL, CEIMEN/CEIMSEL): el pin pierde su parte digital
+    bool canal_analogico(unsigned ch) const {
+        if (ch < 16 && ((ctl3_ >> ch) & 1u)) return true;
+        if ((ctl0_ & 0x0080u) && (ctl0_ & 0x000Fu) == ch) return true;
+        if ((ctl0_ & 0x8000u) && ((ctl0_ >> 8) & 0x000Fu) == ch) return true;
+        return false;
+    }
     double umbral() const { return umbral_; }
 
 protected:
@@ -112,7 +124,7 @@ protected:
             default: return 0.0;
         }
     }
-    bool ref_lista() const { return ref ? ref->lista() : true; }
+    bool ref_lista() const { return ref ? ref->lista() && !(errata_ref9 && ref->refon()) : true; }
     double canal(unsigned c) { return (c < n_canales && v_canal) ? v_canal(c) : 0.0; }
     void evalua() {
         if (!(ctl1_ & ON)) return;

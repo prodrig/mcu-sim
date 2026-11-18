@@ -562,4 +562,10 @@ testfr2476             19        6629302000000       total
 # en un F5529 programa el FR5969 por SBW, tambien con la contrasena de JTAG.
 # Movida de 25/8081812000000 al anadir L4-L6 (los mismos L1-L3). Sin sockets:
 # total. Igual en dos pasadas.
-testfr5                43       35628516000000       total
+# Movida de 43/35628516000000 al cerrar lo pendiente de M8: L7 (el HFXT y el
+# RAMCTL del FR5994), L8 (las funciones de los pines) y L9 (las erratas que se
+# modelan); L2 cambia porque fr59_basico.c apaga REFON antes del Comp_E (la
+# salida de TI para REF9) y L5 porque el cronometro del FR6989 se comprueba al
+# centisegundo (RTCPS de 16 bits y los preescaladores a cero al escribir la
+# hora).
+testfr5                73       36925692000000       total

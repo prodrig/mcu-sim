@@ -107,12 +107,21 @@ struct Fr2Usci { const char* nombre; uint32_t base; bool es_b; const char* vec; 
 // SOMI/RXD/SCL, 2 CLK, 3 STE) de la eUSCI `mod`, 3 analógica o cristal, 4 el
 // reloj `n` de salida (0 MCLK, 1 SMCLK, 2 ACLK), 5 el TAxCLK del Timer `mod`,
 // 7 la salida (COUT) del eCOMP `mod`, 8 el MFM (n 0 RX, 1 TX), 9 TBxTRG del
-// Timer `mod` (entrada). En `sel`, además: REMAP_SI, la
+// Timer `mod` (entrada), 10 COUT (Comp_E), 11 el CCR `n` del Timer `mod`
+// con su captura B (CCInB) en vez de la A, 12 DMAE0 (el disparo 31 del DMA,
+// entrada), 13 RTCCLK (salida), 14 el bit `n` del SR (la depuración de bajo
+// consumo: SRSCG1, SRSCG0, SROSCOFF, SRCPUOFF), 16 la salida `n` del ESI
+// (FR6989: 0-4 ESITEST0-4, 5 ESIC1OUT, 6 ESIC2OUT). `dir`: 2 con PxDIR a 0 o
+// a 1; 1 solo con PxDIR = 1 (una salida), 0 solo con PxDIR = 0 (una entrada):
+// en las FR5xx/FR6xx un PxSEL puede dar una entrada y otra salida [DS FR5969
+// tablas 6-49 a 6-62]. En `sel`, además: REMAP_SI, la
 // función solo con el bit de reasignación del chip puesto (USCIBRMP...);
 // REMAP_NO, solo con él a 0. `rmp`, si no es -1, es ESE bit de
 // reasignación (de SYSCFG3 << 16 | SYSCFG2) en vez del del chip: la FR2476
 // tiene cinco (USCIA0RMP, USCIB0RMP, USCIB1RMP, TA2RMP y TA3RMP)
-struct Fr2Fn { uint8_t pin, sel, tipo, mod, n; int8_t rmp = -1; };
+struct Fr2Fn { uint8_t pin, sel, tipo, mod, n; int8_t rmp = -1; uint8_t dir = 2; };
+inline constexpr Fr2Fn fn_sal(uint8_t pin, uint8_t sel, uint8_t tipo, uint8_t mod, uint8_t n) { return {pin, sel, tipo, mod, n, -1, 1}; }
+inline constexpr Fr2Fn fn_ent(uint8_t pin, uint8_t sel, uint8_t tipo, uint8_t mod, uint8_t n) { return {pin, sel, tipo, mod, n, -1, 0}; }
 enum : uint8_t { REMAP_SI = 0x10, REMAP_NO = 0x20 };
 // Una tensión dentro del chip: 0 nada, 1 el pin `n`, 2 la salida del SAC
 // `n`, 3 la del TIA, 4 el DAC del SAC `n`, 5 la referencia compartida (1,5
@@ -147,6 +156,18 @@ struct Fr2Outh { uint8_t timer; int8_t ecomp; uint8_t bit_sel; };
 // Timer `timer`, y el fin (de la recepción o de la transmisión) a su
 // captura B `cci`. Los pines, por la función 8
 struct Fr2Mfm { uint8_t usci, timer, ccr, cci; };
+// Las erratas de las FR5xx/FR6xx que cambian lo que ve el programa [SLAZ473AG,
+// SLAZ517AG, SLAZ681O]; doc/todo.md las clasifica todas
+enum : uint32_t {
+    E5_ADC41 = 1u << 0,   // en LPM3/LPM4, con ADC12OSC y sin REFON, no disparan TB0, TA1 ni TA2
+    E5_ADC42 = 1u << 1, E5_ADC43 = 1u << 2, E5_ADC66 = 1u << 3, E5_ADC69 = 1u << 4, E5_ADC71 = 1u << 5,   // adc12_b.h
+    E5_AES1 = 1u << 6,    // escribir AESAXIN con AESBUSY ni aborta ni pone AESERRFG
+    E5_COMP10 = 1u << 7,  // con CEON = 0 y CEOUTPOL = 1, el pin de COUT se invierte en LPM3/LPM4
+    E5_REF9 = 1u << 8,    // con REFON = 1, el Comp_E no tiene la referencia
+    E5_RTC12 = 1u << 9,   // RTCTCOK se pierde al despertar de LPM3.5
+    E5_TA22 = 1u << 10,   // las salidas de TA0 cambian al entrar en LPM3/LPM4
+    E5_WDG5 = 1u << 11,   // el perro en marcha no impide LPMx.5
+};
 
 struct ChipFr2 {
     const m430::Desc430* desc;
@@ -235,6 +256,12 @@ struct ChipFr2 {
     uint8_t dma_tsel_adc = 0, dma_canales = 3;
     // El HFXT (HFXIN/HFXOUT, PxSEL0 = 1)
     uint8_t hfxt_puerto = 0, hfxt_bits = 0;
+    // El RAMCTL (FR5994, FR6989): RCCTL0 en 0x158 y sus sectores de RAM [UG
+    // FR5 cap. 10; DS de cada chip]. 0: no hay RAMCTL (FR5969)
+    unsigned nram_sectores = 0;
+    uint32_t ram_sector[4][2] = {};
+    // Las erratas de las FR5xx/FR6xx que se modelan (E5_*), las de cada chip
+    uint32_t errata5 = 0;
     // El RTC_C (FR5994, FR6989) en vez del RTC_B; los nombres de sus vectores
     uint32_t rtcc_base = 0;
     // El LCD_C (FR6989) en lcd_base, sobre el LcdE: COM0-COM3 en L60-L63
@@ -290,7 +317,10 @@ SC_MODULE(SocFR2), public m430_irq_if {
     std::unique_ptr<Crc32Fr> crc5;
     std::unique_ptr<Dma5xx> dma5;
     bool cristal_hfxt = false;                // lo pone la placa: un cristal en HFXIN/HFXOUT
-    double f_hfxt = 16e6;
+    double f_hfxt = 16e6;                     // y su frecuencia (`hfxt` del <mcu>)
+    // Un reloj externo en HFXIN o LFXIN para el bypass, además del que declare
+    // su nodo (lo pone un banco de pruebas)
+    double f_hfxt_ext = 0.0, f_lfxt_ext = 0.0;
 
     // Lo que sale por la eUSCI del backchannel, leído en su TXD por un
     // monitor propio que también mete lo de `uart_rx` por su RXD. En una
@@ -327,7 +357,15 @@ SC_MODULE(SocFR2), public m430_irq_if {
         for (unsigned ch = 0; ch < 16; ++ch) if (c.adc_pin[ch] >= 0) adc_ch_[unsigned(c.adc_pin[ch])] = int8_t(ch);
         for (unsigned l = 0; l < c.nlcd; ++l) if (c.lcd_l[l] < NPIN) lcd_l_[c.lcd_l[l]] = int8_t(l);   // 0xFF: Lx sin pin
         for (unsigned k = 0; k < c.nlcd_pot; ++k) pot_[c.lcd_pot[k]] = true;
-        for (unsigned k = 0; k < c.nfn; ++k) fn_[c.fn[k].pin][c.fn[k].sel & 3u] = c.fn[k];
+        for (unsigned k = 0; k < c.nfn; ++k) {
+            const Fr2Fn& f = c.fn[k];
+            if (f.dir != 0) fn_[f.pin][f.sel & 3u] = f;
+            if (f.dir != 1) fn_in_[f.pin][f.sel & 3u] = f;
+            if (f.tipo == 14) sr_pines_.push_back(f.pin);
+            if (f.tipo == 4 || f.tipo == 13) reloj_pines_.push_back(f.pin);
+        }
+        for (unsigned i = 0; i < NPIN; ++i) ce_ch_[i] = -1;
+        if (c.fr5) for (unsigned ch = 0; ch < 16; ++ch) if (c.ce_pin[ch] >= 0) ce_ch_[unsigned(c.ce_pin[ch])] = int8_t(ch);
         for (unsigned k = 0; k < c.nfn; ++k) if (c.fn[k].tipo == 9) trg_pines_.push_back(c.fn[k].pin);
         // JTAG de 4 hilos (TCK, TMS, TDI, TDO) con TEST arriba; SBW en TEST/RST
         PinesM430::Pines pj{pin[c.jtag[0]], pin[c.jtag[1]], pin[c.jtag[2]], pin[c.jtag[3]], &test, &rst};
@@ -379,7 +417,19 @@ SC_MODULE(SocFR2), public m430_irq_if {
         nucleo.al_parada_dbg = [this](bool) { relojes(); };
         tap.pon_cpu(&nucleo);
         nucleo.al_por = [this](bool v) { if (v) puc(true, 0x00); else { reset_regs(true, false); rst_n.write(true); } };
-        nucleo.cpu.al_cambiar_sr = [this](uint16_t, uint16_t) { relojes(); };
+        nucleo.cpu.al_cambiar_sr = [this](uint16_t, uint16_t n) {
+            relojes(); mira_ram(n);
+            const bool l34 = (n & 0x00D0) == 0x00D0 && !nucleo.en_tclk();
+            if (l34 != lpm34_) {
+                lpm34_ = l34;
+                if (l34 && (chip.errata5 & E5_TA22) && !ta.empty()) {      // TA22: TA0 al entrar
+                    ta[0]->invierte_salidas();
+                    if (!avisado_ta22_) { avisado_ta22_ = true; std::fprintf(stderr, "[%s] errata TA22: las salidas de TA0 cambian al entrar en LPM3/LPM4\n", chip.etiqueta); }
+                }
+                if (chip.errata5 & E5_COMP10) pines_salida();
+            }
+            for (uint8_t i : sr_pines_) if (pin[i] && funcion_de(i).tipo == 14) { pines_salida(); break; }
+        };
         // Los Timer_A
         for (unsigned k = 0; k < c.ntimers; ++k) {
             const Fr2Timer& d = c.timers[k];
@@ -559,6 +609,10 @@ SC_MODULE(SocFR2), public m430_irq_if {
     // la MSPDS lo hace por JTAG; aquí, como un despertar más]
     void despierta_por_depurador() { if (lpm5_) despierta_lpm5(0); }
     bool avisado_nwaits() const { return avisado_nwaits_; }
+    // El RAMCTL: cuántas veces se ha perdido un sector, y si está apagado
+    unsigned ram_perdida() const { return n_ram_perdida_; }
+    bool sector_apagado(unsigned k) const { return k < 4 && ram_off_[k]; }
+    bool hfxt_listo() const { return cs.hfxt_listo(); }
     void uart_rx(uint8_t b) { rx_cola_.push_back(b); ev_rx_.notify(sc_core::SC_ZERO_TIME); }
     // El monitor deja de tener alto su RXD (para el banco que usa ese pin
     // para otra cosa, como el TRI0- del FR2311)
@@ -617,7 +671,11 @@ private:
     int id_pin_[NPIN] = {};
     int8_t adc_ch_[NPIN], lcd_l_[NPIN];
     bool pot_[NPIN];
-    Fr2Fn fn_[NPIN][4] = {};
+    Fr2Fn fn_[NPIN][4] = {}, fn_in_[NPIN][4] = {};     // con PxDIR = 1 y con PxDIR = 0
+    int8_t ce_ch_[NPIN];                                // FR5: el canal del Comp_E de cada pin (-1: ninguno)
+    std::vector<uint8_t> sr_pines_;                     // los pines con un bit del SR (tipo 14)
+    std::vector<uint8_t> reloj_pines_;                  // y con un reloj de salida (4 y 13)
+    bool lpm34_ = false, avisado_ta22_ = false;
     unsigned n_puc_ = 0;
     std::vector<std::unique_ptr<tlm_utils::simple_initiator_socket<SocFR2>>> a_ta_;
     std::vector<std::unique_ptr<sc_core::sc_signal<bool>>> irq_t_;   // 0 y n de cada Timer
@@ -716,8 +774,24 @@ private:
         e.xt1 = cristal_xt1 && (xt1_sel() || xt1_retenido_);
         e.pide_smclk = smclk_pedido_;
         e.pide_aclk = aclk_pedido_;
-        e.hfxt = cristal_hfxt && chip.hfxt_bits && (pt_[chip.hfxt_puerto].sel0 & chip.hfxt_bits) == chip.hfxt_bits;
-        e.f_hfxt = f_hfxt;
+        // FR5: el PSEL de HFXIN (el bit bajo de los dos) decide [UG FR5 §3.2.3];
+        // en bypass, el reloj que declare el nodo de HFXIN (un ExtClock)
+        if (chip.hfxt_bits) {
+            const uint8_t bin = uint8_t(chip.hfxt_bits & -chip.hfxt_bits);
+            const bool psel = (pt_[chip.hfxt_puerto].sel0 & bin) != 0;
+            e.hfxt = cristal_hfxt && psel;
+            e.f_hfxt = f_hfxt;
+            unsigned k = 0; while (!((bin >> k) & 1u)) ++k;
+            const analog_net_if* n = pin[chip.hfxt_puerto * 8u + k];
+            e.f_hfxt_ext = (psel && n) ? std::max(f_hfxt_ext, n->reloj_declarado()) : 0.0;
+        }
+        if (chip.fr5 && chip.xt1_bits) {
+            const uint8_t bin = uint8_t(chip.xt1_bits & -chip.xt1_bits);
+            e.lfxt_psel = (pt_[chip.xt1_puerto].sel0 & bin) != 0;
+            unsigned k = 0; while (!((bin >> k) & 1u)) ++k;
+            const analog_net_if* n = pin[chip.xt1_puerto * 8u + k];
+            e.f_lfxt_ext = (e.lfxt_psel && n) ? std::max(f_lfxt_ext, n->reloj_declarado()) : 0.0;
+        }
         return e;
     }
     void relojes() {
@@ -751,6 +825,11 @@ private:
         hz_usci.write(f_smclk > 0 ? f_smclk : cs.f_smclk_peticion);
         for (auto& t : ta) t->recalcula();
         for (auto& u : usci) u->recalcula();
+        // Los pines con un reloj de salida (MCLK, SMCLK, ACLK, RTCCLK)
+        for (uint8_t i : reloj_pines_) {
+            const int t = pin[i] ? funcion_de(i).tipo : 0;
+            if (t == 4 || t == 13) { pines_salida(); break; }
+        }
         rtc.recalcula();
         if (rtc5) rtc5->recalcula5();
         if (lcd) lcd->recalcula();
@@ -759,6 +838,49 @@ private:
     }
     void fll_proc() { relojes(); avisa_irq(); }
     double f_smclk_ = 0, f_aclk_ = 0;          // SMCLK y ACLK para los módulos (con GENCLKCTRL)
+
+    // --- RAMCTL (FR5994, FR6989) [UG FR5 cap. 10] -------------------------------------
+    // RCCTL0: la clave 0x69 se lee, 0x5A abre en una escritura de palabra (de
+    // byte o con otra clave, nada). RCRSyOFF, dos bits por sector: 0 se
+    // conserva en LPM3 y LPM4; 1 se apaga en ellos y vuelve al despertar; 2
+    // se apaga al entrar y sigue apagado al despertar. Apagado, su contenido
+    // se pierde [de modelo: queda con 0xCD, como en LPMx.5]; sin alimentar,
+    // [de modelo] se lee 0x3FFF y no se escribe (avisa una vez), hasta que
+    // RCRSyOFF vuelve a 0 o 1. [De modelo: RCCTL0 vuelve a 0x6900 con el PUC.]
+    uint16_t rcctl0_ = 0x6900;
+    bool ram_lpm_ = false;                    // dentro de LPM3 o LPM4
+    bool ram_off_[4] = {};                    // el sector, sin alimentar
+    bool avisado_ram_off_ = false;
+    unsigned n_ram_perdida_ = 0;
+    unsigned rcrs(unsigned k) const { return (rcctl0_ >> (2 * k)) & 3u; }
+    void pierde_sector(unsigned k) {
+        std::fill(mem_.begin() + chip.ram_sector[k][0], mem_.begin() + chip.ram_sector[k][1] + 1, 0xCD);
+        ++n_ram_perdida_;
+    }
+    void mira_ram(uint16_t sr) {
+        if (!chip.nram_sectores) return;
+        const bool lpm34 = (sr & 0x00D0) == 0x00D0 && rst_n.read() && !nucleo.en_tclk();
+        if (lpm34 == ram_lpm_) return;
+        ram_lpm_ = lpm34;
+        for (unsigned k = 0; k < chip.nram_sectores; ++k) {
+            const unsigned o = rcrs(k);
+            if (lpm34) { if (o == 1 || o == 2) ram_off_[k] = true; continue; }
+            if (!ram_off_[k]) continue;
+            pierde_sector(k);
+            if (o != 2) ram_off_[k] = false;          // 2: sigue apagado
+        }
+    }
+    int sector_ram(uint32_t a) const {
+        for (unsigned k = 0; k < chip.nram_sectores; ++k)
+            if (a >= chip.ram_sector[k][0] && a <= chip.ram_sector[k][1]) return int(k);
+        return -1;
+    }
+    void escribe_rcctl0(uint16_t v, uint16_t m) {
+        if (m != 0xFFFF || (v >> 8) != 0x5A) return;
+        rcctl0_ = uint16_t(0x6900 | (v & ((1u << (2 * chip.nram_sectores)) - 1u)));
+        for (unsigned k = 0; k < chip.nram_sectores; ++k)
+            if (ram_off_[k] && !ram_lpm_ && rcrs(k) != 2) ram_off_[k] = false;   // vuelve, sin su contenido
+    }
 
     // --- FRCTL ---------------------------------------------------------------------
     uint16_t frctl0_ = 0, gcctl0_ = 0x0006, gcctl1_ = 0;
@@ -912,6 +1034,8 @@ private:
     // BAKMEM), que solo pierde un BOR de verdad, no el despertar de LPMx.5
     void reset_regs(bool bor, bool rtc_tambien) {
         sfrie1_ = 0;
+        rcctl0_ = 0x6900; ram_lpm_ = false;
+        for (bool& x : ram_off_) x = false;
         sfrifg1_ = uint16_t(sfrifg1_ & 0x11);
         if (bor) {
             sysbslc_ = 0; pmmctl0_ = 0x0040; pmmctl2_ = 0; syscfg0_ = chip.fr5 ? 0 : 0x0003; syscfg1_ = syscfg2_ = syscfg3_ = 0;
@@ -1067,7 +1191,9 @@ private:
         if (lpm5_ || !rst_n.read() || nucleo.en_tclk()) return;
         const uint16_t sr = nucleo.cpu.sr();
         if (!(pmmctl0_ & 0x0010) || (sr & 0x00D0) != 0x00D0) return;
-        if (!(wdtctl_ & 0x80) && !(wdtctl_ & 0x10)) return;          // el perro en marcha: no entra
+        // El perro en marcha no deja entrar [UG FR2 §1.4.3.1]; WDG5 (FR5969,
+        // FR6989): sí entra, y el perro se apaga
+        if (!(wdtctl_ & 0x80) && !(wdtctl_ & 0x10) && !(chip.errata5 & E5_WDG5)) return;
         ev_lpm5_.notify(sc_core::SC_ZERO_TIME);
     }
     bool lcd_lento() const { return lcd && lcd->on() && lcd->fuente() != 1; }
@@ -1094,6 +1220,7 @@ private:
         rst_n.write(false);                                           // sin núcleo
         // La RAM se pierde [de modelo: queda con 0xCD]
         std::fill(mem_.begin() + desc.ram.ini, mem_.begin() + desc.ram.fin + 1, 0xCD);
+        if (desc.ram_lea.existe()) std::fill(mem_.begin() + desc.ram_lea.ini, mem_.begin() + desc.ram_lea.fin + 1, 0xCD);
         pines_salida();
         // Con una bandera ya puesta (un pin o el RTC con su IE), despierta enseguida
         bool pend = false;
@@ -1107,6 +1234,7 @@ private:
         if (!lpm5_) return;
         if (pin_d < 0 && !rtc_pide()) return;                         // el RTC despierta con RTCIE
         sal_lpm5();
+        if (rtc5 && lpm5_rtc_) rtc5->despierta_lpm35((chip.errata5 & E5_RTC12) != 0);
         pon_rstiv(0x08);
         reset_regs(true, false);
         pmmifg_ |= 0x8000;                                            // PMMLPM5IFG
@@ -1263,6 +1391,15 @@ private:
         avisa_irq();
     }
     bool disparo_ant_[8] = {};
+    // ADC41 (FR5969): en LPM3/LPM4, con ADC12OSC (SSEL = 0) y sin REFON, los
+    // disparos de TB0 (SHS 2 y 3), TA1 (4) y TA2 (5) no llegan
+    bool adc41_bloquea(unsigned shs) {
+        if (!(chip.errata5 & E5_ADC41) || !adc5 || adc5->fuente_reloj() != 0 || (ref5 && ref5->refon())) return false;
+        if ((nucleo.cpu.sr() & 0x00D0) != 0x00D0 || shs < 2 || shs > 5) return false;
+        if (!avisado_adc41_) { avisado_adc41_ = true; std::fprintf(stderr, "[%s] errata ADC41: un disparo de SHS = %u en LPM3/LPM4 no llega al ADC12_B\n", chip.etiqueta, shs); }
+        return true;
+    }
+    bool avisado_adc41_ = false;
     void timers_proc() {
         for (unsigned k = 0; k < chip.nenlaces; ++k) {
             const Fr2Enlace& e = chip.enlaces[k];
@@ -1271,7 +1408,10 @@ private:
         for (unsigned k = 0; k < chip.ndisparos && k < 8; ++k) {
             const Fr2Disparo& d = chip.disparos[k];
             const bool v = ta[d.timer]->out[d.ccr].read();
-            if (v && !disparo_ant_[k]) { if (!chip.fr5) adc.dispara(d.shs); else if (adc5) adc5->dispara(d.shs); }
+            if (v && !disparo_ant_[k]) {
+                if (!chip.fr5) adc.dispara(d.shs);
+                else if (adc5 && !adc41_bloquea(d.shs)) adc5->dispara(d.shs);
+            }
             disparo_ant_[k] = v;
         }
         // Los disparos de los DAC de los SAC (DACLSEL = 10 u 11) [DS FR235x tabla 6-32]
@@ -1291,22 +1431,49 @@ private:
     // tipo: 1 Timer (salida con DIR, captura sin él), 2 eUSCI, 3 analógica o
     // cristal, 4 reloj de salida (MCLK, SMCLK, ACLK), 5 TAxCLK (entrada), 6 LCD
     struct Fn { int tipo = 0; TimerAP4* t = nullptr; unsigned n = 0; LineaU u; unsigned reloj = 0; };
+    // FR5: los cristales [DS FR5969 tablas 6-60 y 6-61]. LFXIN/HFXIN (el bit bajo
+    // de los dos): con PxSEL = 01, el oscilador (cristal o bypass); con
+    // PxSEL1 = 1, nada. LFXOUT/HFXOUT: con el de entrada en 01 y sin bypass, el
+    // cristal; si no, el pin normal (con su PxSEL a 00) o nada. -1: no es un
+    // pin de cristal; 0 normal; 1 del oscilador (analógico); 2 nada
+    int fr5_cristal(unsigned i) const {
+        if (!chip.fr5) return -1;
+        const struct { uint8_t puerto, bits; uint16_t bypass; } X[2] = {
+            {chip.xt1_puerto, chip.xt1_bits, 0x0010}, {chip.hfxt_puerto, chip.hfxt_bits, 0x1000}};
+        for (const auto& x : X) {
+            if (!x.bits || i / 8 != x.puerto) continue;
+            const uint8_t bin = uint8_t(x.bits & -x.bits), bout = uint8_t(x.bits & ~bin);
+            const uint8_t b = uint8_t(1u << (i % 8));
+            const Puerto& p = pt_[x.puerto];
+            const unsigned sin = ((p.sel1 & bin) ? 2u : 0u) | ((p.sel0 & bin) ? 1u : 0u);
+            if (b == bin) return sin == 0 ? 0 : sin == 1 ? 1 : 2;
+            if (b == bout) {
+                if (sin == 1 && !(cs.lee(4) & x.bypass)) return 1;
+                return ((p.sel0 | p.sel1) & bout) ? 2 : 0;
+            }
+        }
+        return -1;
+    }
     Fn funcion_de(unsigned i) const {
         Fn f;
         // El LCD manda en sus pines (LCDSx), sin mirar PxSEL [UG FR2 §17.2.2]
         if (lcd && lcd_l_[i] >= 0 && lcd->pin_lcd(unsigned(lcd_l_[i]))) { f.tipo = 6; f.n = unsigned(lcd_l_[i]); return f; }
         if (pot_[i] && (syscfg2_ & 0x1000)) { f.tipo = 3; return f; }    // LCDPCTL: los pines de potencia del LCD
         const unsigned p = i / 8, b = i % 8;
+        const int xt = fr5_cristal(i);
+        if (xt == 1) { f.tipo = 3; return f; }
+        if (xt == 0) return f;
+        if (xt == 2) { f.tipo = -1; return f; }                     // nada (con PxDIR = 1, a 0)
         const unsigned s = (((pt_[p].sel1 >> b) & 1u) << 1) | ((pt_[p].sel0 >> b) & 1u);
         if (!s) return f;
-        const Fr2Fn& d = fn_[i][s];
+        const Fr2Fn& d = ((pt_[p].dir >> b) & 1u) ? fn_[i][s] : fn_in_[i][s];
         if (d.sel & (REMAP_SI | REMAP_NO)) {
             const int rb = d.rmp >= 0 ? d.rmp : chip.remap_bit;
             const bool rm = rb >= 0 && (((uint32_t(syscfg3_) << 16 | syscfg2_) >> rb) & 1u);
             if (bool(d.sel & REMAP_SI) != rm) return f;
         }
         switch (d.tipo) {
-        case 1: f.tipo = 1; f.t = ta[d.mod].get(); f.n = d.n; break;
+        case 1: case 11: f.tipo = d.tipo; f.t = ta[d.mod].get(); f.n = d.n; break;
         case 2: f.tipo = 2; f.u = LineaU{usci[d.mod].get(), int(d.n)}; break;
         case 3: f.tipo = 3; break;
         case 4: f.tipo = 4; f.reloj = d.n; break;
@@ -1314,9 +1481,13 @@ private:
         case 7: f.tipo = 7; f.n = d.mod; break;
         case 8: f.tipo = 8; f.n = d.n; break;
         case 9: f.tipo = 9; f.n = d.mod; break;
-        case 10: f.tipo = 10; break;
+        case 10: case 12: case 13: f.tipo = d.tipo; break;
+        case 14: case 16: f.tipo = d.tipo; f.n = d.n; break;
         default: break;
         }
+        // FR5: un PxSEL sin función: con PxDIR = 1, a 0 [DS FR5969 figuras 6-2 a
+        // 6-13: DVSS en las entradas libres del multiplexor]
+        if (chip.fr5 && !f.tipo) f.tipo = -1;
         return f;
     }
     static void linea_u(const LineaU& x, bool& oe, bool& o) {
@@ -1378,9 +1549,12 @@ private:
         const bool sel = ((x.sel0 | x.sel1) >> b) & 1u, dir = (x.dir >> b) & 1u;
         if (adc_ch_[i] >= 0 && ((syscfg2_ >> unsigned(adc_ch_[i])) & 1u)) return r;   // ADCPCTLx: analógico
         if (pot_[i] && (syscfg2_ & 0x1000)) return r;                 // LCDPCTL
-        if (sel) {
+        // FR5: un canal del Comp_E con su CEPDx, o elegido por CEIPSEL/CEIMSEL,
+        // pierde su salida digital [DS FR5969 tabla 6-49, nota 5]
+        if (chip.fr5 && ce5 && ce_ch_[i] >= 0 && ce5->canal_analogico(unsigned(ce_ch_[i]))) return r;
+        if (sel || fr5_cristal(i) > 0) {
             const Fn f = funcion_de(i);
-            if (f.tipo == 1 && dir) {
+            if ((f.tipo == 1 || f.tipo == 11) && dir) {
                 if (outh_activo(f.t)) return r;                       // TBxOUTH: alta impedancia
                 r.hiz = false; r.alto = f.t->out[f.n].read(); return r;
             }
@@ -1406,13 +1580,22 @@ private:
                 return r;
             }
             if (f.tipo == 7 && dir) { r.hiz = false; r.alto = ecomp[f.n]->salida(); return r; }
-            if (f.tipo == 10 && dir) { r.hiz = false; r.alto = ce5 && ce5->salida.read(); return r; }
+            if (f.tipo == 10 && dir) {
+                r.hiz = false; r.alto = ce5 && ce5->salida.read();
+                // COMP10: con CEON = 0 y CEOUTPOL = 1, en LPM3/LPM4 el pin se invierte
+                if (ce5 && (chip.errata5 & E5_COMP10) && !ce5->encendido() && ce5->outpol() && lpm34_) r.alto = !r.alto;
+                return r;
+            }
             if (f.tipo == 4 && dir) {
                 // los relojes de salida: se ven como nivel alto si corren [de modelo]
                 const double fr = f.reloj == 0 ? cs.f_mclk : f.reloj == 1 ? cs.f_smclk : cs.f_aclk;
                 r.hiz = false; r.alto = fr > 0.0;
                 return r;
             }
+            if (f.tipo == 13 && dir) { r.hiz = false; r.alto = rtc5 && rtc5->rtcclk() > 0.0; return r; }   // [de modelo, como los relojes]
+            if (f.tipo == 14 && dir) { r.hiz = false; r.alto = (nucleo.cpu.sr() & f.n) != 0; return r; }
+            if (f.tipo == 16 && dir) { r.hiz = false; r.alto = esi_salida(f.n); return r; }
+            if (f.tipo == -1) { if (dir) { r.hiz = false; r.alto = false; } return r; }   // FR5: a DVSS
             if (f.tipo != 0 || !dir) return r;
         }
         if (dir) { r.hiz = false; r.alto = (x.out >> b) & 1u; }
@@ -1434,7 +1617,8 @@ private:
         for (unsigned k = 0; k < chip.nouth; ++k) {
             const Fr2Outh& o = chip.outh[k];
             if (ta[o.timer].get() != t) continue;
-            if ((syscfg2_ >> o.bit_sel) & 1u) return trg_alto_[o.timer];
+            // FR5: solo el pin TB0OUTH (bit_sel = 0xFF) [UG FR5 §26.2.5.2]
+            if (o.bit_sel == 0xFF || ((syscfg2_ >> o.bit_sel) & 1u)) return trg_alto_[o.timer];
             return o.ecomp >= 0 && unsigned(o.ecomp) < ecomp.size() && ecomp[unsigned(o.ecomp)]->salida();
         }
         return false;
@@ -1534,7 +1718,7 @@ private:
         for (unsigned i : trg_pines_) {
             if (!pin[i]) continue;
             const Fn f = funcion_de(i);
-            if (f.tipo == 9 && f.n == k && !((pt_[i / 8].dir >> (i % 8)) & 1u)) return nivel(i);
+            if (f.tipo == 9 && f.n == k && !((pt_[i / 8].dir >> (i % 8)) & 1u) && nivel(i)) return true;
         }
         return false;
     }
@@ -1572,27 +1756,45 @@ private:
             }
             x.in = n;
         }
+        // Las entradas de los módulos: si varios pines llevan la misma, se
+        // juntan con un O [DS FR6989 figura 6-6, nota A]
+        struct Ent { sc_core::sc_signal<bool>* s; bool v; };
+        Ent ent[NPIN];
+        unsigned ne = 0;
+        bool dmae0 = false;
+        auto mete = [&](sc_core::sc_signal<bool>* sig, bool v) {
+            for (unsigned k = 0; k < ne; ++k) if (ent[k].s == sig) { ent[k].v = ent[k].v || v; return; }
+            ent[ne++] = Ent{sig, v};
+        };
         for (unsigned i = 0; i < NPIN; ++i) {
             if (!pin[i]) continue;
             const Fn f = funcion_de(i);
-            if (f.tipo != 1 && f.tipo != 2 && f.tipo != 5) continue;
+            if (f.tipo != 1 && f.tipo != 2 && f.tipo != 5 && f.tipo != 11 && f.tipo != 12) continue;
             const bool v = nivel(i);
             const bool dir = (pt_[i / 8].dir >> (i % 8)) & 1u;
             if (f.tipo == 2) {
                 switch (f.u.l) {
-                case 0: f.u.u->simo_in.write(v); break;
-                case 1: f.u.u->somi_in.write(v); break;
-                case 2: f.u.u->clk_in.write(v); break;
-                case 3: f.u.u->ste_in.write(v); break;
+                case 0: mete(&f.u.u->simo_in, v); break;
+                case 1: mete(&f.u.u->somi_in, v); break;
+                case 2: mete(&f.u.u->clk_in, v); break;
+                case 3: mete(&f.u.u->ste_in, v); break;
                 default: break;
                 }
-            } else if (f.tipo == 1 && !dir) f.t->cci_a[f.n].write(v);
-            else if (f.tipo == 5 && !dir) f.t->taclk.write(v);
+            } else if (f.tipo == 1 && !dir) mete(&f.t->cci_a[f.n], v);
+            else if (f.tipo == 11 && !dir) mete(&f.t->cci_b[f.n], v);
+            else if (f.tipo == 5 && !dir) mete(&f.t->taclk, v);
+            else if (f.tipo == 12 && !dir) dmae0 = dmae0 || v;
         }
+        for (unsigned k = 0; k < ne; ++k) ent[k].s->write(ent[k].v);
+        if (dmae0 && !dmae0_ && dma5) dma5->dispara(31);              // DMAE0: el disparo 31, por flanco
+        dmae0_ = dmae0;
         if (chip.nouth) mira_trg();
         if (ce5) ce5->recalcula();
     }
     uint8_t ies5_[11] = {}, ie5_[11] = {};
+    bool dmae0_ = false;
+    // Las salidas del ESI (FR6989; tipo 16) [de modelo hasta que lo haya]
+    bool esi_salida(unsigned n) const;
     sc_core::sc_event ev_entradas_;
     uint16_t piv(unsigned k, bool dbg) {
         Puerto& x = pt_[k];
@@ -1645,7 +1847,7 @@ private:
         case 0x02: x.out = v; break;
         case 0x04: x.dir = v; break;
         case 0x06: x.ren = v; break;
-        case 0x0A: x.sel0 = v; if (k == chip.xt1_puerto) relojes(); break;     // XIN/XOUT: el cristal
+        case 0x0A: x.sel0 = v; if (k == chip.xt1_puerto || (chip.hfxt_bits && k == chip.hfxt_puerto)) relojes(); break;   // los cristales
         case 0x0C: x.sel1 = v; break;
         case 0x18: if (irq) { x.ies = v; ies5_[k] = v; } break;
         case 0x1A: if (irq) { x.ie = v; ie5_[k] = v; avisa_irq(); } break;
@@ -1818,6 +2020,7 @@ private:
             if (adc5 && a >= chip.adc12b_base && a < chip.adc12b_base + 0xA0) { v = adc5->lee(a - chip.adc12b_base, dbg); return true; }
             if (dma5 && a >= chip.dma_base && a < chip.dma_base + 0x10 * (chip.dma_canales + 1)) { v = dma5->lee16(a - chip.dma_base, dbg); return true; }
             if (chip.mpu_base && a >= chip.mpu_base && a < chip.mpu_base + 0x10) return lee_mpu(a - chip.mpu_base, v);
+            if (a == 0x158 && chip.nram_sectores) { v = rcctl0_; return true; }
             if (!traduce5(a)) return false;
             if (a == 0x15C) { v = lee_sniv5(dbg); return true; }
         }
@@ -1881,6 +2084,7 @@ private:
                 dma5->escribe16(a - chip.dma_base, mz(dma5->lee16(a - chip.dma_base, true))); return;
             }
             if (chip.mpu_base && a >= chip.mpu_base && a < chip.mpu_base + 0x10) { escribe_mpu(a - chip.mpu_base, v, m); return; }
+            if (a == 0x158 && chip.nram_sectores) { escribe_rcctl0(v, m); return; }
             if (!traduce5(a)) return;
         }
         if (es_mpy(a)) { mpy.escribe(a - 0x4C0, v, m != 0xFFFF); return; }
@@ -1902,7 +2106,11 @@ private:
             if (m & 0xFF00) bkmem_[a - 0x660 + 1] = uint8_t(v >> 8);
             return;
         }
-        if (a >= 0x180 && a < 0x192) { cs.escribe((a - 0x180) / 2, v, m, entradas_cs()); relojes(); avisa_irq(); return; }
+        if (a >= 0x180 && a < 0x192) {
+            cs.escribe((a - 0x180) / 2, v, m, entradas_cs()); relojes(); avisa_irq();
+            if (chip.fr5) pines_salida();                             // los cristales y sus bypass
+            return;
+        }
         unsigned k = 0;
         if (reg_piv(a, k)) return;
         switch (a) {
@@ -2003,6 +2211,7 @@ private:
             ata5(*ce5, c.compe_base, 0x10);
             ce5->irq(irq_ce5_);
             ce5->ref = ref5.get();
+            ce5->errata_ref9 = (c.errata5 & E5_REF9) != 0;
             ce5->n_canales = 16;
             ce5->v_canal = [this](unsigned ch) { return ch < 16 && chip.ce_pin[ch] >= 0 ? v_pin(unsigned(chip.ce_pin[ch])) : 0.0; };
             ce5->v_cc = [this] { return vcc; };
@@ -2024,6 +2233,7 @@ private:
         }
         if (c.aes_base) {
             aes5.reset(new Aes256P4("aes256", c.aes_base, 0x10));
+            aes5->errata_aes1 = (c.errata5 & E5_AES1) != 0;
             ata5(*aes5, c.aes_base, 0x10);
             aes5->irq(irq_aes5_);
         }
@@ -2042,7 +2252,11 @@ private:
             };
             adc5->f_reloj = [this](unsigned s) { return s == 0 ? CsFr::F_MODOSC : s == 1 ? f_aclk_ : s == 2 ? cs.f_mclk_fuente : f_smclk_; };
             adc5->al_cambiar = [this] { avisa_irq(); };
-            adc5->al_convertir = [this](unsigned) { if (dma5 && chip.dma_tsel_adc) dma5->dispara(chip.dma_tsel_adc); };
+            adc5->al_dma = [this] { if (dma5 && chip.dma_tsel_adc) dma5->dispara(chip.dma_tsel_adc); };
+            adc5->smclkoff = [this] { return (cs.lee(4) & 0x0002) != 0; };
+            adc5->errata = uint8_t(((chip.errata5 & E5_ADC42) ? Adc12B::E_ADC42 : 0) | ((chip.errata5 & E5_ADC43) ? Adc12B::E_ADC43 : 0) |
+                                   ((chip.errata5 & E5_ADC66) ? Adc12B::E_ADC66 : 0) | ((chip.errata5 & E5_ADC69) ? Adc12B::E_ADC69 : 0) |
+                                   ((chip.errata5 & E5_ADC71) ? Adc12B::E_ADC71 : 0));
             adc5->pide_ref = [this](bool si) { if (ref5) ref5->solicita(1, si); };
         }
         if (c.dma_base) {
@@ -2378,7 +2592,10 @@ public:
                 g2.set_streaming_width(n); g2.set_byte_enable_ptr(nullptr);
                 sc_core::sc_time t = sc_core::SC_ZERO_TIME;
                 if (dbg) (*b.s)->transport_dbg(g2); else (*b.s)->b_transport(g2, t);
-                if (gp.is_write() && ce5) ce5->recalcula();
+                if (gp.is_write()) {
+                    if (ce5) ce5->recalcula();
+                    pines_salida();                                   // CEPDx, RTCCLK...
+                }
                 return;
             }
             // La MPU y la IPE, en la memoria
@@ -2436,6 +2653,18 @@ public:
             return;
         }
         if (a + n <= mem_.size() && (es_ram(a) || es_fram(a) || es_bsl(a))) {
+            if (chip.nram_sectores && es_ram(a)) {
+                const int k = sector_ram(a);
+                if (k >= 0 && ram_off_[k]) {                          // RAMCTL: sin alimentar
+                    if (!avisado_ram_off_) {
+                        avisado_ram_off_ = true;
+                        std::fprintf(stderr, "[%s] acceso a 0x%05X: el sector %d de la RAM está apagado (RCRS%dOFF = 2)\n",
+                                     chip.etiqueta, unsigned(a), k, k);
+                    }
+                    if (gp.is_read()) for (unsigned i = 0; i < n; ++i) d[i] = ((a + i) & 1u) ? 0x3F : 0xFF;
+                    return;
+                }
+            }
             if (gp.is_read()) { for (unsigned i = 0; i < n; ++i) d[i] = mem_[a + i]; return; }
             if (es_bsl(a) && !dbg) return;                            // ROM
             // La FRAM protegida no se escribe (el depurador, sí: la herramienta
@@ -2458,6 +2687,8 @@ private:
     }
     unsigned transport_dbg(tlm::tlm_generic_payload& gp) { de_cpu_ = false; acceso(gp, true); return gp.get_data_length(); }
 };
+
+inline bool SocFR2::esi_salida(unsigned) const { return false; }
 
 } // namespace stm32
 #endif // STM32_SOC_MSP430_FR2_SOC_FR2_H
