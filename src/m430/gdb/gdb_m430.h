@@ -402,10 +402,15 @@ private:
 // abre al empezar y la cierra al acabar (MSPDS: WriteFramQuickXv2 hace lo
 // mismo). «Borrar» es escribir 0xFFFF [de modelo: la FRAM no tiene borrado;
 // GDB lo pide antes de cargar]. Sectores de 512 B, como los de la herramienta.
+// En las FR5xx/FR6xx (`mpuctl0` != 0) no hay SYSCFG0: lo que guarda la FRAM es
+// la MPU, y el programador la apaga (MPUCTL0 = 0xA500, con MPUENA a 0) antes
+// de escribir, como MSPDS (DisableMpu); con MPULOCK no puede, y la escritura
+// por JTAG da su violación [UG FR5 §9.5].
 class ProgramadorFram : public programador_nv_if {
 public:
-    ProgramadorFram(m430_dbg_if& d, uint32_t p_ini, uint32_t p_fin, uint32_t i_ini, uint32_t i_fin, uint32_t syscfg0 = 0x160)
-        : d_(d), p_ini_(p_ini), p_fin_(p_fin), i_ini_(i_ini), i_fin_(i_fin), syscfg0_(syscfg0) {}
+    ProgramadorFram(m430_dbg_if& d, uint32_t p_ini, uint32_t p_fin, uint32_t i_ini, uint32_t i_fin, uint32_t syscfg0 = 0x160,
+                    uint32_t mpuctl0 = 0)
+        : d_(d), p_ini_(p_ini), p_fin_(p_fin), i_ini_(i_ini), i_fin_(i_fin), syscfg0_(syscfg0), mpuctl0_(mpuctl0) {}
     const char* nombre() const override { return "MSP430 FRAM (FR2xx/FR4xx)"; }
     int sector_de(uint32_t a) const override {
         if (a >= p_ini_ && a <= p_fin_) return int((a - p_ini_) / 512u);
@@ -437,15 +442,15 @@ public:
         return true;
     }
     void terminar(acceso_nv_if&) override {
-        if (abierta_) d_.escribe16(syscfg0_, 0xA503);                // PFWP y DFWP otra vez
+        if (abierta_ && !mpuctl0_) d_.escribe16(syscfg0_, 0xA503);   // PFWP y DFWP otra vez
         abierta_ = false;
     }
 private:
     m430_dbg_if& d_;
-    uint32_t p_ini_, p_fin_, i_ini_, i_fin_, syscfg0_;
+    uint32_t p_ini_, p_fin_, i_ini_, i_fin_, syscfg0_, mpuctl0_;
     bool abierta_ = false;
     unsigned n_principal() const { return (p_fin_ + 1 - p_ini_ + 511) / 512u; }
-    void abre() { if (!abierta_) { d_.escribe16(syscfg0_, 0xA500); abierta_ = true; } }
+    void abre() { if (!abierta_) { d_.escribe16(mpuctl0_ ? mpuctl0_ : syscfg0_, 0xA500); abierta_ = true; } }
 };
 
 // --- El protocolo ------------------------------------------------------------------
@@ -460,8 +465,8 @@ public:
         prog_.reset(new ProgramadorF2xx(d_, principal_ini, info_ini, info_a_ini));
         pon_programador(prog_.get());
     }
-    void pon_fram(uint32_t p_ini, uint32_t p_fin, uint32_t i_ini, uint32_t i_fin) {
-        prog_.reset(new ProgramadorFram(d_, p_ini, p_fin, i_ini, i_fin));
+    void pon_fram(uint32_t p_ini, uint32_t p_fin, uint32_t i_ini, uint32_t i_fin, uint32_t mpuctl0 = 0) {
+        prog_.reset(new ProgramadorFram(d_, p_ini, p_fin, i_ini, i_fin, 0x160, mpuctl0));
         pon_programador(prog_.get());
     }
     void pon_flash_5xx(uint32_t p_ini, uint32_t p_fin, uint32_t i_ini, uint32_t i_fin) {

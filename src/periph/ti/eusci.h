@@ -137,6 +137,29 @@ public:
     uint64_t tramas_tx() const { return n_tx_; }
     uint64_t tramas_rx() const { return n_rx_; }
     uint64_t bytes_spi() const { return n_spi_; }
+
+    // --- Un maestro SPI de dentro del chip (el MFM de las FR235x) ------------
+    // Con `externo`, el esclavo no mira sus pines: el maestro de dentro le da
+    // cada byte entero. `esclavo_toma` es el principio de un byte (lo que el
+    // esclavo saca por SOMI: TXBUF si lo hay; TXIFG); `esclavo_recibe`, el
+    // final (lo que entró por SIMO: RXBUF y RXIFG) [UG FR2 §25.6.1]
+    void pon_externo(bool e) { if (e != externo_) { externo_ = e; ev_.notify(sc_core::SC_ZERO_TIME); } }
+    bool externo() const { return externo_; }
+    bool esclavo_listo() const { return spi() && !en_reset() && !(ctlw0_ & MST); }
+    uint16_t esclavo_toma() {
+        if (!esclavo_listo()) return 0xFF;
+        const uint16_t d = txbuf_;
+        if (txlleno_) { txlleno_ = false; ifg_ |= TXIFG; actualiza_irq(); }
+        return d;
+    }
+    void esclavo_recibe(uint16_t rx) {
+        if (!esclavo_listo()) return;
+        ++n_spi_;
+        if (ifg_ & RXIFG) statw_ |= ST_OE;
+        rxbuf_ = rx;
+        ifg_ |= RXIFG;
+        actualiza_irq();
+    }
     uint64_t bytes_i2c() const { return n_i2c_; }
     bool     bus_ocupado() const { return bbusy_; }
     unsigned avisos() const { return n_avisos_; }
@@ -150,6 +173,7 @@ protected:
     uint16_t tbcnt_ = 0, oa_[4] = {0, 0, 0, 0}, addrx_ = 0, addmask_ = 0x03FF, i2csa_ = 0;
 
     bool txlleno_ = false;          // hay un carácter en TXBUF esperando
+    bool externo_ = false;          // SPI esclavo de un maestro de dentro (el MFM)
     bool tx_ocupado_ = false, rx_ocupado_ = false;
     bool siguiente_es_dir_ = false; // UART, línea ociosa: el próximo carácter es dirección
     // El final del último carácter recibido, o el momento en que se soltó
@@ -1084,6 +1108,7 @@ protected:
 
     // Esclavo: el reloj lo pone el maestro; con STE inactivo, SOMI suelto
     void spi_esclavo() {
+        if (externo_) { o_somi_oe_ = false; publica(); wait(ev_); return; }
         const unsigned n = bits_datos();
         const bool msb = (ctlw0_ & MSB) != 0;
         const bool ckph = (ctlw0_ & CKPH) != 0;

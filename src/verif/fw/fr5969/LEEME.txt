@@ -1,0 +1,9 @@
+OutOfBox_MSP430FR5969.txt: el binario TI-TXT de la demo de fábrica de la
+MSP-EXP430FR5969, TAL CUAL (MSP-EXP430FR5969 Software Examples,
+Firmware/Binary/OutOfBox_MSP430FR5969; los fuentes, en Firmware/Source, son
+BSD de TI). Al arrancar parpadean LED1 (P4.6) y LED2 (P1.0); luego espera
+órdenes del PC por la UCA0 a 9600: '5' (ping: responde 0xFF 0xFF), '1' (la
+temperatura en vivo: manda la calibración de la TLV y, cada 1/8 s, ADC12MEM0
+del sensor con la referencia de 2,0 V), '2' (el registro en FRAM: LPM3.5 y
+el RTC_B que lo despierta cada minuto; S2, en P1.1, lo saca) y '3' (manda lo
+registrado). Lo usa testfr5 L3 (M8 de doc/analisis_msp430.md).

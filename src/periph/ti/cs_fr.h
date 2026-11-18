@@ -27,6 +27,27 @@
 //   LPM      CPUOFF para MCLK; SCG1, SMCLK (salvo una petición con
 //            SMCLKREQEN); OSCOFF, ACLK (salvo petición con ACLKREQEN, que es
 //            lo que hace el RTC o el perro con el VLO o XT1).
+//
+// CON `fr5` (M8): el CS de las FR5xx/FR6xx [UG FR5 SLAU367P cap. 3], siete
+// registros en CS_BASE (0x160): CSCTL0-CSCTL6.
+//   CSCTL0   CSKEY: 0xA5 en el byte alto abre los demás (se lee 0x96); otro
+//            valor los cierra [de modelo: sin PUC, porque DriverLib cierra
+//            escribiendo 0 en CSCTL0_H]. Cerrado, escribir CSCTL1-6 no hace
+//            nada.
+//   CSCTL1   DCORSEL y DCOFSEL: el DCO de frecuencias fijas recortadas de
+//            fábrica [DS FR5969 tabla 5-6]: 1, 2,667, 3,5, 4, 5,333, 7, 8 MHz
+//            con DCORSEL = 0; 1, 5,333, 7, 8, 16, 21, 24 MHz con DCORSEL = 1
+//            (DCOFSEL = 7 como el 6).
+//   CSCTL2   SELA, SELS, SELM: 0 LFXTCLK, 1 VLO, 2 LFMODCLK (MODOSC/128), 3
+//            DCO, 4 MODCLK, 5 HFXTCLK (ACLK, solo las tres primeras).
+//   CSCTL3   DIVA, DIVS, DIVM: /1../32. Tras el PUC, MCLK = SMCLK = DCO/8.
+//   CSCTL4   LFXTOFF, SMCLKOFF, VLOOFF, HFXTOFF y el resto, guardados.
+//   CSCTL5   LFXTOFFG (puesta tras el POR), HFXTOFFG: un oscilador pedido
+//            (por un reloj o por su xxOFF = 0) que no oscila. El reloj que
+//            lo usa pasa a LFMODCLK (LFXT) o a MODCLK (HFXT) [§3.2.8]. [De
+//            modelo: HFXTOFFG a 0 tras el POR, porque los ejemplos de TI solo
+//            borran LFXTOFFG antes de esperar a OFIFG.]
+//   CSCTL6   las peticiones condicionales (ACLKREQEN, MCLKREQEN, SMCLKREQEN).
 // =============================================================================
 #ifndef STM32_PERIPH_TI_CS_FR_H
 #define STM32_PERIPH_TI_CS_FR_H
@@ -46,24 +67,40 @@ public:
         bool xt1 = false;                    // el cristal oscila (y sus pines están en XIN/XOUT)
         double f_xt1 = 32768.0;
         bool pide_smclk = false, pide_aclk = false;
+        bool hfxt = false;                   // FR5: el cristal de alta frecuencia oscila
+        double f_hfxt = 0.0;
     };
+    // Las FR5xx/FR6xx (lo pone el SoC antes del primer reset)
+    bool fr5 = false;
+    static constexpr double F_LFMOD = F_MODOSC / 128.0, F_VLO5 = 9400.0;
     // Lo que sale
     double f_dco = 0, f_dcodiv = 0, f_mclk = 0, f_smclk = 0, f_aclk = 0, f_fllref = 0;
-    double f_mclk_fuente = 0;                // MCLK sin CPUOFF (lo que ve el perro, el ADC...)
+    double f_mclk_fuente = 0;
+    double f_smclk_peticion = 0;             // FR5: SMCLK a petición (SMCLKREQEN), aunque esté parado: lo que ve la eUSCI que la pide                // MCLK sin CPUOFF (lo que ve el perro, el ADC...)
     bool xt1_pedido = false;
 
     void reset() {
+        if (fr5) {
+            r_[0] = 0; r_[1] = 0x000C; r_[2] = 0x0033; r_[3] = 0x0033; r_[4] = 0xCDC9;
+            r_[5] = uint16_t(0x00C0 | (r_[5] & 0x0003) | (por_ ? 0x0001 : 0)); r_[6] = 0x0007;
+            por_ = false; abierto_ = false;
+            return;
+        }
         r_[0] = 0; r_[1] = 0x0033; r_[2] = 0x101F; r_[3] = 0; r_[4] = 0x0100; r_[5] = 0x1000;
         r_[6] = 0x00C1; r_[7] = 0x0440; r_[8] = 0x0007;
         tap_ = 256; f_dco = 0; desbloqueo_ = sc_core::SC_ZERO_TIME; unlock_ = 0;
     }
+    // El POR (las faltas de los cristales vuelven a 1) [UG FR5 §3.2.8]
+    void por() { por_ = true; }
     uint16_t lee(unsigned k) const {
+        if (fr5) return k == 0 ? 0x9600 : k < 7 ? r_[k] : 0;
         if (k == 0) return uint16_t((r_[0] & 0x3E00u) | tap_);
         if (k == 7) return uint16_t((r_[7] & ~0x0300u) | (uint16_t(unlock_) << 8) | 0x0004);   // REFOREADY
         return k < 9 ? r_[k] : 0;
     }
     // Devuelve true si cambian los relojes
     bool escribe(unsigned k, uint16_t v, uint16_t m, const Entradas& e) {
+        if (fr5) return escribe5(k, v, m, e);
         if (k > 8) return false;
         const uint16_t n = uint16_t((r_[k] & ~m) | (v & m));
         switch (k) {
@@ -89,6 +126,7 @@ public:
     // Las frecuencias con el estado de ahora; `cambio`: algo del FLL ha
     // cambiado (arranca la ventana de desenganche)
     void calcula(const Entradas& e, bool cambio = false) {
+        if (fr5) { calcula5(e); return; }
         const sc_core::sc_time ahora = sc_core::sc_time_stamp();
         const unsigned selref = (r_[3] >> 4) & 3u, sela = (r_[4] >> 8) & 3u, selms = r_[4] & 7u;
         const bool auto_off = (r_[6] & 0x0001) != 0;
@@ -131,15 +169,77 @@ public:
         const double fa = sela == 0 ? xt1 : sela == 1 ? F_REFO : F_VLO;
         f_aclk = (!e.oscoff || (e.pide_aclk && (r_[8] & 0x01))) ? fa : 0.0;
     }
-    bool falta() const { return (r_[7] & 0x0003) != 0; }
+    bool falta() const { return fr5 ? (r_[5] & 0x0003) != 0 : (r_[7] & 0x0003) != 0; }
+    bool abierto() const { return abierto_; }
     // El fin del desenganche (para recalcular entonces)
     sc_core::sc_time fin_desenganche() const { return desbloqueo_; }
     unsigned grifo() const { return tap_; }
     unsigned unlock() const { return unlock_; }
-    bool fllulpuc() const { return (r_[7] & 0x1010) == 0x1010; }
+    bool fllulpuc() const { return !fr5 && (r_[7] & 0x1010) == 0x1010; }
+    // FR5: ¿pide alguien el LFXT? (para los pines y el despertar de LPM3.5)
+    bool lfxt_pedido() const { return xt1_pedido; }
 
 private:
     uint16_t r_[9] = {};
+    bool por_ = true, abierto_ = false;
+    bool escribe5(unsigned k, uint16_t v, uint16_t m, const Entradas& e) {
+        if (k == 0) {
+            if (m & 0xFF00) abierto_ = ((v >> 8) & 0xFFu) == 0xA5u;
+            return false;
+        }
+        if (k > 6 || !abierto_) return false;
+        const uint16_t n = uint16_t((r_[k] & ~m) | (v & m));
+        switch (k) {
+        case 1: r_[1] = uint16_t(n & 0x004Eu); break;
+        case 2: r_[2] = uint16_t(n & 0x0777u); break;
+        case 3: r_[3] = uint16_t(n & 0x0777u); break;
+        case 4: r_[4] = uint16_t(n & 0xFFDBu); break;
+        case 5: {
+            // las faltas se borran con 0 (y vuelven si siguen)
+            const uint16_t borra = uint16_t(m & ~v & 0x0003u);
+            r_[5] = uint16_t(((r_[5] & ~borra) & 0x0003u) | (n & 0x00C0u));
+            break;
+        }
+        case 6: r_[6] = uint16_t(n & 0x000Fu); break;
+        default: break;
+        }
+        calcula5(e);
+        return true;
+    }
+    void calcula5(const Entradas& e) {
+        static const double D0[8] = {1e6, 2.667e6, 3.5e6, 4e6, 5.333e6, 7e6, 8e6, 8e6};
+        static const double D1[8] = {1e6, 5.333e6, 7e6, 8e6, 16e6, 21e6, 24e6, 24e6};
+        const unsigned fsel = (r_[1] >> 1) & 7u;
+        f_dco = (r_[1] & 0x40) ? D1[fsel] : D0[fsel];
+        const unsigned sela = (r_[2] >> 8) & 7u, sels = (r_[2] >> 4) & 7u, selm = r_[2] & 7u;
+        const bool lf_pide = !(r_[4] & 0x0001) || sela == 0 || sels == 0 || selm == 0;
+        const bool hf_pide = !(r_[4] & 0x0100) || sels == 5 || selm == 5;
+        xt1_pedido = lf_pide;
+        if (lf_pide && !e.xt1) r_[5] |= 0x0001;                     // LFXTOFFG
+        if (hf_pide && !e.hfxt) r_[5] |= 0x0002;                    // HFXTOFFG
+        const double lf = e.xt1 ? e.f_xt1 : F_LFMOD, hf = e.hfxt ? e.f_hfxt : F_MODOSC;
+        auto fuente = [&](unsigned s) {
+            switch (s) {
+            case 0: return lf;
+            case 1: return F_VLO5;
+            case 2: return F_LFMOD;
+            case 4: return F_MODOSC;
+            case 5: return hf;
+            default: return f_dco;
+            }
+        };
+        static const unsigned DIV[8] = {1, 2, 4, 8, 16, 32, 32, 32};
+        f_dcodiv = f_dco;
+        f_fllref = 0;
+        f_mclk_fuente = fuente(selm) / DIV[r_[3] & 7u];
+        f_mclk = e.cpuoff ? 0.0 : f_mclk_fuente;
+        const bool smclk_on = !(r_[4] & 0x0002) && (!e.scg1 || (e.pide_smclk && (r_[6] & 0x04)));
+        f_smclk = smclk_on ? fuente(sels) / DIV[(r_[3] >> 4) & 7u] : 0.0;
+        f_smclk_peticion = (!(r_[4] & 0x0002) && (r_[6] & 0x04)) ? fuente(sels) / DIV[(r_[3] >> 4) & 7u] : 0.0;
+        const double fa = fuente(sela > 2 ? 0 : sela) / DIV[(r_[3] >> 8) & 7u];
+        f_aclk = (!e.oscoff || (e.pide_aclk && (r_[6] & 0x01))) ? fa : 0.0;
+        unlock_ = 0;
+    }
     unsigned tap_ = 256, unlock_ = 0, unlock_dir_ = 1;
     bool tap_escrito_ = false;
     sc_core::sc_time desbloqueo_{sc_core::SC_ZERO_TIME};

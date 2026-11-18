@@ -143,6 +143,11 @@ public:
     uint32_t device_id_ptr = 0;
     // La firma de 5xx: bloqueado, como el fusible fundido
     void pon_bloqueo(bool b) { bloqueo_ = b; }
+    // Con la firma (no con el fusible), el buzón sigue abierto: BYPASS y
+    // JMB_EXCHANGE [UG FR5 §1.13.1]. Lo pide el chip (las FR5xx/FR6xx: la
+    // contraseña de JTAG entra por él)
+    bool jmb_con_firma = false;
+    bool jmb_abierto() const { return jmb_con_firma && bloqueo_ && !fusible_ && xv2_ && ir_ == IR430_JMB_EXCHANGE; }
     void pon_cpu(m430_jtag_cpu_if* c) { cpu_ = c; }
     uint8_t jtag_id() const { return id_; }
 
@@ -292,7 +297,7 @@ private:
     void captura_dr() {
         n_ = largo_dr();
         uint64_t v = 0;
-        if (fusible()) { n_ = 1; sr_ = 0; return; }  // fundido o con firma: todo es BYPASS
+        if (fusible() && !jmb_abierto()) { n_ = 1; sr_ = 0; return; }  // fundido o con firma: todo es BYPASS
         switch (ir_) {
         case IR430_CNTRL_SIG_16BIT: case IR430_CNTRL_SIG_CAPTURE: v = estado_cntrl(); break;
         case IR430_CNTRL_SIG_HIGH_BYTE: v = estado_cntrl() >> 8; break;
@@ -327,7 +332,7 @@ private:
     }
     void actualiza_ir() {
         ir_ = uint8_t(valor_ir());
-        if (fusible()) { ir_ = IR430_BYPASS; return; }
+        if (fusible() && !jmb_abierto()) { ir_ = IR430_BYPASS; return; }
         if (cpu_ && ir_ == IR430_DATA_QUICK) quick_ = (cpu_->jtag_mab() + (xv2_ ? 0 : 4)) & (cpux_ ? 0xFFFFFu : 0xFFFFu);
         if (ir_ == IR430_JMB_EXCHANGE) jmb_fase_ = 0;
         if (cpu_ && ir_ == IR430_DATA_PSA) {
@@ -352,7 +357,7 @@ private:
     // MSB primero (IR_CNTRL_SIG_16BIT = 0xC8 por 0x13). El registro, tal cual
     uint32_t valor_ir() const { return uint32_t(sr_ & 0xFFu); }
     void actualiza_dr() {
-        if (fusible()) return;
+        if (fusible() && !jmb_abierto()) return;
         const uint32_t v = valor_dr();
         switch (ir_) {
         case IR430_CNTRL_SIG_16BIT: pon_cntrl(uint16_t(v)); break;

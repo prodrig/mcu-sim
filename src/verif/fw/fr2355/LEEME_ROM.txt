@@ -1,0 +1,8 @@
+rom_driverlib_fr235x.txt: la ROM de bibliotecas del MSP430FR2355 (0xFAC00),
+HECHA AQUÍ, no la de TI: la DriverLib de TI (BSD, la del paquete de software
+de la MSP-EXP430FR2355) compilada con msp430-elf-gcc -mlarge en 0xFAC00, con
+la tabla raíz y las tablas de cada módulo en el orden que documenta TI en
+rom_driverlib_fr235x.h. Se regenera con verif/fr2355/rom/Makefile.rom. Las
+funciones están en otras direcciones que en la ROM de TI y la FFT no está;
+un programa que llame por las tablas (las macros ROM_ y MAP_ de TI) funciona.
+El SoC la carga al construirse (ChipFr2::rom_imagen). La usa testfr2355 J4.

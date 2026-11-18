@@ -497,7 +497,14 @@ testf5                 59       25861134250000       total
 # BAKMEM, la RAM perdida, LOCKLPM5); R4 LPM4.5 y el despertar por P2.3; R5
 # el JSTATE por SBW; R6 la demo de fabrica de TI, su binario (la CTPL en
 # LPM3.5, S1 y S1+S2). Sin sockets: total. Igual en dos pasadas.
-testfr2                26       13367796000000       total
+testfr2                26       13377796000000       total
+# Movido (17-11-2026, M7): 13367796000000 -> 13377796000000. El SoC de la
+# familia miraba la peticion de CCR0 de los Timer por su senal irq0, que
+# el Timer publica un delta despues; una rutina corta (la de fr2_basico.c:
+# ++ticks) volvia a entrar con la peticion ya borrada y contaba dos veces.
+# Ahora la mira en el Timer (TimerAP4::pide0/piden): los 10 ticks de R2 son
+# 10 ms y no 5, y todo lo de despues llega 10 ms mas tarde (R3-R6, 5 ms del
+# programa y 5 de la espera del banco). Las comprobaciones, las mismas.
 # M7 (17-11-2026): el SoC de la FR2433 es ahora la tabla de su chip para el
 # SoC de la familia (soc/msp430/fr2/soc_fr2.h); los Timer piden su reloj en
 # LPM (UG FR2 3.2.12), PxIFG no se borra con LOCKLPM5 (UG FR2 8.3.4) y P2IV
@@ -533,10 +540,23 @@ testfr2311             15        1328202000000       total
 # el MPY32); J3 la demo de fabrica de TI, su binario (el sensor de luz con el
 # fotodiodo, S1, y el generador de funciones por S2). Sin sockets: total.
 # Igual en dos pasadas.
-testfr2355             23        6522402000000       total
+testfr2355             36        6560025667008       total
+# Movido (17-11-2026, M7): 23/6522402000000 -> 36/6560025667008. J4 nuevo
+# (fr235_extra.c: la ROM de bibliotecas, la modulacion IR, TB0OUTH y el
+# MFM). J1-J3 no cambian de resultado (el arreglo de pide0 de arriba no
+# mueve su tiempo: sus rutinas de CCR0 eran lo bastante largas).
 # testfr2476: el MSP430FR2476 (M7). K1 el descriptor y la TLV; K2
 # fr247_basico.c con -mlarge (la FRAM de arriba de 0x10000 y PFWP alli, el ADC
 # de 12 bits y REFVSEL, TA2.1 reasignado por TA2RMP, TB0.6, el eCOMP0 contra la
 # de 1,2 V, la interrupcion de P6); K3 la demo de fabrica de TI, su binario
 # (el TMP235 y el LED RGB, S2 y S1). Sin sockets: total. Igual en dos pasadas.
 testfr2476             19        6629302000000       total
+
+# testfr5: las FR5xx/FR6xx (M8). L1 el FR5969 contra su descriptor y la TLV;
+# L2 fr59_basico.c con -mlarge (el DCO, el LFXT, el ADC12_B con el sensor y
+# AVCC/2, el Comp_E, AES-128, el DMA, el RTC_B, TB0.3, la IPE, la MPU con su NMI
+# y su PUC, LPM3.5 con el RTC_B); L3 la demo de fabrica de TI, su binario (el
+# ping, la temperatura en vivo, LPM3.5 y S2). Crece con el resto de M8 (el
+# FR5994 y el FR6989): cada grupo nuevo la mueve, y se dice aqui. Sin sockets:
+# total. Igual en dos pasadas.
+testfr5                25        8081812000000       total

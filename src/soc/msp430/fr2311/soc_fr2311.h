@@ -61,6 +61,8 @@ inline constexpr Fr2Fn FN[] = {
     // P2: TB1.1 / COUT; TB1.2; la UCB0 con USCIBRMP; TB1CLK; MCLK / XOUT; TB0CLK / XIN
     {fr2_pin(2, 0), 1, 1, 1, 1}, {fr2_pin(2, 0), 2, 7, 0, 0}, {fr2_pin(2, 1), 1, 1, 1, 2},
     {fr2_pin(2, 2), 1 | REMAP_SI, 2, UB0, 3}, {fr2_pin(2, 3), 1 | REMAP_SI, 2, UB0, 2},
+    // TB0TRG en P1.2 y TB1TRG en P2.3 (PxSEL = 10): los disparos de TBxOUTH
+    {fr2_pin(1, 2), 2, 9, 0, 0}, {fr2_pin(2, 3), 2, 9, 1, 0},
     {fr2_pin(2, 4), 1 | REMAP_SI, 2, UB0, 0}, {fr2_pin(2, 5), 1 | REMAP_SI, 2, UB0, 1},
     {fr2_pin(2, 2), 2, 5, 1, 0},
     {fr2_pin(2, 6), 1, 4, 0, 0}, {fr2_pin(2, 6), 2, 3, 0, 0}, {fr2_pin(2, 7), 1, 5, 0, 0}, {fr2_pin(2, 7), 2, 3, 0, 0},
@@ -74,6 +76,8 @@ inline constexpr Fr2Ecomp ECOMPS[] = {
      {{1, fr2_pin(1, 0)}, {1, fr2_pin(1, 1)}, NADA, NADA, {3, 0}, NADA, NADA, NADA},
      0, 1, 3},
 };
+// TBxOUTH [DS tabla 6-15]: el eCOMP0 o el pin, con TB0TRGSEL (bit 15) y TB1TRGSEL (14)
+inline constexpr Fr2Outh OUTH[] = {{0, 0, 15}, {1, 0, 14}};
 inline constexpr Fr2Sac SACS[] = {
     {"sac0", 0x0C80, false, fr2_pin(1, 4), fr2_pin(1, 2), fr2_pin(1, 3), -1, {3, 0}, NADA, nullptr},
 };
@@ -107,6 +111,7 @@ inline constexpr ChipFr2 CHIP_FR2311 = [] {
     c.tia = &fr2311::TIA;
     c.remap_bit = 11;                                 // USCIBRMP [UG FR2 tabla 1-26]
     c.errata_tb25 = true;                             // [SLAZ679R]
+    c.outh = fr2311::OUTH; c.nouth = 2;
     return c;
 }();
 

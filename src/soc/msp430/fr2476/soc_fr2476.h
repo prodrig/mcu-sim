@@ -105,7 +105,11 @@ inline constexpr Fr2Fn FN[] = {
     // P6: TA2.2 / COMP0.3; TB0CLK; TB0.0
     {fr2_pin(6, 0), SI1, 1, TA2, 2, RT2}, {fr2_pin(6, 0), 3, 3, 0, 0},
     {fr2_pin(6, 1), 1, 5, TB0, 0}, {fr2_pin(6, 2), 1, 1, TB0, 0},
+    // TB0TRG en P3.5 (PxSEL = 10): el disparo de TB0OUTH
+    {fr2_pin(3, 5), 2, 9, TB0, 0},
 };
+// TB0OUTH [DS tabla 9-17]: el eCOMP0, o P3.5 con TB0TRGSEL (SYSCFG2 bit 15)
+inline constexpr Fr2Outh OUTH[] = {{TB0, 0, 15}};
 inline constexpr Fr2Enlace ENLACES[] = {{TA0, TA1, 3}, {TA2, TA3, 3}, {TA3, TB0, 3}};
 inline constexpr Fr2Disparo DISPAROS[] = {{TA1, 1, 2}};
 inline constexpr Fr2Src NADA{0, 0};
@@ -143,6 +147,7 @@ inline constexpr ChipFr2 CHIP_FR2476 = [] {
     c.adc12 = true;
     c.ref_mejorada = true;
     c.errata_tb25 = true;                             // [SLAZ726B]
+    c.outh = fr2476::OUTH; c.nouth = 1;
     return c;
 }();
 

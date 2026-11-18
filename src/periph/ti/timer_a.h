@@ -126,6 +126,11 @@ public:
     // El MSP430 borra CCIFG de CCR0 al aceptar su vector (el MSP432, no): lo
     // llama el SoC cuando la CPU reconoce la interrupción TAx_0
     void reconoce_ccr0() { cctl_[0] &= uint16_t(~CC_IFG); borrado(); }
+    // Las peticiones tal como están ahora (irq0/irqn las publican un delta
+    // después): las mira el SoC de las FR2xx/FR4xx, para no volver a entrar
+    // en una rutina corta de CCR0 con la petición ya borrada (M7)
+    bool pide0() const { return o_irq0_; }
+    bool piden() const { return o_irqn_; }
 
 protected:
     TimerACaps caps_;

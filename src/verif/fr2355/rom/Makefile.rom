@@ -1,0 +1,26 @@
+# La ROM de bibliotecas del MSP430FR2355 (M7): la DriverLib de TI (BSD, del
+# paquete de la MSP-EXP430FR2355) compilada en 0xFAC00 con las tablas de
+# rom_driverlib_fr235x.h. Sale verif/fw/fr2355/rom_driverlib_fr235x.txt
+# (TI-TXT), que el SoC carga al construirse.
+#   make -f Makefile.rom [MSPGCC=<bin>]
+MSPGCC ?= msp430-elf-
+REFS   ?= ../../../../doc/refs/msp430
+TI     ?= $(REFS)/ti/msp430/include_gcc
+DL     ?= $(REFS)/launchpads/MSP-EXP430FR2355/sw/Firmware/Source/OutOfBox_MSP-EXP430FR2355/driverlib/MSP430FR2xx_4xx
+CFLAGS := -mmcu=msp430fr2355 -mlarge -mcode-region=none -mdata-region=none -I$(TI) -I$(DL) -I../shim -I. -include compat.h -Os -w -ffunction-sections -fdata-sections
+DLSRC  := adc crc cs ecomp eusci_a_spi eusci_a_uart eusci_b_i2c eusci_b_spi framctl gpio icc mpy32 pmm rtc sac sfr sysctl timer_b tlv wdt_a
+SALIDA := ../../fw/fr2355/rom_driverlib_fr235x.txt
+
+all: $(SALIDA) rom_gcc.h
+
+rom_tablas.c rom_gcc.h: genera_rom.py $(DL)/rom_headers/rom_driverlib_fr235x.h
+	python3 genera_rom.py $(DL)/rom_headers/rom_driverlib_fr235x.h rom_tablas.c rom_gcc.h
+
+rom.elf: rom_tablas.c rom.ld
+	$(MSPGCC)gcc $(CFLAGS) -nostartfiles -nostdlib -L$(TI) -T rom.ld -Wl,--gc-sections -o $@ rom_tablas.c $(DLSRC:%=$(DL)/%.c) -lgcc
+
+$(SALIDA): rom.elf a_titxt.py
+	python3 a_titxt.py rom.elf $@ $(MSPGCC)objcopy
+
+clean:
+	rm -f rom.elf rom_tablas.c

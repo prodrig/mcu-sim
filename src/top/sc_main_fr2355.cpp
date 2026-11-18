@@ -14,6 +14,11 @@
 //       el SAC0 de seguidor, el ADC y el PWM por programa de LED1 y LED2; S1
 //       recalibra; S2 pasa al generador de funciones (el seno del DAC del
 //       SAC3 por el SAC1 invertido, el ADC y el JSON por la UART)
+//   J4  fr235_extra.c (-mlarge): la ROM de bibliotecas (la DriverLib por las
+//       tablas de TI en 0xFAC00), la modulación IR de SYSCFG1 en UCA0TXD,
+//       TB0OUTH (por el eCOMP0 y por TB0TRG) y el MFM (un paquete de 32
+//       bytes en Manchester por P5.1, que arranca TB2.0, y otro que el banco
+//       manda por P5.0; la UCB1 de esclava; el fin en TB2 CCI0B)
 // =============================================================================
 #include <systemc>
 #include <algorithm>
@@ -22,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 #include "common/asan_opciones.h"
 #include "soc/msp430/fr2355/soc_fr2355.h"
 #include "parts/ext_parts.h"
@@ -45,7 +51,21 @@ SC_MODULE(TbFr2355) {
     // el fotodiodo D1 con el ánodo a masa, y OA2+ (P3.3) a masa por J9
     Resistencia r3{"r3", fr.p(3, 1), fr.p(3, 2), 2.37e6};
     Fotodiodo d1{"d1", gnd, fr.p(3, 2), 5.0, 0.0};
-    int d_gnd_ = -1, d_oa2m_ = -1, d_s1_ = -1, d_s2_ = -1;
+    int d_gnd_ = -1, d_oa2m_ = -1, d_s1_ = -1, d_s2_ = -1, d_p10_ = -1, d_p12_ = -1, d_p50_ = -1;
+    // Los flancos de P1.7 (IR), P1.6 (TB0OUTH) y P5.1 (MFM.TX)
+    struct Flancos { unsigned p, b; std::vector<std::pair<sc_time, bool>> v; bool ant = false; };
+    Flancos fl_[3] = {{1, 7, {}}, {1, 6, {}}, {5, 1, {}}};
+    void flancos_proc() {
+        for (Flancos& x : fl_) {
+            const bool a = alto(x.p, x.b);
+            if (a != x.ant) { x.v.emplace_back(sc_time_stamp(), a); x.ant = a; }
+        }
+    }
+    unsigned subidas(unsigned k, const sc_time& desde) const {
+        unsigned n = 0;
+        for (const auto& e : fl_[k].v) if (e.first >= desde && e.second) ++n;
+        return n;
+    }
 
     SC_CTOR(TbFr2355) {
         SC_THREAD(run);
@@ -56,6 +76,12 @@ SC_MODULE(TbFr2355) {
         d_oa2m_ = fr.p(3, 3).register_driver("j9"); fr.p(3, 3).set_drive(d_oa2m_, 0.0f, 0.1f);
         d_s1_ = fr.p(4, 1).register_driver("S1"); fr.p(4, 1).set_hiz(d_s1_);
         d_s2_ = fr.p(2, 3).register_driver("S2"); fr.p(2, 3).set_hiz(d_s2_);
+        d_p10_ = fr.p(1, 0).register_driver("banco"); fr.p(1, 0).set_hiz(d_p10_);
+        d_p12_ = fr.p(1, 2).register_driver("banco"); fr.p(1, 2).set_hiz(d_p12_);
+        d_p50_ = fr.p(5, 0).register_driver("banco"); fr.p(5, 0).set_hiz(d_p50_);
+        SC_METHOD(flancos_proc);
+        for (const Flancos& x : fl_) sensitive << fr.p(x.p, x.b).value_changed_event();
+        dont_initialize();
         r3.set_enabled(false); d1.set_enabled(false);
     }
     // El tiempo en alto de P6.5 (TB3.6), P1.0 (LED1) y P6.6 (LED2)
@@ -240,12 +266,119 @@ SC_MODULE(TbFr2355) {
         check(n > 590 && n < 640 && mn < 1150 && mn > 950 && mx > 2950 && mx < 3150, t);
     }
 
+    void j4() {
+        grupo("J4 fr235_extra.c: la ROM de bibliotecas, la modulación IR, TB0OUTH y el MFM");
+        r3.set_enabled(false); d1.set_enabled(false);
+        fr.p(1, 0).set_drive(d_p10_, 1.5f, 10.0f);
+        fr.p(5, 0).set_drive(d_p50_, 0.0f, 10.0f);
+        corre(std::string(DIR) + "fr235_extra.elf");
+        check(!fr.rom_cargada.empty(), "la imagen de la ROM, cargada al construir el SoC (" + fr.rom_cargada + ")");
+        const bool r = espera_uart("rom v", 1000);
+        check(r && linea(fr.uart_tx, "rom v") == "rom v 025A0107 p3 1 crc 1 mpy 7006652",
+              "la DriverLib de la ROM por sus tablas: la versión 2.90.1.7, GPIO, CRC (igual que a mano) y MPY32 (" + linea(fr.uart_tx, "rom v") + ")");
+        // La modulación IR: en cada tramo, 1 ms de P1.7
+        struct Ir { const char* m; bool portadora; bool nivel; const char* q; };
+        const Ir ir[] = {{"ir ask1", true, false, "ASK con el dato a 1: la portadora (TB0.2, 38 kHz)"},
+                         {"ir ask0", false, false, "ASK con el dato a 0: nada (0)"},
+                         {"ir inv", false, true, "IRPSEL: invertida (1)"},
+                         {"ir fsk0", true, false, "FSK con el dato a 0: la primera PWM, la portadora"},
+                         {"ir fsk1", false, false, "FSK con el dato a 1: la segunda, TB1.2 a 0"},
+                         {"ir fin", false, true, "sin IREN: el pin vuelve a ser UCA0TXD (en reposo, 1)"}};
+        for (const Ir& x : ir) {
+            espera_uart(x.m, 100);
+            wait(500, SC_US);
+            const sc_time t0 = sc_time_stamp();
+            wait(1, SC_MS);
+            const unsigned n = subidas(0, t0);
+            const bool ok = x.portadora ? (n >= 37 && n <= 39) : (n == 0 && alto(1, 7) == x.nivel);
+            check(ok, std::string("IR, ") + x.q + ": " + std::to_string(n) + " flancos en 1 ms");
+        }
+        // TB0OUTH: con el eCOMP0 a 1 (P1.0 a 1,5 V), P1.6 suelto; con 0,5 V, el PWM
+        espera_uart("outh ecomp", 100);
+        wait(500, SC_US);
+        const bool suelto1 = fr.p(1, 6).floating();
+        fr.p(1, 0).set_drive(d_p10_, 0.5f, 10.0f);
+        wait(500, SC_US);
+        sc_time t0 = sc_time_stamp();
+        wait(1, SC_MS);
+        const unsigned n1 = subidas(1, t0);
+        check(suelto1 && n1 >= 37 && n1 <= 39,
+              "TB0OUTH por el eCOMP0: TB0.1 (P1.6) en alta impedancia con CPOUT = 1; con CPOUT = 0, su PWM (" + std::to_string(n1) + " flancos en 1 ms)");
+        fr.p(1, 2).set_drive(d_p12_, 3.3f, 10.0f);
+        espera_uart("outh pin", 100);
+        wait(500, SC_US);
+        const bool suelto2 = fr.p(1, 6).floating();
+        fr.p(1, 2).set_drive(d_p12_, 0.0f, 10.0f);
+        wait(500, SC_US);
+        t0 = sc_time_stamp();
+        wait(1, SC_MS);
+        const unsigned n2 = subidas(1, t0);
+        check(suelto2 && n2 >= 37 && n2 <= 39,
+              "TB0OUTH por TB0TRG (P1.2, TB0TRGSEL = 1): alta impedancia con el pin a 1, el PWM con él a 0 (" + std::to_string(n2) + " flancos)");
+        fr.p(1, 2).set_hiz(d_p12_); fr.p(1, 0).set_hiz(d_p10_);
+        // El MFM: lo que sale por P5.1, decodificado aquí
+        const size_t i0 = fl_[2].v.size();             // P5.1 no se ha movido antes
+        espera_uart("mfm", 100);
+        // la recepción: cuando P3.1 sube, el paquete por P5.0
+        for (int k = 0; k < 2000 && !alto(3, 1); ++k) wait(10, SC_US);
+        const sc_time T(8.0 / 3e6, SC_SEC), M = T / 2;
+        uint8_t mando[32];
+        for (unsigned j = 0; j < 32; ++j) mando[j] = uint8_t(0xA5 ^ (j * 13));
+        const bool listo = alto(3, 1);
+        if (listo) {
+            wait(20, SC_US);
+            for (unsigned j = 0; j < 32; ++j)
+                for (int b = 7; b >= 0; --b) {
+                    const bool v = (mando[j] >> b) & 1u;
+                    fr.p(5, 0).set_drive(d_p50_, v ? 3.3f : 0.0f, 10.0f); wait(M);
+                    fr.p(5, 0).set_drive(d_p50_, v ? 0.0f : 3.3f, 10.0f); wait(M);
+                }
+            fr.p(5, 0).set_drive(d_p50_, 0.0f, 10.0f);
+        }
+        const bool fin = espera_uart("mfm tx", 200);
+        // lo que salió por P5.1: desde la primera subida, cada bit en su cuarto
+        std::vector<std::pair<sc_time, bool>> e(fl_[2].v.begin() + long(i0), fl_[2].v.end());
+        auto nivel_en = [&](const sc_time& t) {
+            bool v = false;
+            for (const auto& x : e) { if (x.first > t) break; v = x.second; }
+            return v;
+        };
+        unsigned bien = 0;
+        if (!e.empty()) {
+            const sc_time s0 = e.front().first;
+            for (unsigned j = 0; j < 32; ++j) {
+                uint8_t b = 0;
+                for (unsigned k = 0; k < 8; ++k) {
+                    const sc_time t = s0 + T * double(8 * j + k) + T / 4;
+                    const bool h1 = nivel_en(t), h2 = nivel_en(t + M);
+                    if (h1 == h2) break;
+                    b = uint8_t((b << 1) | (h1 ? 1u : 0u));
+                }
+                if (b == uint8_t(0x80 | (j * 7))) ++bien;
+            }
+        }
+        char t[300];
+        std::snprintf(t, sizeof t, "MFM.TX (P5.1): TB2.0 arranca el paquete; %u de 32 bytes en Manchester a 375 kbps (SMCLK 3 MHz / 8), "
+                      "los de TXBUF de la UCB1 esclava", bien);
+        check(bien == 32 && fr.mfm_paquetes_tx() == 1, t);
+        uint16_t sm = 0;
+        for (unsigned j = 0; j < 32; ++j) sm = uint16_t(sm * 31 + mando[j]);
+        char esp[80];
+        std::snprintf(esp, sizeof esp, "mfm tx 32 rx 32 suma %04X r0 A5 r31 %02X", sm, mando[31]);
+        check(listo && fin && linea(fr.uart_tx, "mfm tx") == esp && fr.mfm_paquetes_rx() == 1,
+              std::string("MFM.RX (P5.0): el paquete del banco, byte a byte en RXBUF de la UCB1; los dos fines en TB2 CCI0B (") +
+              linea(fr.uart_tx, "mfm tx") + ")");
+        check(espera_uart("fin", 50), "el programa acaba en LPM0");
+        fr.p(5, 0).set_hiz(d_p50_);
+    }
+
     void run() {
         const char* solo = std::getenv("TESTFR2355_SOLO");
         auto va = [&](char g) { return !solo || std::strchr(solo, g); };
         if (va('1')) j1();
         if (va('2')) j2();
         if (va('3')) j3();
+        if (va('4')) j4();
         std::printf("\nTOTAL FR2355: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

@@ -94,7 +94,17 @@ inline constexpr Fr2Fn FN[] = {
     // P6: TB3.1-TB3.6 y TB3CLK
     {fr2_pin(6, 0), 1, 1, 3, 1}, {fr2_pin(6, 1), 1, 1, 3, 2}, {fr2_pin(6, 2), 1, 1, 3, 3}, {fr2_pin(6, 3), 1, 1, 3, 4},
     {fr2_pin(6, 4), 1, 1, 3, 5}, {fr2_pin(6, 5), 1, 1, 3, 6}, {fr2_pin(6, 6), 1, 5, 3, 0},
+    // TB0TRG (P1.2, 10), TB1TRG (P2.3, 01) y TB2TRG (P5.3, 01): los disparos de TBxOUTH
+    {fr2_pin(1, 2), 2, 9, 0, 0}, {fr2_pin(2, 3), 1, 9, 1, 0}, {fr2_pin(5, 3), 1, 9, 2, 0},
+    // El MFM: MFM.RX en P5.0 y MFM.TX en P5.1 (PxSEL = 10) [DS §6.10.14]
+    {fr2_pin(5, 0), 2, 8, 0, 0}, {fr2_pin(5, 1), 2, 8, 0, 1},
 };
+// TBxOUTH [DS tabla 6-20]: TB0/TB1 con el eCOMP0, TB2/TB3 con el eCOMP1, o
+// su pin TBxTRG (TB3: ninguno) con TBxTRGSEL (SYSCFG2 bits 15-12)
+inline constexpr Fr2Outh OUTH[] = {{0, 0, 15}, {1, 0, 14}, {2, 1, 13}, {3, 1, 12}};
+// El MFM: la eUSCI_B1 de esclavo; arranca con la salida de TB2 CCR0 y avisa
+// del fin en TB2 CCI0B [DS §6.10.14 y tabla 6-18]
+inline constexpr Fr2Mfm MFM{3, 2, 0, 0};
 inline constexpr Fr2Enlace ENLACES[] = {{0, 1, 3}};
 inline constexpr Fr2Disparo DISPAROS[] = {{1, 1, 2}};
 inline constexpr Fr2Disparo DAC_DISPAROS[] = {{2, 1, 2}, {2, 2, 3}};     // TB2.1: DACLSEL = 10; TB2.2: 11
@@ -146,6 +156,9 @@ inline constexpr ChipFr2 CHIP_FR2355 = [] {
     c.ref_mejorada = true;
     c.frwpoa = true;
     c.errata_tb25 = true;                             // [SLAZ695J]
+    c.outh = fr2355::OUTH; c.nouth = 4;
+    c.mfm = &fr2355::MFM;
+    c.rom_imagen = "verif/fw/fr2355/rom_driverlib_fr235x.txt";
     c.icc_base = 0x06C0; c.icc_vec0 = 0xFFCE;
     c.dac_disparos = fr2355::DAC_DISPAROS; c.ndac_disparos = 2;
     return c;

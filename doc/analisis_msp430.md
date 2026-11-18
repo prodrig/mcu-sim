@@ -1611,9 +1611,9 @@ gdb-g2` con la FR4133 por los dos caminos. SLAZ550AA, clasificada en P-20.
 Lo que salió por el camino: [error de TI] la tabla 3 de SLAU595B pone «A3R» y
 «A4R» donde va la E.
 
-**Queda del FR4133 [de modelo]:** la modulación IR de SYSCFG1, el CapTIvate
-IO (CAPTIO0) y el RTC a CCI1B de TA0, declarados; en 8-mux, 1/3 de
-polarización como en los demás.
+**Queda del FR4133 [de modelo]:** el CapTIvate IO (CAPTIO0) y el RTC a CCI1B
+de TA0, declarados; en 8-mux, 1/3 de polarización como en los demás. (La
+modulación IR de SYSCFG1, después: véase el FR2355.)
 
 **Hecho, el FR2311 (17-11-2026).** Lo de la familia que pedía: **el Timer_B**
 (en `timer_a.h`, `TimerACaps::es_b`): los latches TBxCLn con los cuatro
@@ -1654,10 +1654,9 @@ en la placa: a oscuras LED2 apagado, a 50 lx al 35,6 % (0,59 V en OA0O), a
 caminos. SLAZ679R clasificada; **TB25** (en ascendente, CLLD = 01/10 cargan
 el latch en el acto), modelada.
 
-**Queda del FR2311 [de modelo]:** TBxOUTH (TB0TRG, TB1TRG y el eCOMP que
-ponen las salidas del Timer_B en alta impedancia), el RTC a CCI0A de TB0, la
-modulación IR, el retraso del filtro del eCOMP y el ancho de banda del OA;
-TBCLGRP.
+**Queda del FR2311 [de modelo]:** el RTC a CCI0A de TB0, el retraso del
+filtro del eCOMP y el ancho de banda del OA; TBCLGRP. (TBxOUTH y la
+modulación IR, después: véase el FR2355.)
 
 Lo que salió por el camino: `make gdb-g2` con la FR2311 dio con un error de
 `common/gdb_rsp.h`, el de todos los stubs: el final del sector de un trozo
@@ -1709,12 +1708,49 @@ seno del DAC del SAC3 invertido por el SAC1. `make gdb-g2` con la FR2355 por
 los dos caminos. SLAZ695J clasificada (13, todas de la FR2311; TB25
 modelada también aquí).
 
-**Queda del FR2355 [de modelo]:** el MFM, TBxOUTH (TBxTRG), la eUSCI_A1
-invertida para IR, TB3 CCR0B a TB1, el RTC a TB0 CCI0A, y la ROM de
-bibliotecas (está en el mapa, sin contenido: si un programa la llamara, habría que cargar la imagen
-de TI desde fichero, como en B2). Con la pila virtual del ICC llena no pasa
-ninguna petición (el UG no dice qué hace), y la RETI de una NMI también saca
-de la pila.
+**Después, lo que quedaba del FR2355 (17-11-2026).**
+* **El MFM** (UG FR2 cap. 25): con MFM.RX/MFM.TX elegidos (P5.0/P5.1, PxSEL
+  = 10), la eUSCI_B1 queda de esclava de un maestro SPI de dentro
+  (`EusciP4::pon_externo`, `esclavo_toma`, `esclavo_recibe`). Un bit son 8
+  ciclos de SMCLK en Manchester; un paquete, 32 bytes. La salida de TB2 CCR0
+  arranca la transmisión (cada byte, el TXBUF de la esclava); la recepción
+  arranca con el primer flanco de subida, muestrea cada mitad en su centro y
+  se resincroniza en la transición del medio; el fin de los dos va a TB2
+  CCI0B.
+* **TBxOUTH**: las salidas de un Timer_B a sus pines, en alta impedancia
+  mientras su disparo esté a 1: el eCOMP de la tabla o, con TBxTRGSEL, su pin
+  TBxTRG. También en la FR2311 (TB0, TB1) y la FR2476 (TB0).
+* **La modulación IR** de SYSCFG1 (UG FR2 figura 1-6), en todas las de la
+  familia: el dato (UCA0TXD o IRDATA); en ASK la portadora (TA0.2 o TB0.2)
+  por la envolvente (TA1.2 o TB1.2), invertida si el dato es 1; en FSK una u
+  otra; IRPSEL invierte; sale por el pin de UCA0TXD.
+* **La ROM de bibliotecas, hecha aquí**: la DriverLib de TI (BSD, la del
+  paquete de la LaunchPad) compilada en 0xFAC00 con las tablas en el orden de
+  `rom_driverlib_fr235x.h`, que es la única interfaz pública de la ROM de TI
+  (`verif/fr2355/rom/`: `genera_rom.py`, `rom.ld`, `Makefile.rom`; sale
+  `verif/fw/fr2355/rom_driverlib_fr235x.txt`, que el SoC carga al
+  construirse). Las funciones están en otras direcciones que en la ROM de
+  TI, y la FFT no está (su entrada en la raíz es 0): un programa que llame
+  por las tablas, como hacen las macros `ROM_` y `MAP_` de TI, funciona.
+  `rom_gcc.h` es la cabecera de TI para msp430-elf-gcc `-mlarge`.
+
+**Lo que salió por el camino:** el SoC miraba la petición de CCR0 de los
+Timer por su señal `irq0`, que el Timer publica un delta después, y una
+rutina corta volvía a entrar con la petición ya borrada (la del MFM contaba
+dos fines por uno; la de `fr2_basico.c` contaba 10 ms en 5). Ahora la mira
+en el Timer (`TimerAP4::pide0`/`piden`); `testfr2` se mueve 10 ms, con las
+mismas comprobaciones (nota en `verif/invariantes.txt`).
+
+`testfr2355` J4 (13): la ROM (la versión 2.90.1.7, GPIO, CRC y MPY32 por sus
+tablas), la IR (ASK con el dato a 1 y a 0, IRPSEL, FSK con los dos datos, y
+sin IREN), TB0OUTH (por el eCOMP0 y por TB0TRG) y el MFM (un paquete por
+P5.1 decodificado por el banco y otro del banco por P5.0, byte a byte en la
+UCB1). Ahora son 36 comprobaciones.
+
+**Queda del FR2355 [de modelo]:** la eUSCI_A1 invertida para IR, el eCOMP1
+como entrada del MFM, TB3 CCR0B a TB1 y el RTC a TB0 CCI0A, declarados. Con la
+pila virtual del ICC llena no pasa ninguna petición (el UG no dice qué hace),
+y la RETI de una NMI también saca de la pila.
 
 **Hecho, el FR2476 (17-11-2026).** Lo de la familia que pedía: **la FRAM de
 arriba de 0x10000** (la `principal2` del descriptor: el SoC ya la llevaba; el
@@ -1748,9 +1784,7 @@ gdb-g2` con la FR2476 por los dos caminos, con la ruptura en una función de
 por encima de 0x10000. SLAZ726B clasificada (9: TB25 y **COMP12**, el eCOMP0
 que no llega a TB0.CCI1B, modeladas).
 
-**Queda del FR2476 [de modelo]:** el RTC a TA0/TA2 CCI1B, el VLO a CCI0B,
-TB0OUTH (TB0TRG y el eCOMP0), la modulación IR de SYSCFG1 y la BAKMEM (los
-32 bytes que pasan LPM3.5).
+**Queda del FR2476 [de modelo]:** el RTC a TA0/TA2 CCI1B y el VLO a CCI0B.
 
 **Cierre de M7 (17-11-2026).** Los cuatro chips, cada uno con su SoC como
 tabla de `soc_fr2.h`, su LaunchPad (XML y SVG), su suite (`testfr4`,

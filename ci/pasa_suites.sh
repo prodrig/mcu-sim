@@ -79,8 +79,9 @@ fallos=0
 # `test430`, el del nucleo MSP430 (M1 de doc/analisis_msp430.md), y
 # `testg2`, el del MSP430G2553 (M3), `testf5`, el del F5529 (M4), y
 # `testfr2`, el del FR2433 (M6), y `testfr4`, `testfr2311`, `testfr2355` y
-# `testfr2476`, los del FR4133, el FR2311, el FR2355 y el FR2476 (M7), la ultima.
-for s in test407 test446 test417 testserie testgui testp4 teste4 testf3 testrv testc3 testc6 test430 testg2 testf5 testfr2 testfr4 testfr2311 testfr2355 testfr2476; do
+# `testfr2476`, los del FR4133, el FR2311, el FR2355 y el FR2476 (M7), y
+# `testfr5`, las FR5xx/FR6xx (M8), la ultima.
+for s in test407 test446 test417 testserie testgui testp4 teste4 testf3 testrv testc3 testc6 test430 testg2 testf5 testfr2 testfr4 testfr2311 testfr2355 testfr2476 testfr5; do
     echo "  [suites] $s (presupuesto ${presupuesto}s)"
 
     # El `echo $?` dentro del subshell es como se recoge el estado a traves de

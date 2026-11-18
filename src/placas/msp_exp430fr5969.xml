@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MSP-EXP430FR5969: la LaunchPad del MSP430FR5969 (M8 de doc/analisis_msp430.md)
+
+     Lo que lleva la placa aparte del chip [SLAU535B, §2, y su lista de
+     materiales]:
+
+         U1    el MSP430FR5969IRGZ (VQFN-48)
+         LED1  en P4.6 y LED2 en P1.0 (rojo y verde, 0603), con 470 ohm [de
+               modelo: el valor, el de la lista de materiales para los LED]
+         S1    en P4.5 y S2 en P1.1, a masa: sin resistencia; el programa pone
+               la de dentro
+         S3    RESET, en RST/SBWTDIO, con 47 kohm a 3V3 y 1 nF
+         Y4    32 768 Hz en PJ.4/PJ.5 (LFXT): cristal_xt1 = true, de la
+               factoría. Y1 (HFXT) no se monta
+         J13   el bloque de aislamiento con el eZ-FET: GND, V+, RTS, CTS, RXD
+               <<, TXD >>, RST y TST
+         BCL   el backchannel del eZ-FET: la UCA0 en P2.0 (TXD) y P2.1 (RXD),
+               hasta el PC por RFC 2217 en el 3364
+         J1-J2 los conectores BoosterPack de 20 pines [SLAU535B figura 15]
+
+     El supercondensador (C1, 0,1 F) y J9 (la medida de la corriente) no se
+     modelan. La demo de fábrica (el PC manda '1', '2', '3' y '5' a 9600):
+
+         ./build/mcu-sim placas/msp_exp430fr5969.xml \
+             verif/fw/fr5969/OutOfBox_MSP430FR5969.txt 20000
+
+         ./build/mcu-sim placas/msp_exp430fr5969.xml --valida
+-->
+<placa nombre="msp-exp430fr5969">
+  <mcu tipo="MSP430FR5969" id="u0"/>
+
+  <componente tipo="Led" id="LED1" a_vss="si" vf="2.0" r="470" color="rojo">
+    <pin nombre="anodo" nodo="P4.6"/>
+  </componente>
+  <componente tipo="Led" id="LED2" a_vss="si" vf="2.9" r="470" color="verde">
+    <pin nombre="anodo" nodo="P1.0"/>
+  </componente>
+
+  <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P4.5"/>
+  </componente>
+  <componente tipo="Button" id="S2" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P1.1"/>
+  </componente>
+
+  <nodo id="RST" bus="si"/>
+  <componente tipo="Button" id="S3" v_cerrado="0" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="RST"/>
+  </componente>
+  <componente tipo="Rpull" id="R11" v="3.3" r="47000" visible="no">
+    <pin nombre="a" nodo="RST"/>
+  </componente>
+
+  <nodo id="5V" bus="si"/>
+  <nodo id="DVSS" bus="si"/>
+  <componente tipo="Fuente" id="USB" v="5" limite_ma="500">
+    <pin nombre="pin" nodo="J13.4"/>
+  </componente>
+  <componente tipo="Jumper" id="J13" filas="2" columnas="6"
+              puente="1 2, 3 4, 5 6, 7 8, 9 10, 11 12">
+    <pin nombre="1" nodo="DVSS"/>       <!-- GND -->
+    <pin nombre="3" nodo="DVCC"/>       <!-- V+ -->
+    <pin nombre="5" nodo="P2.1"/>       <!-- RXD << : UCA0RXD -->
+    <pin nombre="7" nodo="P2.0"/>       <!-- TXD >> : UCA0TXD -->
+    <pin nombre="9" nodo="RST"/>        <!-- SBW RST -->
+    <pin nombre="11" nodo="TEST"/>      <!-- SBW TST -->
+  </componente>
+  <componente tipo="PuenteSerie" id="BCL" host="rfc2217:3364"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="J13.8"/>
+    <pin nombre="tx" nodo="J13.6"/>
+  </componente>
+
+  <!-- Los conectores BoosterPack de 20 pines [SLAU535B figura 15]: J1 (1-10,
+       a la izquierda) y J2 (11-20, aquí 1-10); el 13 (aquí 3) es P3.0 y el 14,
+       sin conectar -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="10">
+    <pin nombre="1" nodo="DVCC"/>  <pin nombre="2" nodo="P4.2"/>  <pin nombre="3" nodo="P2.6"/>
+    <pin nombre="4" nodo="P2.5"/>  <pin nombre="5" nodo="P4.3"/>  <pin nombre="6" nodo="P2.4"/>
+    <pin nombre="7" nodo="P2.2"/>  <pin nombre="8" nodo="P3.4"/>  <pin nombre="9" nodo="P3.5"/>
+    <pin nombre="10" nodo="P3.6"/>
+  </componente>
+  <componente tipo="Conector" id="J2" filas="1" columnas="10">
+    <pin nombre="1" nodo="DVSS"/>  <pin nombre="2" nodo="P1.2"/>  <pin nombre="3" nodo="P3.0"/>
+    <pin nombre="5" nodo="RST"/>   <pin nombre="6" nodo="P1.6"/>  <pin nombre="7" nodo="P1.7"/>
+    <pin nombre="8" nodo="P1.5"/>  <pin nombre="9" nodo="P1.4"/>  <pin nombre="10" nodo="P1.3"/>
+  </componente>
+</placa>

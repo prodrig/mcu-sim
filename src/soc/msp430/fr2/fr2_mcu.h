@@ -23,6 +23,7 @@
 #include "../fr2311/soc_fr2311.h"
 #include "../fr2355/soc_fr2355.h"
 #include "../fr2476/soc_fr2476.h"
+#include "../fr5969/soc_fr5969.h"
 #include "../../../pins/nomenclatura.h"
 #include "../../../parts/netlist.h"
 #include "../../../common/nombres_nodo.h"
@@ -44,19 +45,26 @@ inline constexpr Encapsulado ENC_FR2355_PT48{"LQFP48", 48, 44, {0xFFu, 0xFFu, 0x
 // FR2476 LQFP-48 (el de la LaunchPad, MSP430FR2476TPT): P1-P5 enteros y
 // P6.0-P6.2 [SLASEO7C figura 7-1]
 inline constexpr Encapsulado ENC_FR2476_PT48{"LQFP48", 48, 43, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x07u}, true};
+// FR5969 VQFN-48 (el de la LaunchPad, MSP430FR5969IRGZ): P1-P4 y PJ enteros
+// [SLAS704G figura 4-1] (PJ es el puerto de índice FR5_PJ)
+inline constexpr Encapsulado ENC_FR5969_RGZ48{"VQFN48", 48, 40, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0, 0, 0, 0, 0, 0, 0xFFu}, true};
 inline constexpr Encapsulado ENC_FR4133_PM64{"LQFP64", 64, 60, {0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x0Fu}, true};
 
 namespace fr2 {
 inline bool pad_fr2(const std::string& t, unsigned& puerto, unsigned& pin) {
     std::string s = t;
     for (char& c : s) if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
-    if (s.size() == 4 && s[0] == 'P' && s[2] == '.' && s[3] >= '0' && s[3] <= '7' && s[1] >= '1' && s[1] <= '8') {
+    if (s.size() == 4 && s[0] == 'P' && s[2] == '.' && s[3] >= '0' && s[3] <= '7' && s[1] >= '1' && s[1] <= '9') {
         puerto = unsigned(s[1] - '1'); pin = unsigned(s[3] - '0');
         return true;                                // lo que existe lo dice el encapsulado
     }
+    // P10.x y PJ.x (FR5xx/FR6xx: PJ es el índice FR5_PJ)
+    if (s.size() == 5 && s.compare(0, 4, "P10.") == 0 && s[4] >= '0' && s[4] <= '7') { puerto = 9; pin = unsigned(s[4] - '0'); return true; }
+    if (s.size() == 4 && s.compare(0, 3, "PJ.") == 0 && s[3] >= '0' && s[3] <= '7') { puerto = FR5_PJ; pin = unsigned(s[3] - '0'); return true; }
     return false;
 }
 inline std::string canonico_fr2(unsigned puerto, unsigned pin) {
+    if (puerto == FR5_PJ) return "PJ." + std::to_string(pin);
     return "P" + std::to_string(puerto + 1) + "." + std::to_string(pin);
 }
 inline const char* const ALIM_FR2[] = {"DVCC", "DVSS", "RST", "TEST", nullptr};
@@ -67,6 +75,8 @@ struct RegistroNomFr2 {
     RegistroNomFr2() {
         ContextoNomenclatura::g().registra_tipo("MSP430FR2", &NOM_MSP430FR2);
         ContextoNomenclatura::g().registra_tipo("MSP430FR4", &NOM_MSP430FR2);   // el FR4133: la misma
+        ContextoNomenclatura::g().registra_tipo("MSP430FR5", &NOM_MSP430FR2);   // las FR5xx/FR6xx, con PJ
+        ContextoNomenclatura::g().registra_tipo("MSP430FR6", &NOM_MSP430FR2);
     }
 };
 inline const RegistroNomFr2 g_registro_nom_fr2{};
@@ -78,9 +88,11 @@ inline constexpr McuCapsFr2 MCU_MSP430FR4133{"MSP430FR4133", ENC_FR4133_PM64, &C
 inline constexpr McuCapsFr2 MCU_MSP430FR2311{"MSP430FR2311", ENC_FR2311_PW20, &CHIP_FR2311, false};
 inline constexpr McuCapsFr2 MCU_MSP430FR2355{"MSP430FR2355", ENC_FR2355_PT48, &CHIP_FR2355, true};
 inline constexpr McuCapsFr2 MCU_MSP430FR2476{"MSP430FR2476", ENC_FR2476_PT48, &CHIP_FR2476, false};
+inline constexpr McuCapsFr2 MCU_MSP430FR5969{"MSP430FR5969", ENC_FR5969_RGZ48, &CHIP_FR5969, true};
 struct RegistroCatalogoFr2 {
     RegistroCatalogoFr2() {
-        for (const McuCapsFr2* m : {&MCU_MSP430FR2433, &MCU_MSP430FR4133, &MCU_MSP430FR2311, &MCU_MSP430FR2355, &MCU_MSP430FR2476})
+        for (const McuCapsFr2* m : {&MCU_MSP430FR2433, &MCU_MSP430FR4133, &MCU_MSP430FR2311, &MCU_MSP430FR2355, &MCU_MSP430FR2476,
+                                  &MCU_MSP430FR5969})
             CatalogoMcu::registra(McuDesc{m->nombre, "MSP430FR2", &m->enc, m});
     }
 };
@@ -109,7 +121,7 @@ public:
             directo_->al_reset = [c] { c->reset(true); sc_core::wait(1, sc_core::SC_US); c->reset(false); };
             directo_->despierta = [c] { c->despierta_por_depurador(); };
             gdb_.reset(new GdbStubM430((std::string(nm) + "_gdb").c_str(), *directo_, dbg.puerto, "gdb-430"));
-            gdb_->pon_fram(chip_->fram_ini(), chip_->fram_fin(), 0x1800, 0x19FF);
+            gdb_->pon_fram(chip_->fram_ini(), chip_->fram_fin(), 0x1800, 0x19FF, caps_.chip->mpu_base);
             gdb_->set_enabled(false);
         }
     }
@@ -186,9 +198,9 @@ public:
     }
     // Sin firmware: el perro parado y LPM4
     void aparca_en_wfe() override {
-        static const uint16_t p[] = {0x40B2, 0x5A80, 0x01CC,     // mov #WDTPW|WDTHOLD,&WDTCTL
-                                     0xD032, 0x00F0,             // bis #LPM4,SR
-                                     0x3FFD};                    // jmp $-4
+        const uint16_t p[] = {0x40B2, 0x5A80, uint16_t(caps_.chip->fr5 ? 0x015C : 0x01CC),   // mov #WDTPW|WDTHOLD,&WDTCTL
+                              0xD032, 0x00F0,             // bis #LPM4,SR
+                              0x3FFD};                    // jmp $-4
         const uint32_t a = chip_->fram_ini();
         for (unsigned i = 0; i < 6; ++i) poke16(a + 2 * i, p[i]);
         poke16(0xFFFE, uint16_t(a));
@@ -208,7 +220,7 @@ public:
         sonda_xv2_.reset(new SondaXv2(*sonda_, 0x2000));
         dbg_sonda_.reset(new DbgSondaXv2(*sonda_xv2_, chip_->eem.disparadores()));
         gdb_pines_.reset(new GdbStubM430(nombre.c_str(), *dbg_sonda_, puerto, "gdb-pines"));
-        gdb_pines_->pon_fram(chip_->fram_ini(), chip_->fram_fin(), 0x1800, 0x19FF);
+        gdb_pines_->pon_fram(chip_->fram_ini(), chip_->fram_fin(), 0x1800, 0x19FF, caps_.chip->mpu_base);
         gdb_pines_->set_enabled(false);
         return gdb_pines_.get();
     }
