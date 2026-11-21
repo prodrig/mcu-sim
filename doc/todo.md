@@ -1009,10 +1009,10 @@ la sonda de bancada portada de la MSP Debug Stack y el *backend* de GDB) y su
 SoC de laboratorio (`test430`); encima, la capa de familia en `src/periph/ti/`
 (compartida con el P4) y los chips.
 
-**Estado (2026-11-17):** **M0-M6 hechas, y cerrado lo que quedaba de M2-M5
-que no depende de fases posteriores**; sigue M7 (FR2311, FR2355, FR4133 y
-FR2476). El
-detalle, en §11 del análisis. Lo cerrado:
+**Estado (2026-11-21):** **M0-M9 hechas** (M9 con los huecos de abajo), y
+cerrado lo que quedaba de M2-M8 que no depende de fases posteriores; sigue
+M10 (el BSL de las FR2xx/FR4xx). El detalle, en §11 del análisis. Lo
+cerrado:
 
 * **M2**: DATA_QUICK, PSA y el fusible (con VPP por TEST en 4 hilos y por
   SBW); el **Replicator430 de TI como oráculo** (`verif/m430/replicator`,
@@ -1050,9 +1050,28 @@ detalle, en §11 del análisis. Lo cerrado:
   TI, su binario, con la CTPL en LPM3.5; GDB por los dos caminos con el
   `load` en la FRAM. SLAZ664S clasificada (abajo).
 
+* **M9** (`testg2` G8-G9, `testfr5` L12, `testf5` F14; `make
+  fr5-bsl-python` y `g2-bsl-python`): el BSL USB de Flash del F5529 (el de
+  la MSP Debug Stack, BSD-3, portado a gcc; B2 = la imagen de TI, que da lo
+  mismo), los B1 propios de las FR5 y del G2553, la entrada por TEST y RST y
+  por PUR, `--bsl` en los tres, `bsl_adaptador.xml` con las dos LaunchPad, y
+  el BSL de usuario de la G2xx (BSD-3) cargando por el canal de vuelta con S2.
+  `python-msp430-tools` programa, verifica y arranca blink en el FR5969
+  (`bsl5.uart`, con `herramientas/bsl5_uart_py3.py`: la 0.10 no va con
+  Python 3) y en el G2553 (`bsl.target`, tal cual). Dos arreglos del modelo:
+  la entrada de un módulo al elegir su pin (FR2/FR5 y F5529) y DTR/RTS del
+  PuenteSerie al cerrar el puerto.
+
 **Lo que queda, con su fase**: el tiempo y el ECC de la FRAM (**M8**, con las
-FR5xx/FR6xx, que tienen más estados de espera); el BSL de ROM, el de
-`slaa450g` y el USB BSL (**M9**); el G2553 en `mcu-sim-gui` (**M12**).
+FR5xx/FR6xx, que tienen más estados de espera); el G2553 en `mcu-sim-gui`
+(**M12**). **De M9**: (1) `msp430.bsl5.hid` en el F5529, que pide
+`/dev/hidraw` o el servidor USB/IP (U4) y tiene `hid.py` en Python 2; (2) el
+BSL de RAM que cargan las herramientas en el F5529 no vuelve a enumerar tras
+Load PC 0x2504 (el USB del modelo tras su reset de bus; `RAM_BSL=` en F14
+lo reproduce); (3) BSL-Scripter, que no está en `doc/refs`; (4) los BSL por
+I2C de las FR5 «1» y el de UART del F5529. Y una observación sin fase: la
+`msp_exp430fr5969.xml` sin firmware da «sobrecorriente» en la fuente USB al
+arrancar (la placa sola, sin el adaptador; sin mirar aún).
 
 **Dos cosas que se aprendieron en el camino**, dichas aquí porque no son del
 modelo:

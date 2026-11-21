@@ -483,6 +483,17 @@ private:
         for (;;) {
             if (!conectada_) { wait(evento_conexion()); continue; }
             canal_->sondear();
+            // El terminal cierra el puerto: DTR y RTS vuelven a como estaban
+            // al arrancar (DTR inactivo; RTS como lo deje `reinicio`), como
+            // los deja el sistema operativo al cerrar uno de verdad (HUPCL).
+            // Sin esto, un DTR que el terminal dejó activo -el reset de un
+            // BSL- seguiría tirando de RST con el terminal ya cerrado (M9).
+            const bool hay = canal_->conectado();
+            if (rfc_ && habia_cliente_ && !hay) {
+                const bool rts0 = !cfg_.reinicio_esp;
+                if (dtr_activo_ || rts_listo_ != rts0) dtr_rts(false, rts0);
+            }
+            habia_cliente_ = hay;
             if (canal_->pendientes()) ev_tx_.notify(sc_core::SC_ZERO_TIME);
             const uint64_t ahora = n_desde_ + n_hacia_;
             const bool trafico = canal_->pendientes() || ahora != antes;
@@ -587,6 +598,7 @@ private:
     bool break_pendiente_ = false, break_on_ = false, avisado_err_ = false,
          avisado_fijo_ = false, avisado_no_admite_ = false;
     sc_core::sc_event ev_tx_;
+    bool habia_cliente_ = false;
     std::string linea_;
     uint64_t n_desde_ = 0, n_hacia_ = 0, n_err_trama_ = 0, n_err_par_ = 0,
              n_breaks_ = 0, n_esperas_cts_ = 0;

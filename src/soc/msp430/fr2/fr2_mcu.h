@@ -145,10 +145,19 @@ public:
     SocFR2& chip() { return *chip_; }
     const McuDesc& desc() const override { return desc_; }
     // `hfxt="<Hz>"` en el <mcu>: un cristal en HFXIN/HFXOUT (las FR5xx/FR6xx;
-    // las LaunchPad no lo montan) [UG FR5 §3.2.3]
-    bool admite_opcion(const std::string& clave) const override { return clave == "hfxt" && caps_.chip->hfxt_bits; }
+    // las LaunchPad no lo montan) [UG FR5 §3.2.3]. `--bsl` (M9, las FR5xx/
+    // FR6xx): b1 el propio (por omisión), un fichero con el volcado de la ROM
+    // del BSL (B2) o ninguno (B3)
+    bool admite_opcion(const std::string& clave) const override {
+        return (clave == "hfxt" && caps_.chip->hfxt_bits) || (clave == "bsl" && caps_.chip->fr5);
+    }
     std::string opcion(const std::string& clave, const std::string& valor) override {
         if (!admite_opcion(clave)) return mcu_if::opcion(clave, valor);
+        if (clave == "bsl") {
+            if (valor == "b1" || valor == "B1") { chip_->pon_bsl_b1(); return ""; }
+            if (valor == "ninguno" || valor == "b3" || valor == "B3") { chip_->quita_bsl(); return ""; }
+            return chip_->carga_bsl(valor);
+        }
         char* fin = nullptr;
         const double f = std::strtod(valor.c_str(), &fin);
         if (!fin || *fin || f < 4e6 || f > 24e6) return "hfxt: una frecuencia en Hz de 4e6 a 24e6 (DS tabla 5-5), no '" + valor + "'";
@@ -157,6 +166,7 @@ public:
         return "";
     }
     std::string describe_opcion(const std::string& clave) const override {
+        if (clave == "bsl") return chip_->bsl_origen;
         if (clave != "hfxt" || !chip_->cristal_hfxt) return "";
         char b[80];
         std::snprintf(b, sizeof b, "HFXT: un cristal de %.3f MHz en HFXIN/HFXOUT", chip_->f_hfxt / 1e6);
@@ -172,6 +182,9 @@ public:
                  }}};
     }
     std::vector<std::string> limitaciones() const override {
+        if (caps_.chip->fr5)
+            return {"el BSL de ROM es el B1 de mcu-sim (--bsl FICHERO para el volcado de un chip): con el vector de reset borrado no se arranca solo",
+                    "la FRAM no tiene estados de espera ni cache en el tiempo: NWAITS solo avisa"};
         return {"el BSL de ROM no esta (M10); con el vector de reset borrado, el chip no arranca nada",
                 "la FRAM no tiene estados de espera ni cache en el tiempo: NWAITS solo avisa"};
     }

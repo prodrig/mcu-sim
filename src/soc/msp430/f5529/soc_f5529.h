@@ -63,6 +63,13 @@
 #include "../../../common/imagen_fw.h"
 #include "../desc/msp430f5529.h"
 
+namespace stm32 { namespace bsl_f5529 {
+// El BSL B1 del F5529 (verif/fw/f5529/bsl_b1: el USB de TI, BSD-3, en gcc): 0x1000-0x17FF
+inline const uint8_t IMAGEN[] = {
+#include "bsl_f5529.inc"
+};
+static_assert(sizeof(IMAGEN) == BSL_F5529_BYTES && BSL_F5529_TAM == 0x800, "bsl_f5529.inc mal generado");
+} }
 namespace stm32 {
 
 inline constexpr M430Caps M430_F5529 {"msp430f5529", M430Arq::CPUXV2, m430::msp430f5529::DESC.errata, true};
@@ -94,6 +101,36 @@ SC_MODULE(SocF5529), public m430_irq_if {
     bool cristal_xt1 = true;                  // la F5529LP: Y2, 32 768 Hz en P5.4/P5.5
     bool cristal_xt2 = true;                  // y Y1, 4 MHz en P5.2/P5.3
     double f_xt2_cristal = 4e6;
+    // El BSL de Flash (M9): B1 el USB de TI portado (por omisión), B2 un
+    // fichero (`--bsl FICHERO`: la imagen publicada de TI), B3 ninguno
+    bool pur_alto = false;                    // PUR a VUSB en el reset (el botón del BSL)
+    std::string bsl_origen = "B1";
+    unsigned bsl_entradas = 0;
+    void pon_bsl_b1() {
+        std::fill(mem_.begin() + 0x1000, mem_.begin() + 0x1800, 0xFF);
+        std::copy(bsl_f5529::IMAGEN, bsl_f5529::IMAGEN + sizeof bsl_f5529::IMAGEN, mem_.begin() + 0x1000);
+        bsl_origen = "B1";
+    }
+    std::string carga_bsl(const std::string& ruta) {
+        std::fill(mem_.begin() + 0x1000, mem_.begin() + 0x1800, 0xFF);
+        if (ruta == "ninguno") { bsl_origen = "ninguno"; return std::string(); }
+        std::vector<TrozoFw> t;
+        std::string e;
+        switch (formato_fw(ruta)) {
+        case FormatoFw::Elf: e = lee_elf(ruta, t, ELF_MSP430); break;
+        case FormatoFw::TiTxt: e = lee_titxt(ruta, t); break;
+        case FormatoFw::IntelHex: e = lee_ihex(ruta, t); break;
+        default: return ruta + ": el BSL va en TI-TXT, Intel HEX o ELF";
+        }
+        if (!e.empty()) return e;
+        size_t n = 0;
+        for (const TrozoFw& tr : t)
+            for (size_t i = 0; i < tr.datos.size(); ++i)
+                if (tr.dir + i >= 0x1000 && tr.dir + i < 0x1800) { mem_[tr.dir + i] = tr.datos[i]; ++n; }
+        if (!n) return ruta + ": no trae nada en 0x1000-0x17FF";
+        bsl_origen = ruta;
+        return std::string();
+    }
 
     // Los Timer: la ventana de 0x40 llega a TAxIV (+0x2E) y TAxEX0 (+0x20)
     TimerAP4 ta0{"timer0_a5", 0x0340, TimerACaps{5, 0x0E, true}, 0x40};
@@ -156,6 +193,7 @@ SC_MODULE(SocF5529), public m430_irq_if {
         // M9, y hasta entonces el chip se duerme (LPM4), como un 2xx
         nucleo.vector_vacio_apaga = true;
         nucleo.xv2 = true;
+        pon_bsl_b1();
         usb.ram = [this](uint32_t a) -> uint8_t& { return mem_[a]; };
         usb.f_ref = [this](unsigned s) { return s == 0 ? f_xt2_ : f_xt1_; };
         usb.al_cambiar = [this] { avisa_irq(); };
@@ -240,6 +278,7 @@ SC_MODULE(SocF5529), public m430_irq_if {
         dont_initialize();
         SC_METHOD(entradas_proc);
         for (auto& p : pin) sensitive << p->value_changed_event();
+        sensitive << ev_entradas_;
         dont_initialize();
         SC_THREAD(wdt_proc);
         SC_THREAD(flash_proc);
@@ -248,6 +287,8 @@ SC_MODULE(SocF5529), public m430_irq_if {
         SC_METHOD(dly_proc); sensitive << ev_dly_; dont_initialize();
         SC_METHOD(puc_fin_proc); sensitive << ev_puc_fin_; dont_initialize();
         SC_METHOD(bor_fin_proc); sensitive << ev_bor_fin_; dont_initialize();
+        SC_METHOD(bsl_proc); sensitive << ev_bsl_; dont_initialize();
+        SC_THREAD(aclk_ccib_proc);
         SC_METHOD(test_bajo_proc); sensitive << ev_test_bajo_; dont_initialize();
         SC_METHOD(test_proc); sensitive << test.value_changed_event(); dont_initialize();
         SC_METHOD(rst_pin_proc); sensitive << rst.value_changed_event() << ev_rst_pin_; dont_initialize();
@@ -274,6 +315,12 @@ SC_MODULE(SocF5529), public m430_irq_if {
                 if (es_flash(a) || es_ram(a)) mem_[a] = tr.datos[i];
             }
         return std::string();
+    }
+    // La Flash principal y la información en blanco (un chip nuevo)
+    void en_blanco() {
+        std::fill(mem_.begin() + 0x4400, mem_.end(), 0xFF);
+        std::fill(mem_.begin() + 0x1800, mem_.begin() + 0x1A00, 0xFF);
+        std::fill(mem_.begin() + 0x1C00, mem_.begin() + 0x4400, 0x00);    // y la RAM, como al encender [de modelo: a cero]
     }
     void reset(bool activo) {
         if (activo) rst_n.write(false);
@@ -725,6 +772,23 @@ private:
     }
     sc_core::sc_event ev_bor_fin_;
     void bor_fin_proc() { arranque(); rst_n.write(true); }
+    // El BSL tras el arranque [UG5 §1.15.3; el BSL_Protect de TI]: con las
+    // firmas de 0x17F4/0x17F6, PUR alto o el vector de reset en blanco con
+    // VBUS, la CPU sale en la entrada del BSL (0x17FA) [de modelo: el
+    // arranque de la ROM, y BSL_Protect, de alto nivel]
+    sc_core::sc_event ev_bsl_;
+    void mira_bsl() {
+        if (mem16(0x17F4) != 0x3CA5 || mem16(0x17F6) != 0xC35A) return;
+        if (!pur_alto && !(mem16(0xFFFE) == 0xFFFF && usb.hay_vbus())) return;
+        nucleo.espera(true);
+        ev_bsl_.notify(sc_core::sc_time(1, sc_core::SC_US));
+    }
+    void bsl_proc() {
+        nucleo.cpu.pon_reg(0, mem16(0x17FA));
+        nucleo.cpu.pon_reg(2, 0);
+        ++bsl_entradas;
+        nucleo.espera(false);
+    }
     // Lo que hace el código de arranque de 5xx al salir del BOR [UG5 §1.11,
     // §1.14]: mira la firma de JTAG (0x17FC-0x17FF: ni 0 ni todo unos,
     // bloqueado) y el patrón mágico (0xA55A en JMBI0: la CPU se queda
@@ -739,12 +803,13 @@ private:
     void arranque() {
         const uint32_t f = uint32_t(mem16(0x17FC)) | (uint32_t(mem16(0x17FE)) << 16);
         tap.pon_bloqueo(f != 0 && f != 0xFFFFFFFFu);
-        if (tap.fusible()) return;                                     // bloqueado: ni JMB ni espera
+        if (tap.fusible()) { mira_bsl(); return; }                    // bloqueado: ni JMB ni espera; el BSL, sí
         mira_patron();
         if (!magico_ && !test.floating() && test.voltage() > 0.5f * float(vcc)) {
             arranque_espera_ = true;
             nucleo.espera(true);
         }
+        if (!magico_ && !arranque_espera_) mira_bsl();
     }
     void mira_patron() {
         if ((sysjmbc_ & 0x01) && jmbi_[0] == 0xA55A) {
@@ -861,6 +926,20 @@ private:
     // el TACLK que el pin da como entrada [DS SLAS590P, «Terminal Functions»]
     struct Fn { int tipo = 0; TimerAP4* t = nullptr; unsigned n = 0; LineaU u[2]; TimerAP4* clk = nullptr; };
     void cbout_proc() { ta1.cci_b[1].write(cb.salida.read()); }
+    // TB0 CCI6B es ACLK [DS SLAS590P tabla 6-15]: solo mientras TB0CCTL6 lo
+    // captura (CAP y CCIS = 01), para no meter 65 536 flancos por segundo
+    // siempre [de modelo]. El BSL USB de TI mide así el cristal de XT2
+    void aclk_ccib_proc() {
+        bool v = false;
+        for (;;) {
+            const uint16_t c = tb0.cctl(6);
+            if ((c & 0x0100) && ((c >> 12) & 3u) == 1u && f_aclk_ > 0) {
+                v = !v;
+                tb0.cci_b[6].write(v);
+                wait(sc_core::sc_time(0.5 / f_aclk_, sc_core::SC_SEC));
+            } else wait(1, sc_core::SC_MS);
+        }
+    }
     Fn funcion_de(unsigned i) const {
         Fn f;
         const unsigned p = i / 8, b = i % 8;
@@ -1046,8 +1125,12 @@ private:
         case 0x1C: x.ifg = v; avisa_irq(); break;
         default: break;
         }
+        // La entrada de un módulo es el pin en cuanto se le da (véase el
+        // mismo arreglo en soc_fr2.h, M9)
+        if (r == 0x04 || r == 0x0A) ev_entradas_.notify(sc_core::SC_ZERO_TIME);
         pines_salida();
     }
+    sc_core::sc_event ev_entradas_;
 
     // --- El monitor del backchannel (la UCA1 en P4.4/P4.5) ------------------------------
     std::vector<uint8_t> rx_cola_;

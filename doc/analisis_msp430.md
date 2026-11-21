@@ -161,13 +161,15 @@ Referencias de este documento, todas en `doc/refs/msp430/` y sin versionar:
   paran son los `eemTimers` de cada chip. Los puntos de ruptura por software
   usan `0x4343` (`SoftwareBreakpoints430.cpp`).
 * **BSL (§9).** Hay tres protocolos y cuatro variantes de memoria y entrada:
-  * **El F5529 puede llevar el BSL USB de TI.** Sus fuentes están en MSPBSL
-    (`IAR_v6_MSP430F552x_USB`, BSD-3). Las imágenes publicadas (00.07.88.38 y
+  * **El F5529 lleva el BSL USB de TI** (M9). Sus fuentes BSD-3 son las de
+    la MSP Debug Stack (`ThirdParty/BSL430_Firmware`); las de MSPBSL
+    (`IAR_v6_MSP430F552x_USB`) llevan la «Limited License» de TI, aunque su
+    manifiesto diga BSD-3. Las imágenes publicadas (00.07.88.38 y
     00.08.88.39) son de la licencia «TI Text File», así que se cargan desde
     fichero.
-  * Para el G2553 y las FRAM, el BSL es ROM sin fuentes. Se escribe un sustituto
-    con el **intérprete de órdenes y las interfaces de MSPBSL** como base: hay
-    `eUSCI_UART_I2C`, `USCIA_UART`, `Timer_A_UART` y `USB`.
+  * Para el G2553 y las FRAM, el BSL es ROM sin fuentes. Hay un sustituto
+    propio, escrito desde las guías del BSL (M9): el intérprete y las
+    interfaces de MSPBSL no se pueden usar, por la misma licencia.
   * SLAU550AB da los datos de cada FR2xx/FR4xx:
     * dónde está el BSL (1 KB en 0x1000-0x13FF en el FR4133; 2 KB + 1 KB en
       0x1000-0x17FF y 0xFFC00-0xFFFFF en FR23xx-FR26xx);
@@ -238,7 +240,7 @@ legibles por programa:
 | **SLAU656D** | Guía de la API de `libmsp430`: inicialización, conexión a un chip en marcha, varias sondas, JTAG o SBW, EEM y actualización del firmware de la sonda | M11 |
 | **MSP Debug Stack, código abierto** | Ver §1.3 | M0, M2, M8, M11 |
 | **Paquete de desarrollo de la DLL** | `libmsp430_64.so` (Linux), `MSP430.dll`, `libmsp430.dylib`, las cabeceras de la API (`MSP430.h`, `MSP430_Debug.h`, `MSP430_EEM.h`, `MSP430_FET.h`) y la guía | M11 (la herramienta real) |
-| **MSPBSL 1.02.00.01** | Fuentes BSD-3 del BSL de 5xx/6xx:<br>• intérprete de órdenes, API de Flash e interfaces UART por Timer_A, USCI y eUSCI, I2C y USB;<br>• proyectos para F552x por USB y por Timer_A, F543xA, F522x por I2C y CC430;<br>• un BSL para G2xx en la información (UART por software, 9600 8N1, con P1.3 de habilitación);<br>• **las imágenes publicadas** (licencia «TI Text File»): las del F552x son UART 00.07.05.04 y USB 00.07.88.38 / 00.08.88.39 | M9 |
+| **MSPBSL 1.02.00.01** | Fuentes del BSL de 5xx/6xx (**ojo**: el manifiesto dice BSD-3, pero las cabeceras del intérprete, de las interfaces y de la API llevan la «Limited License» de TI, solo con dispositivos de TI: no entran en el simulador; la copia BSD-3 del BSL USB del F552x es la de la MSP Debug Stack, `ThirdParty/BSL430_Firmware`; el BSL de la G2xx sí es BSD-3 en su cabecera):<br>• intérprete de órdenes, API de Flash e interfaces UART por Timer_A, USCI y eUSCI, I2C y USB;<br>• proyectos para F552x por USB y por Timer_A, F543xA, F522x por I2C y CC430;<br>• un BSL para G2xx en la información (UART por software, 9600 8N1, con P1.3 de habilitación);<br>• **las imágenes publicadas** (licencia «TI Text File»): las del F552x son UART 00.07.05.04 y USB 00.07.88.38 / 00.08.88.39 | M9 |
 | **Replicator430** (SLAU320, v1.22) | Cuatro programadores de referencia en C, BSD-3, para un MSP430 anfitrión: `Replicator430` (CPU), `430X`, `430Xv2` y `430FR` (FR4xx y FR57xx-FR6xx). Cada uno trae sus funciones de JTAG y SBW (`JSBW.c`, `LowLevelFunc*.c`) y sus *funclets* de Flash y FRAM | M2, M3 |
 | **REP430F** (Elprotronic) | Manual del programador comercial basado en el Replicator. No aporta datos que no estén en SLAU320; queda como referencia | — |
 | **SLAA754** | SBW desde un MSP432P401R, un CC3220SF o un CC2640R2 a un G2553 y un FR2311, con los pines (P6.0 a RST y P6.1 a TEST en la MSP-EXP432P401R) y el formato de las imágenes. Su código (`slaa754.zip`), con los `.out` ya compilados, está en `doc/refs`: `make g2-slaa754` (M3) y `make fr2311-slaa754` (M7) | M3, M7 |
@@ -942,8 +944,8 @@ Aquí se repiten, pero el B1 cambia según el chip:
 
 | | B1, por omisión | B2, `--bsl FICHERO` | B3, `--bsl ninguno` |
 | :--- | :--- | :--- | :--- |
-| **F5529** | **El BSL USB de TI compilado de sus fuentes BSD-3** ([MSPBSL] `IAR_v6_MSP430F552x_USB`: intérprete de órdenes, API de Flash e interfaz USB con la pila USB de TI). Hay que portarlo de IAR a `msp430-elf-gcc`: el C es C, y el `BSL430_Low_Level_Init.s43` y el enlazado se reescriben. Se versiona con su huella (T-22) | La imagen publicada (00.07.88.38 o 00.08.88.39), de la licencia «TI Text File»: la trae quien la tenga | La Flash del BSL en blanco |
-| **FR5xx/FR6xx y FR2xx/FR4xx** | Un BSL propio (AGPLv3) hecho con piezas de [MSPBSL]: su intérprete de órdenes, su interfaz `eUSCI_UART_I2C`, y una API de FRAM nueva (versión 0x3x según [BSLFRAM] §3.5). Contesta la versión del chip de la tabla. En FR2355 y FR2476 lee su configuración del TLV y de 0xFF88, como el de TI | El volcado de la ROM de un chip real | Sin BSL: la entrada no hace nada |
+| **F5529** | **El BSL USB de TI compilado de sus fuentes BSD-3** (hecho con la copia de [MSPDS] `ThirdParty/BSL430_Firmware`, que es la BSD-3; la de [MSPBSL] `IAR_v6_MSP430F552x_USB` no lo es: intérprete de órdenes, API de Flash e interfaz USB con la pila USB de TI). Hay que portarlo de IAR a `msp430-elf-gcc`: el C es C, y el `BSL430_Low_Level_Init.s43` y el enlazado se reescriben. Se versiona con su huella (T-22) | La imagen publicada (00.07.88.38 o 00.08.88.39), de la licencia «TI Text File»: la trae quien la tenga | La Flash del BSL en blanco |
+| **FR5xx/FR6xx y FR2xx/FR4xx** | Un BSL propio (AGPLv3), escrito entero desde [BSLFR] (en M9 se vio que el intérprete y la interfaz `eUSCI_UART_I2C` de [MSPBSL] no son BSD-3: no lleva nada de ellos). Contesta la versión del chip de la tabla. En FR2355 y FR2476 lee su configuración del TLV y de 0xFF88, como el de TI | El volcado de la ROM de un chip real | Sin BSL: la entrada no hace nada |
 | **G2553** | Un BSL propio (AGPLv3) del protocolo de 1xx/2xx, en la ROM | El volcado de la ROM de un chip real | Sin BSL |
 
 Todos corren **en la CPU simulada**, así que los tiempos son los de una CPU, la
@@ -953,7 +955,7 @@ TI, así que las herramientas reales no notan la diferencia. La versión que
 contestan es la del chip, con el byte de fabricante a 0x00, como el de TI.
 
 **La entrada.** Lo que en el chip hace el código de arranque de la ROM va en
-`soc/msp430/arranque.h`, de alto nivel, como el `arranque_fab` del P4:
+cada SoC (`soc_fr2.h`, `soc_g2553.h`, `soc_f5529.h`; M9), de alto nivel, como el `arranque_fab` del P4:
 
 * la secuencia de TEST y RST (§9.1);
 * PUR en el F5529;
@@ -984,7 +986,10 @@ dispositivo HID. Hay dos vías:
 
 [MSPBSL] trae un BSL pequeño para la G2xx (`MSP430G2xxxBSL_CCS.asm`, BSD-3).
 Vive en la memoria de información y no en la ROM, usa una UART por software a
-9600 8N1 en P1.1/P1.2 y se habilita con P1.3, que es S2 en la LaunchPad. **Es
+9600 8N1 en P1.1/P1.2 y se habilita con P1.3, que es S2 en la LaunchPad. No
+tiene órdenes: tras el SYNC (0xBA) borra la Flash de la aplicación, recibe
+todos sus bytes hasta 0xFFFD y su XOR, contesta con un pulso bajo en P1.2
+(4 bits ACK, 2 NACK) y se reinicia por el perro. **Es
 justo lo que la MSP-EXP430G2ET permite sin adaptador**, porque va por el
 *backchannel*. Es un firmware de usuario más: no pide nada al modelo. Entra en
 M9 como prueba de laboratorio realista.
@@ -1116,9 +1121,10 @@ y su criterio de cierre. Cada banco tiene su invariante y su `asan*`:
 firmwares de prueba se versionan con su huella (T-22). Compilarlos pide
 `msp430-elf-gcc`; ejecutar las suites, no.
 
-**Estado (17-11-2026): M0-M5 hechas**, en la rama `msp430` (`test430` 776
-comprobaciones, `testg2` 40, `testf5` 39; las diez suites de antes, al
-picosegundo), y cerrado lo que quedaba de M2 y M3 que no depende de fases
+**Estado (21-11-2026): M0-M9 hechas** (M9 con los huecos que dice su
+«Hecho»), en la rama `msp430` (`test430` 776 comprobaciones, `testg2` 51,
+`testf5` 62, `testfr5` 99; las suites de antes, al picosegundo). Antes
+(17-11-2026): M0-M5, y cerrado lo que quedaba de M2 y M3 que no depende de fases
 posteriores (P-20). Cada fase lleva debajo su «Hecho», con lo
 que entró y lo que no; lo pendiente está también en P-20 de `doc/todo.md`.
 
@@ -1964,6 +1970,85 @@ un sensor LC.
 * BSL-Scripter con un guion de prácticas;
 * el BSL de usuario de la G2xx carga un programa por el *backchannel* de la G2ET
   con S2 pulsado.
+
+**Hecho (21-11-2026), salvo lo que se dice al final:**
+* **Las licencias, antes que nada.** El manifiesto de [MSPBSL] dice BSD-3,
+  pero las cabeceras de su intérprete, de sus interfaces (`eUSCI_UART_I2C`,
+  `USCIA_UART`…) y de su API llevan la «Limited License» de TI (solo con
+  dispositivos de TI). No entra nada de eso. El BSL USB del F552x tiene una
+  copia BSD-3 de verdad en [MSPDS] (`ThirdParty/BSL430_Firmware`), y el BSL de
+  la G2xx lleva BSD-3 en su propia cabecera.
+* **F5529, B1**: ese BSL USB portado de IAR a `msp430-elf-gcc`
+  (`verif/fw/f5529/bsl_b1`: `portar.py` cambia lo de IAR y lo marca, con un
+  arranque y un enlazado nuevos; `-msmall -Os -flto` para que quepa en los
+  2 KB de 0x1000-0x17FF), con las firmas de 0x17F0. Es el de Flash, de solo
+  RAM (`RAM_WRITE_ONLY`: 0x11, 0x1B y 0x17). Va dentro del simulador
+  (`bsl_f5529.inc`, con su huella en `verif/fw/huellas.txt`). **La entrada**:
+  firmas buenas y PUR alto, o el vector de reset en blanco con VBUS. El de
+  TI mide XT2 con TB0 CCR6 por CCI6B = ACLK, que ahora está. **B2**
+  (`--bsl FICHERO`): la imagen de TI de [MSPBSL] `Released_BSL_Images`, que
+  no se versiona; **B3** (`--bsl ninguno`).
+* **FR5969, FR5994 y FR6989, B1**: uno propio (`verif/fw/fr5/bsl_b1`,
+  AGPLv3) con el protocolo y las órdenes de [BSLFR]: 0x10, 0x11, 0x15, 0x16,
+  0x17, 0x18, 0x19, 0x1B y 0x52, 9600 8E1 por la eUSCI_A0 (P2.0/P2.1; el
+  FR6989 con la otra selección), la contraseña mala borra la FRAM principal y
+  vuelve a empezar sin contestar (como dice [BSLFR] §4.3.2.2), la firma de
+  0xFF84/0xFF86, la versión de cada chip por el ID de la TLV (00.07.34.B2 y
+  00.08.35.B3), la Z-Area (0x1000 entra, 0x1002 es la «BSL Action»), y la
+  protección: desde fuera del BSL, lo que no es la Z-Area se lee 0x3FFF.
+* **G2553, B1**: uno propio (`verif/fw/g2553/bsl_b1`, AGPLv3, 1 KB en
+  0x0C00) con el protocolo de 1xx/2xx: UART por software con el Timer0_A,
+  9600 8E1, TX en P1.1 y RX en P1.5; la versión son los 16 bytes de 0x0FF0
+  (ID 0x2553); BSLSKEY (0xFFDE) a 0xAA55 no borra y a 0x0000 no arranca.
+* **La entrada por TEST y RST** (FR5 y G2553: dos flancos de TEST con RST
+  bajo y RST que sube con TEST alto) y por PUR (F5529). `--bsl b1`,
+  `ninguno` o un fichero en los tres.
+* **El BSL de usuario de la G2xx**, pasado a GNU as
+  (`verif/g2553/g2_bsl_usuario.S`, BSD-3), como firmware de prueba. Dos
+  cosas que el original no dice: el borrado de sus cuatro segmentos dura
+  58 ms (4819 tFTG cada uno con MCLK/3), no 16; y con un solo bit de parada
+  no llega: la escritura de cada byte (30 tFTG, 90 µs con la CPU parada)
+  acaba después del flanco del siguiente, y lee el bit 0 en su borde. Hay
+  que mandar 8N2 (o con un hueco).
+* **`placas/bsl_adaptador.xml`**: un FT232 con DTR a RST y RTS a TEST, sin
+  inversor: con el puerto cerrado RST queda alto y el chip corre. Y dos
+  sistemas: `msp_exp430fr5969_bsl.xml` y `msp_exp430g2et_bsl.xml`, la
+  LaunchPad sin los puentes de la eZ-FET y el adaptador en su lugar.
+* **Dos fallos del modelo que salieron por el camino**: (1) en las FR2/FR5 y
+  en el F5529, la entrada de un módulo no se actualizaba al darle el pin
+  (PxSEL), solo en el siguiente flanco: un UCAxRXD que ya estaba alto se
+  quedaba en 0 y el primer byte se perdía (el 0x80 del BSL); (2) el
+  PuenteSerie dejaba DTR y RTS como los dejó el terminal al cerrar el
+  puerto; ahora vuelven a reposo, como hace el sistema operativo.
+
+**Pruebas:** `testg2` G8 (el B1: 7 comprobaciones) y G9 (el BSL de usuario,
+4); `testfr5` L12 (13: la secuencia, la versión, la contraseña mala y el
+borrado, RX, CRC, TX, Load PC con blink, la Z-Area, B3, el FR5994 y el
+FR6989); `testf5` F14 (3: entra con el chip en blanco y VBUS, enumera como
+2047:0200 y la batería; con `BSL_TI=<imagen de TI>`, la misma batería da lo
+mismo con B2, byte a byte). Y con la herramienta de verdad:
+* `make -f Makefile.mcu-sim fr5-bsl-python`: `msp430.bsl5.uart` por RFC 2217
+  entra por TEST y RST, borra (contraseña mala), escribe y verifica blink y
+  lo arranca. La 0.10 de PyPI no va con Python 3:
+  `herramientas/bsl5_uart_py3.py` le pone lo que le falta (y espera la falta
+  de respuesta del borrado, que la herramienta toma por error);
+* `make -f Makefile.mcu-sim g2-bsl-python`: `msp430.bsl.target`, tal cual,
+  hace lo mismo en el G2553 y arranca con `-x 0xC000` (con `-r`, su reset
+  escribe en WDTCTL por el BSL con RST a masa y acaba en error).
+
+**Lo que no está:**
+* **`msp430.bsl5.hid` en el F5529**: no hay `/dev/hidraw` ni el servidor
+  USB/IP (U4), y su `hid.py` sigue en Python 2. El cliente HID del banco (F14)
+  hace el protocolo. Además, el BSL de RAM que cargan las herramientas
+  (`RAM_BSL.00.06.05.34` de `python-msp430-tools`, o el 00.08.09.39 de TI)
+  no vuelve a enumerar tras el Load PC 0x2504 en el modelo: el USB del
+  modelo no lo deja en la dirección 0 tras su reset de bus (`RAM_BSL=` en
+  F14 lo reproduce). Queda en P-20.
+* **BSL-Scripter**: no está en `doc/refs`; con él, un guion de prácticas
+  contra `msp_exp430fr5969_bsl.xml` es una línea más en
+  `fr5-bsl-python`.
+* Las variantes I2C del BSL de las FR5 («1»: FR59691…) y el BSL por UART del
+  F5529 (las LaunchPad no los usan).
 
 ### M10 · BSL de FR2xx/FR4xx
 

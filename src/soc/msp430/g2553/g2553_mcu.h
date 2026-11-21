@@ -110,9 +110,20 @@ public:
                      l |= c->rst_n.value_changed_event();
                  }}};
     }
+    // `--bsl` (M9): b1 el propio (por omisión), un fichero con el volcado de
+    // la ROM del BSL, 0x0C00-0x0FFF (B2), o ninguno (B3)
+    bool admite_opcion(const std::string& clave) const override { return clave == "bsl"; }
+    std::string opcion(const std::string& clave, const std::string& valor) override {
+        if (clave != "bsl") return mcu_if::opcion(clave, valor);
+        if (valor == "b1" || valor == "B1") { chip_->pon_bsl_b1(); return ""; }
+        return chip_->carga_bsl(valor == "b3" || valor == "B3" ? std::string("ninguno") : valor);
+    }
+    std::string describe_opcion(const std::string& clave) const override {
+        return clave == "bsl" ? chip_->bsl_origen : std::string();
+    }
     std::vector<std::string> limitaciones() const override {
         return {"el disparo del ADC10 por el Timer_A (SHSx) y la deteccion de baudios de la USCI_A0 no se modelan",
-                "el BSL de ROM no esta (sin el codigo de TI se lee 0x3FFF); NMI por RST/NMI tampoco",
+                "el BSL de ROM es el B1 de mcu-sim (--bsl FICHERO para el volcado de un chip); NMI por RST/NMI no se modela",
                 "la sonda de la placa (eZ-FET) es de M11: --gdb va por SBW en TEST/RST con la sonda de bancada"};
     }
 

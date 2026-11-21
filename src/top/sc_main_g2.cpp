@@ -86,8 +86,10 @@ SC_MODULE(TbG2) {
     }
     SC_CTOR(TbG2) {
         SC_THREAD(run);
+        SC_THREAD(bsl_rx_proc);
         SC_THREAD(onda_proc);
         SC_THREAD(lector_proc);
+        SC_THREAD(pulso_proc);
         id_boton_ = g2.p(1, 3).register_driver("boton_s2"); g2.p(1, 3).set_hiz(id_boton_);
         id_p10_ = g2.p(1, 0).register_driver("tb_ca0"); g2.p(1, 0).set_hiz(id_p10_);
         id_p13_ = g2.p(1, 3).register_driver("tb_a3"); g2.p(1, 3).set_hiz(id_p13_);
@@ -459,6 +461,211 @@ SC_MODULE(TbG2) {
         g2.p(1, 3).set_hiz(id_pu13_);
     }
 
+    // G8 (TESTG2_SOLO=8): el BSL B1 de ROM por la secuencia de TEST y RST y el
+    // protocolo de 1xx/2xx, 9600 8E1 por P1.1 (TX) y P1.5 (RX), con un
+    // anfitrión en el banco
+    std::vector<uint8_t> bsl_rx_;
+    bool bsl_oye_ = false;
+    void bsl_rx_proc() {
+        const double tb = 1.0 / 9600.0;
+        for (;;) {
+            wait(g2.p(1, 1).value_changed_event());
+            if (!bsl_oye_ || g2.p(1, 1).voltage() > 1.6f) continue;
+            wait(tb * 1.5, SC_SEC);
+            unsigned c = 0;
+            for (unsigned k = 0; k < 9; ++k) { if (k < 8 && g2.p(1, 1).voltage() > 1.6f) c |= 1u << k; wait(tb, SC_SEC); }
+            wait(0.6 * tb, SC_SEC);                                 // hasta el final de la parada
+            bsl_rx_.push_back(uint8_t(c));
+        }
+    }
+    int d_bsl_ = -1;
+    void bsl_tx(uint8_t c) {
+        const double tb = 1.0 / 9600.0;
+        unsigned p = 0;
+        for (unsigned k = 0; k < 8; ++k) p ^= (c >> k) & 1u;
+        auto bit = [&](bool v) { g2.p(1, 5).set_drive(d_bsl_, v ? 3.3f : 0.0f, 50.0f); wait(tb, SC_SEC); };
+        bit(false);
+        for (unsigned k = 0; k < 8; ++k) bit((c >> k) & 1u);
+        bit(p != 0);
+        bit(true);
+        wait(tb, SC_SEC);
+    }
+    // SYNC, la trama y la respuesta: 0x90, 0xA0 o una trama de datos (sus datos en `datos`); -1 sin respuesta
+    int bsl2(uint8_t cmd, const std::vector<uint8_t>& msg, std::vector<uint8_t>* datos = nullptr, int ms = 300) {
+        auto espera = [&](size_t n) { for (int i = 0; i < ms * 10 && bsl_rx_.size() < n; ++i) wait(100, SC_US); return bsl_rx_.size() >= n; };
+        bsl_rx_.clear();
+        bsl_tx(0x80);
+        if (!espera(1)) return -10;
+        if (bsl_rx_[0] != 0x90) return -100 - bsl_rx_[0];
+        std::vector<uint8_t> t{0x80, cmd, uint8_t(msg.size()), uint8_t(msg.size())};
+        t.insert(t.end(), msg.begin(), msg.end());
+        uint8_t s0 = 0, s1 = 0;
+        for (size_t i = 0; i < t.size(); ++i) (i & 1 ? s1 : s0) ^= t[i];
+        t.push_back(uint8_t(~s0)); t.push_back(uint8_t(~s1));
+        bsl_rx_.clear();
+        for (uint8_t b : t) bsl_tx(b);
+        if (!espera(1)) return -1;
+        if (bsl_rx_[0] != 0x80) return bsl_rx_[0];
+        if (!espera(4)) return -2;
+        const size_t n = bsl_rx_[2];
+        if (!espera(6 + n)) return -2;
+        uint8_t a = 0, b = 0;
+        for (size_t i = 0; i < 4 + n + 2; ++i) (i & 1 ? b : a) ^= bsl_rx_[i];
+        if (a != 0xFF || b != 0xFF) return -3;
+        if (datos) datos->assign(bsl_rx_.begin() + 4, bsl_rx_.begin() + 4 + long(n));
+        return 0x80;
+    }
+    void g8() {
+        grupo("G8 el BSL B1 de ROM: la secuencia de TEST y RST, el protocolo de 1xx/2xx, la contraseña y blink");
+        const int drst = g2.rst.register_driver("bsl_rst"), dtest = g2.test.register_driver("bsl_test");
+        d_bsl_ = g2.p(1, 5).register_driver("bsl_txd");
+        g2.p(1, 5).set_drive(d_bsl_, 3.3f, 50.0f);
+        corre("g2_basico.elf");
+        wait(20, SC_MS);
+        auto entra = [&] {
+            auto r = [&](bool v) { g2.rst.set_drive(drst, v ? 3.3f : 0.0f, 10.0f); };
+            auto t = [&](bool v) { g2.test.set_drive(dtest, v ? 3.3f : 0.0f, 10.0f); };
+            t(false); r(false); wait(1, SC_MS);
+            t(true); wait(100, SC_US); t(false); wait(100, SC_US); t(true); wait(100, SC_US);
+            r(true); wait(100, SC_US); t(false); wait(5, SC_MS);
+        };
+        const unsigned n0 = g2.bsl_entradas;
+        bsl_oye_ = true;
+        entra();
+        std::vector<uint8_t> v;
+        int a = bsl2(0x1E, {0, 0, 0, 0}, &v);
+        check(g2.bsl_entradas == n0 + 1 && a == 0x80 && v.size() == 16 && v[0] == 0x25 && v[1] == 0x53 && v[10] == 0x02,
+              "la secuencia arranca el BSL (0x0C00); SYNC -> 0x90 y TX BSL Version: los 16 bytes de 0x0FF0 (ID 0x2553)");
+        a = bsl2(0x14, {0x00, 0xC0, 0x10, 0x00}, &v);
+        check(a == 0xA0, "bloqueado: leer da DATA_NAK (0xA0): " + std::to_string(a));
+        const uint16_t antes = g2.mem16(0xC000);
+        std::vector<uint8_t> pw{0, 0, 0, 0};
+        for (int i = 0; i < 32; ++i) pw.push_back(0x00);
+        a = bsl2(0x10, pw);
+        wait(50, SC_MS);
+        check(a == 0xA0 && antes != 0xFFFF && g2.mem16(0xC000) == 0xFFFF && g2.mem16(0xFFFE) == 0xFFFF,
+              "la contraseña mala: DATA_NAK y el borrado masivo de la Flash");
+        pw.assign({0, 0, 0, 0});
+        for (int i = 0; i < 32; ++i) pw.push_back(0xFF);
+        a = bsl2(0x10, pw);
+        check(a == 0x90, "con la de 0xFF, DATA_ACK");
+        // blink: escribir, comprobar y arrancar
+        std::vector<TrozoFw> t;
+        lee_elf(std::string(DIR) + "ej_blink.elf", t, ELF_MSP430);
+        for (TrozoFw& x : t)                                         // solo la Flash principal (el ELF lleva sus cabeceras delante)
+            if (x.dir < 0xC000) {
+                const size_t q = std::min<size_t>(x.datos.size(), 0xC000 - x.dir);
+                x.datos.erase(x.datos.begin(), x.datos.begin() + long(q)); x.dir += uint32_t(q);
+            }
+        t.erase(std::remove_if(t.begin(), t.end(), [](const TrozoFw& x) { return x.datos.size() < 16 && x.dir != 0xFFFE; }), t.end());
+        bool ok = !t.empty();
+        uint16_t entrada = 0;
+        for (const TrozoFw& tr : t)
+            for (size_t o = 0; o < tr.datos.size(); o += 64) {
+                const uint16_t ad = uint16_t(tr.dir + o);
+                const size_t n = std::min<size_t>(64, tr.datos.size() - o);
+                std::vector<uint8_t> m{uint8_t(ad), uint8_t(ad >> 8), uint8_t(n), 0};
+                m.insert(m.end(), tr.datos.begin() + long(o), tr.datos.begin() + long(o + n));
+                ok = ok && bsl2(0x12, m, nullptr, 1000) == 0x90;
+                if (tr.dir <= 0xFFFE && tr.dir + tr.datos.size() >= 0x10000) entrada = uint16_t(tr.datos[0xFFFE - tr.dir] | (tr.datos[0xFFFF - tr.dir] << 8));
+            }
+        a = bsl2(0x14, {uint8_t(t[0].dir), uint8_t(t[0].dir >> 8), 16, 0}, &v);
+        const bool lee = a == 0x80 && v == std::vector<uint8_t>(t[0].datos.begin(), t[0].datos.begin() + 16);
+        const int chk = bsl2(0x1C, {0x00, 0xE0, 0x00, 0x01});
+        check(ok && entrada && lee && chk == 0x90, "escribir blink en la Flash, leerlo y la comprobación de borrado de 0xE000 (DATA_ACK)");
+        unsigned cambios = 0;
+        bool ant = g2.p(1, 0).voltage() > 1.6f;
+        a = bsl2(0x1A, {uint8_t(entrada), uint8_t(entrada >> 8), 0, 0});
+        for (int i = 0; i < 3000; ++i) { wait(100, SC_US); const bool x = g2.p(1, 0).voltage() > 1.6f; if (x != ant) ++cambios; ant = x; }
+        check(a == 0x90 && cambios >= 4, "Load PC arranca blink: P1.0 cambia " + std::to_string(cambios) + " veces en 300 ms");
+        // B3: sin BSL, la secuencia arranca la aplicación
+        g2.carga_bsl("ninguno");
+        const unsigned n1 = g2.bsl_entradas;
+        entra();
+        cambios = 0;
+        for (int i = 0; i < 3000; ++i) { wait(100, SC_US); const bool x = g2.p(1, 0).voltage() > 1.6f; if (x != ant) ++cambios; ant = x; }
+        check(g2.bsl_entradas == n1 && cambios >= 4 && g2.rom_bsl[0x3F0] == 0x25, "B3 (--bsl ninguno): la aplicación arranca; 0x0FF0 sigue con el ID");
+        g2.pon_bsl_b1();
+        bsl_oye_ = false;
+        g2.rst.set_hiz(drst); g2.test.set_hiz(dtest); g2.p(1, 5).set_hiz(d_bsl_);
+    }
+
+
+    // G9 (TESTG2_SOLO=9): el BSL «de usuario» de la G2xx de MSPBSL (BSD-3,
+    // pasado a GNU as: verif/g2553/g2_bsl_usuario.S), como firmware de prueba:
+    // con S2 (P1.3) pulsado en el reset se queda en el BSL; el anfitrión manda
+    // por el canal de vuelta (P1.1, 9600 8N1) el SYNC (0xBA), que borra de
+    // 0xF800 a 0xFFFF y deja el vector de reset en el BSL, y luego los 2046
+    // bytes de 0xF800 a 0xFFFD y su XOR; el BSL contesta en P1.2 con un pulso
+    // bajo de 4 bits (ACK) o de 2 (NACK) y se reinicia por el perro.
+    bool mira_p12_ = false;
+    std::vector<double> pulsos_;                                  // los pulsos bajos de P1.2, en us
+    void pulso_proc() {
+        for (;;) {
+            wait(g2.p(1, 2).value_changed_event());
+            if (!mira_p12_ || g2.p(1, 2).voltage() > 1.6f) continue;
+            const sc_time t0 = sc_time_stamp();
+            while (g2.p(1, 2).voltage() <= 1.6f) wait(g2.p(1, 2).value_changed_event());
+            pulsos_.push_back((sc_time_stamp() - t0).to_seconds() * 1e6);
+        }
+    }
+    void g9() {
+        grupo("G9 el BSL de usuario de la G2xx (MSPBSL, firmware de prueba): S2 y el canal de vuelta");
+        g2.p(1, 3).set_drive(id_pu13_, 3.3f, 47000.0f);            // R6, el pull-up de S2
+        g2.p(1, 1).set_drive(id_rxd_, 3.3f, 50.0f);                // el TXD del eZ-FET, en reposo
+        corre("g2_bsl_usuario.elf");
+        const Mide m0 = mide(g2.p(1, 0), sc_time(1200, SC_MS));
+        check(m0.t.size() >= 2 && g2.mem16(0xFFFE) == 0x100C,
+              "sin S2, el vector de reset (0x100C, en la información) salta a la aplicación de 0xF800: P1.0 parpadea");
+        // La imagen de 0xF800 a 0xFFFD: g2_bsl_app.elf (P1.6) y 0xFF en los huecos
+        std::vector<uint8_t> img(0x10000 - 0xF800 - 2, 0xFF);
+        std::vector<TrozoFw> t;
+        lee_elf(std::string(DIR) + "g2_bsl_app.elf", t, ELF_MSP430);
+        for (const TrozoFw& x : t)
+            for (size_t i = 0; i < x.datos.size(); ++i)
+                if (x.dir + i >= 0xF800 && x.dir + i < 0xFFFE) img[x.dir + i - 0xF800] = x.datos[i];
+        uint8_t x = 0;
+        for (uint8_t b : img) x ^= b;
+        auto carga = [&](uint8_t suma) {
+            g2.p(1, 3).set_drive(id_boton_, 0.0f, 10.0f);          // S2 pulsado
+            g2.reset(true); wait(1, SC_MS); g2.reset(false); wait(5, SC_MS);
+            manda_pin(0xBA);
+            g2.p(1, 3).set_hiz(id_boton_);                          // S2 suelto
+            // Cuatro segmentos de 4819 tFTG (MCLK / 3 = 333 kHz): 58 ms; el
+            // comentario del original dice 16 ms, que es lo de uno solo
+            wait(100, SC_MS);
+            const bool borrado = g2.mem16(0xF800) == 0xFFFF && g2.mem16(0xFE00) == 0xFFFF && g2.mem16(0xFFFE) == 0x100C;
+            pulsos_.clear(); mira_p12_ = true;
+            // Con dos bits de parada (8N2): con uno solo, la escritura del byte
+            // (30 tFTG, 90 us con la CPU parada) acaba después del flanco del
+            // siguiente y el BSL lee el bit 0 en su borde
+            const sc_time tb(1e6 / 9600.0, SC_US);
+            for (uint8_t b : img) { manda_pin(b); wait(tb); }
+            manda_pin(suma);
+            wait(5, SC_MS);
+            mira_p12_ = false;
+            return borrado;
+        };
+        const bool b1 = carga(x);
+        const double p1 = pulsos_.size() == 1 ? pulsos_[0] : -1.0;
+        bool igual = true;
+        for (size_t i = 0; i < img.size(); ++i) igual = igual && g2.mem8(uint32_t(0xF800 + i)) == img[i];
+        char txt[200];
+        std::snprintf(txt, sizeof txt, "S2 y SYNC (0xBA): borra 0xF800-0xFFFF y deja el reset en el BSL; los 2046 bytes y su XOR: ACK, P1.2 baja %.0f us (4 bits)", p1);
+        check(b1 && igual && std::fabs(p1 - 4e6 / 9600.0) < 20.0, txt);
+        g2.p(1, 0).set_hiz(id_p10_);
+        const Mide m1 = mide(g2.p(1, 6), sc_time(300, SC_MS));
+        const uint16_t vueltas = g2.mem16(0x0200);
+        std::snprintf(txt, sizeof txt, "el perro reinicia y arranca lo cargado: P1.6 cambia %zu veces en 300 ms, %u vueltas", m1.t.size(), unsigned(vueltas));
+        check(m1.t.size() >= 4 && vueltas > 4 && g2.mem16(0xFFFE) == 0x100C, txt);
+        carga(uint8_t(x ^ 0x5A));
+        const double p2 = pulsos_.size() == 1 ? pulsos_[0] : -1.0;
+        std::snprintf(txt, sizeof txt, "con la suma mal: NACK, P1.2 baja %.0f us (2 bits)", p2);
+        check(std::fabs(p2 - 2e6 / 9600.0) < 20.0, txt);
+        g2.p(1, 3).set_hiz(id_pu13_);
+        g2.p(1, 1).set_hiz(id_rxd_);
+    }
+
     void run() {
         // TESTG2_SOLO=67 corre solo G6 y G7 (para depurar; el invariante es sin él)
         const char* solo = std::getenv("TESTG2_SOLO");
@@ -470,6 +677,8 @@ SC_MODULE(TbG2) {
         if (va('5')) g5();
         if (va('6')) g6();
         if (va('7')) g7();
+        if (va('8')) g8();
+        if (va('9')) g9();
         std::printf("\nTOTAL G2: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

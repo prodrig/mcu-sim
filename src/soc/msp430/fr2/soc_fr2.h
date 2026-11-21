@@ -88,6 +88,14 @@
 #include "../../../periph/ti/dma5xx.h"
 #include "../../../periph/ti/lea.h"
 #include "../../../periph/ti/esi.h"
+
+namespace stm32 { namespace bsl_fr5 {
+// El BSL B1 de las FR5xx/FR6xx (verif/fw/fr5/bsl_b1, AGPLv3): sus 2 KB de 0x1000
+inline const uint8_t IMAGEN[] = {
+#include "bsl_fr5.inc"
+};
+static_assert(sizeof(IMAGEN) == BSL_FR5_BYTES && BSL_FR5_TAM == 0x800, "bsl_fr5.inc mal generado");
+} }
 #include "../../../common/analog_net.h"
 #include "../../../pins/pin_mux.h"
 #include "../../../common/imagen_fw.h"
@@ -326,6 +334,42 @@ SC_MODULE(SocFR2), public m430_irq_if {
     std::unique_ptr<Lea> lea5;
     std::unique_ptr<Esi> esi5;
     double v_esici = 0.0;                     // el pin ESICI (no es de un puerto; lo pone el banco)
+    // El BSL (M9): B1 el propio (por omisión en las FR5), B2 un fichero
+    // (`--bsl FICHERO`: el volcado de la ROM de un chip), B3 ninguno
+    std::string bsl_origen;                   // "B1", la ruta del fichero o "ninguno"
+    unsigned bsl_entradas = 0;                // las veces que la secuencia de TEST y RST lo ha arrancado
+    void pon_bsl_b1() {
+        if (!desc.bsl.existe()) return;
+        std::fill(mem_.begin() + desc.bsl.ini, mem_.begin() + desc.bsl.fin + 1, 0xFF);
+        std::copy(bsl_fr5::IMAGEN, bsl_fr5::IMAGEN + sizeof bsl_fr5::IMAGEN, mem_.begin() + desc.bsl.ini);
+        bsl_hay_ = true; bsl_origen = "B1";
+    }
+    void quita_bsl() {
+        if (!desc.bsl.existe()) return;
+        std::fill(mem_.begin() + desc.bsl.ini, mem_.begin() + desc.bsl.fin + 1, 0xFF);
+        bsl_hay_ = false; bsl_origen = "ninguno";
+    }
+    // B2: TI-TXT, Intel HEX o ELF, con lo de 0x1000-0x17FF
+    std::string carga_bsl(const std::string& ruta) {
+        if (ruta == "ninguno") { quita_bsl(); return std::string(); }
+        std::vector<TrozoFw> t;
+        std::string e;
+        switch (formato_fw(ruta)) {
+        case FormatoFw::Elf: e = lee_elf(ruta, t); break;
+        case FormatoFw::TiTxt: e = lee_titxt(ruta, t); break;
+        case FormatoFw::IntelHex: e = lee_ihex(ruta, t); break;
+        default: return ruta + ": el BSL va en TI-TXT, Intel HEX o ELF";
+        }
+        if (!e.empty()) return e;
+        std::fill(mem_.begin() + desc.bsl.ini, mem_.begin() + desc.bsl.fin + 1, 0xFF);
+        size_t n = 0;
+        for (const TrozoFw& tr : t)
+            for (size_t i = 0; i < tr.datos.size(); ++i)
+                if (desc.bsl.contiene(tr.dir + uint32_t(i))) { mem_[tr.dir + i] = tr.datos[i]; ++n; }
+        if (!n) return ruta + ": no trae nada en 0x1000-0x17FF";
+        bsl_hay_ = true; bsl_origen = ruta;
+        return std::string();
+    }
     bool cristal_hfxt = false;                // lo pone la placa: un cristal en HFXIN/HFXOUT
     double f_hfxt = 16e6;                     // y su frecuencia (`hfxt` del <mcu>)
     // Un reloj externo en HFXIN o LFXIN para el bypass, además del que declare
@@ -484,7 +528,7 @@ SC_MODULE(SocFR2), public m430_irq_if {
             lcd->al_fase = [this] { pines_lcd(); };
         }
         construye_analogico();
-        if (c.fr5) construye_fr5();
+        if (c.fr5) { construye_fr5(); pon_bsl_b1(); }
         busca_rom();
         construye_fuentes();
         uno.write(true);
@@ -1118,7 +1162,13 @@ private:
             const bool clave = mem16(0xFF80) == 0xAAAA && mem16(0xFF82) != 0x5555;
             tap.pon_bloqueo((mem16(0xFF80) == 0x5555 && mem16(0xFF82) == 0x5555) || clave);
             if (clave) arranque_clave();
-            if (tap.fusible()) return;
+            // La secuencia del BSL [BSLFR §3.3.2]: dos flancos de subida de TEST con
+            // RST bajo y RST sube con TEST alto; arranca al bajar TEST. No con
+            // JTAG (la firma de 0xFF80 lo bloquea, no el BSL) ni con la de 0xFF84
+            bsl_pedido_ = bsl_hay_ && flancos_test_ >= 2 && !test.floating() && test.voltage() > 0.5f * float(vcc) &&
+                          !(mem16(0xFF84) == 0x5555 && mem16(0xFF86) == 0x5555);
+            flancos_test_ = 0;
+            if (tap.fusible() && !bsl_pedido_) return;
             mira_patron();
             if (!magico_ && !test.floating() && test.voltage() > 0.5f * float(vcc)) { arranque_espera_ = true; nucleo.espera(true); }
             return;
@@ -1162,9 +1212,26 @@ private:
     }
     void test_bajo_proc() {
         if (buzon_pendiente_ && fase_buzon_ == 0) { ev_buzon_.notify(sc_core::SC_ZERO_TIME); return; }
-        if (arranque_espera_ && !magico_ && (test.floating() || test.voltage() < 0.5f * float(vcc))) suelta_arranque();
+        if (arranque_espera_ && !magico_ && (test.floating() || test.voltage() < 0.5f * float(vcc))) {
+            if (bsl_pedido_) {                                        // el BSL: a la entrada de la Z-Area
+                bsl_pedido_ = false;
+                ++bsl_entradas;
+                nucleo.cpu.pon_reg(0, desc.bsl.ini);
+                nucleo.cpu.pon_reg(2, 0);                             // aunque el vector esté en blanco (LPM4)
+            }
+            suelta_arranque();
+        }
     }
+    // Los flancos de subida de TEST con RST bajo (la secuencia del BSL)
+    bool bsl_hay_ = false, bsl_pedido_ = false, test_alto_ = false;
+    unsigned flancos_test_ = 0;
     void test_proc() {
+        {
+            const bool alto = !test.floating() && test.voltage() > 0.5f * float(vcc);
+            const bool rst_bajo = !rst.floating() && rst.voltage() < 0.5f * float(vcc);
+            if (alto && !test_alto_ && rst_bajo) ++flancos_test_;
+            test_alto_ = alto;
+        }
         pines_salida();
         if ((arranque_espera_ || buzon_pendiente_) && (test.floating() || test.voltage() < 0.5f * float(vcc)))
             ev_test_bajo_.notify(sc_core::sc_time(150, sc_core::SC_US));
@@ -1174,7 +1241,7 @@ private:
     void rst_pin_proc() {
         const bool bajo = !rst.floating() && rst.voltage() < 0.5f * float(vcc) && !pines_dbg->rst_es_sbw();
         if (bajo && !rst_pin_bajo_) {
-            if (!(ev_rst_pin_.triggered())) { ev_rst_pin_.notify(sc_core::sc_time(2, sc_core::SC_US)); return; }
+            if (!(ev_rst_pin_.triggered())) { ev_rst_pin_.notify(sc_core::sc_time(2, sc_core::SC_US)); flancos_test_ = 0; return; }
             rst_pin_bajo_ = true;
             rst_n.write(false);
         } else if (!bajo && rst_pin_bajo_) {
@@ -1872,6 +1939,10 @@ private:
         }
         if (chip.mfm && (r == 0x0A || r == 0x0C)) ev_mfm_.notify(sc_core::SC_ZERO_TIME);
         if (chip.nouth && (r == 0x0A || r == 0x0C || r == 0x04)) mira_trg();
+        // La entrada de un módulo es el pin en cuanto se le da: sin esto, un
+        // UCAxRXD que ya está alto al elegirlo se queda en 0 hasta su primer
+        // flanco, y el primer carácter se pierde (el 0x80 del BSL, M9)
+        if (r == 0x0A || r == 0x0C || r == 0x04) ev_entradas_.notify(sc_core::SC_ZERO_TIME);
         pines_salida();
     }
 
@@ -1982,6 +2053,9 @@ private:
             auto pon = [&](bool v) { bcl_rx()->set_drive(id_rx_, v ? float(vcc) : 0.0f, 50.0f); wait(sc_core::sc_time(tb, sc_core::SC_SEC)); };
             pon(false);
             for (unsigned k = 0; k < 8; ++k) pon((c >> k) & 1u);
+            // con UCPEN (el BSL: 8E1), la paridad que pide la eUSCI
+            const uint16_t w0 = usci[chip.bcl_usci]->ctlw0();
+            if (w0 & 0x8000) { unsigned u = 0; for (unsigned k = 0; k < 8; ++k) u ^= (c >> k) & 1u; pon(((w0 & 0x4000) ? u : !u) != 0); }
             pon(true);
             bcl_rx()->set_drive(id_rx_, float(vcc), 1000.0f);
         }
@@ -2004,6 +2078,7 @@ private:
                 if (bcl_tx()->voltage() > 0.5f * float(vcc)) c |= 1u << k;
                 wait(sc_core::sc_time(tb, sc_core::SC_SEC));
             }
+            if (usci[chip.bcl_usci]->ctlw0() & 0x8000) wait(sc_core::sc_time(tb, sc_core::SC_SEC));   // la paridad
             // La parada, baja: un error de trama (la línea en GPIO a 0, como
             // deja TXD la demo del FR5969); el PC no lo ve como un carácter
             if (bcl_tx()->voltage() <= 0.5f * float(vcc)) continue;
@@ -2728,6 +2803,13 @@ public:
                     if (gp.is_read()) for (unsigned i = 0; i < n; ++i) d[i] = ((a + i) & 1u) ? 0x3F : 0xFF;
                     return;
                 }
+            }
+            // El BSL protegido: desde fuera de él solo se lee la Z-Area (0x1000-0x100F)
+            // [BSLFR §3.2.1.1]; el resto da 0x3FFF [de modelo: el salto desde fuera no se vigila]
+            if (gp.is_read() && chip.fr5 && desc.bsl.contiene(a) && !dbg && de_cpu_ && a >= desc.bsl.ini + 0x10 &&
+                !desc.bsl.contiene(nucleo.cpu.pc())) {
+                for (unsigned i = 0; i < n; ++i) d[i] = ((a + i) & 1u) ? 0x3F : 0xFF;
+                return;
             }
             if (gp.is_read()) { for (unsigned i = 0; i < n; ++i) d[i] = mem_[a + i]; return; }
             if (es_bsl(a) && !dbg) return;                            // ROM

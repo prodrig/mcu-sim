@@ -562,6 +562,218 @@ SC_MODULE(TbF5) {
         check(f5.rtc.segundos_contados() == 3, t);
     }
 
+    // F14 (TESTF5_SOLO=E): el BSL USB de Flash (B1: el de TI, BSD-3, portado a
+    // gcc) con un anfitrión HID en el banco: el chip en blanco con VBUS entra
+    // en el BSL, enumera como 2047:0200 y contesta la batería; con
+    // BSL_TI=<BSL_00.08.88.39.txt>, la misma batería con la imagen de TI (B2)
+    // tiene que dar lo mismo
+    struct HostHid {
+        TbF5& tb;
+        ControladorUsb hc;
+        uint8_t ep_in = 0, ep_out = 0;
+        uint16_t vid = 0, pid = 0;
+        int pd_ = -1, pd2_ = -1;
+        // Las de 15 kOhm a masa del anfitrión en D+ y D- [USB 2.0 §7.1.5]
+        explicit HostHid(TbF5& t) : tb(t), hc(&t.f5.usb) {
+            hc.pausa_control_us = 125.0;
+            pd_ = t.f5.pu0.register_driver("hid_pd"); pd2_ = t.f5.pu1.register_driver("hid_pd");
+            t.f5.pu0.set_drive(pd_, 0.0f, 15.0e3f); t.f5.pu1.set_drive(pd2_, 0.0f, 15.0e3f);
+        }
+        ~HostHid() { tb.f5.pu0.set_hiz(pd_); tb.f5.pu1.set_hiz(pd2_); }
+        void tramas(int ms) { for (int i = 0; i < ms; ++i) { hc.sof(); sc_core::wait(1, SC_MS); } }
+        bool reset_bus() {
+            const int a = tb.f5.pu0.register_driver("hid_rst"), b = tb.f5.pu1.register_driver("hid_rst");
+            tb.f5.pu0.set_drive(a, 0.0f, 45.0f); tb.f5.pu1.set_drive(b, 0.0f, 45.0f);
+            sc_core::wait(10, SC_MS);
+            tb.f5.pu0.set_hiz(a); tb.f5.pu1.set_hiz(b);
+            sc_core::wait(10, SC_US);
+            tramas(10);
+            if (std::getenv("BSL_VER")) std::printf("reset_bus: D+ %.2f V pc %05X t=%s entradas %u pucs %u\n", tb.f5.pu0.voltage(), unsigned(tb.f5.nucleo.cpu.pc()), sc_time_stamp().to_string().c_str(), tb.f5.bsl_entradas, tb.f5.pucs());
+            return tb.f5.pu0.voltage() > 2.0f;
+        }
+        static bool dbg(int k) { if (std::getenv("BSL_VER")) std::printf("enumera falla en %d\n", k); return false; }
+        bool enumera() {
+            for (int i = 0; i < 6000 && tb.f5.pu0.voltage() < 2.0f; ++i) sc_core::wait(1, SC_MS);       // el 1,5 kOhm de PUR_EN
+            if (std::getenv("BSL_VER")) std::printf("pur %.2f V t=%s pc %05X\n", tb.f5.pu0.voltage(), sc_time_stamp().to_string().c_str(), unsigned(tb.f5.nucleo.cpu.pc()));
+            for (int estable = 0, i = 0; estable < 100 && i < 6000; ++i) {          // el rebote de USB 2.0 §7.1.7.3: 100 ms seguidos
+                tramas(1);
+                estable = tb.f5.pu0.voltage() > 2.0f ? estable + 1 : 0;
+            }
+            if (!reset_bus()) return dbg(1);
+            std::vector<uint8_t> d;
+            if (hc.control_in(0, ControladorUsb::setup(0x80, 6, 0x0100, 0, 8), d, 8) != PID_ACK || d.size() < 8) return dbg(2);
+            const unsigned mps0 = d[7] ? d[7] : 8;
+            if (!reset_bus()) return dbg(3);
+            if (hc.control_out(0, ControladorUsb::setup(0x00, 5, 1, 0, 0)) != PID_ACK) return dbg(4);
+            tramas(2);
+            if (hc.control_in(1, ControladorUsb::setup(0x80, 6, 0x0100, 0, 18), d, mps0) != PID_ACK || d.size() < 18) return dbg(5);
+            vid = uint16_t(d[8] | (d[9] << 8)); pid = uint16_t(d[10] | (d[11] << 8));
+            if (hc.control_in(1, ControladorUsb::setup(0x80, 6, 0x0200, 0, 9), d, mps0) != PID_ACK || d.size() < 9) return dbg(6);
+            const uint16_t total = uint16_t(d[2] | (d[3] << 8));
+            if (hc.control_in(1, ControladorUsb::setup(0x80, 6, 0x0200, 0, total), d, mps0) != PID_ACK || d.size() < total) return dbg(7);
+            if (std::getenv("BSL_VER")) { std::printf("conf %zu:", d.size()); for (uint8_t x : d) std::printf(" %02X", x); std::printf("\n"); }
+            for (size_t i = 0; i + 6 < d.size(); i += d[i] ? d[i] : 1)
+                if (d[i + 1] == 5) { if (d[i + 2] & 0x80) ep_in = d[i + 2] & 0x0F; else ep_out = d[i + 2] & 0x0F; }
+            if (hc.control_out(1, ControladorUsb::setup(0x00, 9, d[5], 0, 0)) != PID_ACK) return dbg(8);
+            tramas(5);
+            return ep_in && ep_out;
+        }
+        // Un informe: 0x3F, la longitud y el núcleo; devuelve el núcleo de la respuesta (o nada)
+        bool orden(const std::vector<uint8_t>& nucleo, std::vector<uint8_t>* resp) {
+            std::vector<uint8_t> r{0x3F, uint8_t(nucleo.size())};
+            r.insert(r.end(), nucleo.begin(), nucleo.end());
+            r.resize(64, 0xAC);
+            std::vector<uint8_t> e;
+            const uint8_t po = hc.insiste(PID_OUT, 1, ep_out, r, e);
+            if (std::getenv("BSL_VER") && nucleo[0] == 0x19) std::printf("orden 19: OUT %u enum %02X susp %02X conf %02X\n", po, tb.f5.mem8(0x2412), tb.f5.mem8(0x2411), tb.f5.mem8(0x2400));
+            if (po != PID_ACK) return false;
+            if (!resp) { tramas(2); return true; }
+            for (int i = 0; i < 500; ++i) {
+                if (hc.paquete(PID_IN, 1, ep_in, {}, e) == PID_ACK && e.size() >= 2 && e[0] == 0x3F) {
+                    resp->assign(e.begin() + 2, e.begin() + 2 + std::min<size_t>(e[1], e.size() - 2));
+                    return true;
+                }
+                hc.sof(); sc_core::wait(1, SC_MS);
+            }
+            return false;
+        }
+    };
+    // La batería: lo que contesta el BSL de Flash, en texto
+    std::string bateria(HostHid& h) {
+        std::string r;
+        auto hx = [&](const std::vector<uint8_t>& v) { char b[4]; for (uint8_t c : v) { std::snprintf(b, sizeof b, "%02X", c); r += b; } r += ' '; };
+        std::vector<uint8_t> v;
+        std::vector<uint8_t> pw{0x11};
+        for (int i = 0; i < 32; ++i) pw.push_back(0xFF);
+        r += h.orden(pw, &v) ? "" : "!"; hx(v);                                   // la contraseña (el chip en blanco)
+        r += h.orden({0x19}, &v) ? "" : "!"; hx(v);                               // la versión: no la tiene el de Flash
+        r += h.orden({0x10, 0x00, 0x25, 0x00, 0x55}, &v) ? "" : "!"; hx(v);       // RX Data Block (lento): tampoco
+        // RX Data Block Fast: un programa en RAM (0x2500) que enciende P1.0 (LED1) y se para
+        const std::vector<uint8_t> prog{0xD2, 0xD3, 0x04, 0x02,  0xD2, 0xD3, 0x02, 0x02,  0xFF, 0x3F};   // bis.b #1,&P1DIR; bis.b #1,&P1OUT; jmp $
+        std::vector<uint8_t> c{0x1B, 0x00, 0x25, 0x00};
+        c.insert(c.end(), prog.begin(), prog.end());
+        r += h.orden(c, nullptr) ? "fast " : "!fast ";
+        r += h.orden({0x17, 0x00, 0x25, 0x00}, nullptr) ? "pc " : "!pc ";        // Load PC
+        h.tramas(20);
+        r += f5.p(1, 0).voltage() > 1.6f ? "led" : "sinled";
+        return r;
+    }
+    bool entra_hid(HostHid& h, unsigned& entradas) {
+        f5.usb.vbus(false);                                          // el cable fuera y dentro
+        sc_core::wait(10, SC_MS);
+        f5.reset(true);
+        sc_core::wait(1, SC_US);
+        f5.en_blanco();
+        const unsigned n0 = f5.bsl_entradas;
+        f5.usb.vbus(true);
+        f5.reset(false);
+        sc_core::wait(5, SC_MS);
+        entradas = f5.bsl_entradas - n0;
+        return h.enumera();
+    }
+    std::string corre_bsl(HostHid& h, unsigned& entradas) {
+        if (!entra_hid(h, entradas)) return "sin enumerar";
+        return bateria(h);
+    }
+    void f14() {
+        grupo("F14 el BSL USB de Flash (B1, el de TI portado a gcc): entra con el chip en blanco y VBUS, enumera y contesta");
+        HostHid h(*this);
+        unsigned n = 0;
+        if (const char* ti = std::getenv("BSL_SOLO_TI")) f5.carga_bsl(ti);
+        const std::string b1 = corre_bsl(h, n);
+        char t[200];
+        std::snprintf(t, sizeof t, "el chip en blanco con VBUS entra en el BSL (%u) y enumera como %04X:%04X (HID, EP%u IN y EP%u OUT)",
+                      n, h.vid, h.pid, h.ep_in, h.ep_out);
+        check(n == 1 && h.vid == 0x2047 && h.pid == 0x0200, t);
+        check(b1 == "3B00 3B07 3B07 fast pc led",
+              "la batería: la contraseña (3B 00), las órdenes que no tiene el de Flash (3B 07), RX Data Block Fast a RAM y "
+              "Load PC (LED1 se enciende): «" + b1 + "»");
+        f5.usb.vbus(false);
+        if (const char* ti = std::getenv("BSL_TI")) {
+            const std::string e = f5.carga_bsl(ti);
+            HostHid h2(*this);
+            unsigned n2 = 0;
+            const std::string b2 = e.empty() ? corre_bsl(h2, n2) : e;
+            check(b2 == b1 && h2.pid == h.pid, "B2 (la imagen de TI, " + f5.bsl_origen + ") da lo mismo: «" + b2 + "»");
+            f5.usb.vbus(false);
+            f5.pon_bsl_b1();
+        }
+        // Con RAM_BSL=<RAM_BSL.00.06.05.34.txt> (el que carga python-msp430-tools
+        // con bsl5.hid; de TI, no se versiona): lo que hace la herramienta. El BSL
+        // de RAM se carga con RX Data Block Fast, Load PC 0x2504, vuelve a
+        // enumerar, da su versión y programa, verifica y arranca blink
+        if (const char* rb = std::getenv("RAM_BSL")) {
+            std::vector<TrozoFw> t;
+            std::string e = lee_titxt(rb, t);
+            HostHid h3(*this);
+            unsigned n3 = 0;
+            bool ok = e.empty() && entra_hid(h3, n3);
+            if (std::getenv("BSL_VER")) std::printf("e='%s' entra %d n3 %u trozos %zu\n", e.c_str(), ok, n3, t.size());
+            std::vector<uint8_t> pw{0x11};
+            for (int i = 0; i < 32; ++i) pw.push_back(0xFF);
+            std::vector<uint8_t> v;
+            ok = ok && h3.orden(pw, &v);
+            for (const TrozoFw& tr : t)
+                for (size_t o = 0; ok && o < tr.datos.size(); o += 48) {
+                    const uint32_t ad = tr.dir + uint32_t(o);
+                    std::vector<uint8_t> c{0x1B, uint8_t(ad), uint8_t(ad >> 8), uint8_t(ad >> 16)};
+                    c.insert(c.end(), tr.datos.begin() + long(o), tr.datos.begin() + long(std::min(tr.datos.size(), o + 48)));
+                    ok = h3.orden(c, nullptr);
+                }
+            const bool ok1 = ok;
+            ok = ok && h3.orden({0x17, 0x04, 0x25, 0x00}, nullptr);
+            for (int i = 0; i < 3000; ++i) { h3.hc.sof(); sc_core::wait(1, SC_MS); }   // la herramienta espera 3 s
+            // Si el BSL de RAM sigue conectado, el anfitrión no vuelve a enumerar
+            // (la dirección y la configuración siguen); si se desconectó, sí
+            HostHid& h4 = h3;
+            bool sigue = ok && h4.orden({0x19}, &v);
+            if (!sigue && ok) ok = h4.enumera() && h4.orden({0x19}, &v);
+            const bool ok2 = ok;
+            const std::vector<uint8_t> ver = v;
+            // blink (P1.0): RX Data Block (con respuesta), TX Data Block y Load PC
+            std::vector<TrozoFw> b;
+            lee_elf("verif/f5529/elf/f5_blink.elf", b, ELF_MSP430);
+            uint32_t entrada = 0;
+            bool prog = !b.empty(), verif = true;
+            for (const TrozoFw& tr : b) {
+                if (tr.dir < 0x4400) continue;
+                for (size_t o = 0; prog && o < tr.datos.size(); o += 48) {
+                    const uint32_t ad = tr.dir + uint32_t(o);
+                    const size_t n = std::min<size_t>(48, tr.datos.size() - o);
+                    std::vector<uint8_t> c{0x10, uint8_t(ad), uint8_t(ad >> 8), uint8_t(ad >> 16)};
+                    c.insert(c.end(), tr.datos.begin() + long(o), tr.datos.begin() + long(o + n));
+                    prog = h4.orden(c, &v) && v == std::vector<uint8_t>({0x3B, 0x00});
+                    std::vector<uint8_t> l;
+                    verif = verif && h4.orden({0x18, uint8_t(ad), uint8_t(ad >> 8), uint8_t(ad >> 16), uint8_t(n), 0}, &l) &&
+                            l.size() == n + 1 && std::equal(l.begin() + 1, l.end(), tr.datos.begin() + long(o));
+                }
+                if (tr.dir <= 0xFFFE && tr.dir + tr.datos.size() >= 0x10000) entrada = tr.datos[0xFFFE - tr.dir] | (tr.datos[0xFFFF - tr.dir] << 8);
+            }
+            h4.orden({0x17, uint8_t(entrada), uint8_t(entrada >> 8), 0}, nullptr);
+            unsigned cambios = 0;
+            bool ant = f5.p(1, 0).voltage() > 1.6f;
+            for (int i = 0; i < 600; ++i) { sc_core::wait(1, SC_MS); const bool x = f5.p(1, 0).voltage() > 1.6f; if (x != ant) ++cambios; ant = x; }
+            char t2[240];
+            std::snprintf(t2, sizeof t2, "el BSL de RAM de python-msp430-tools: carga, vuelve a enumerar, versión %02X.%02X.%02X.%02X; "
+                          "blink programado %d, verificado %d y arrancado (P1.0 cambia %u veces)",
+                          ver.size() > 4 ? ver[1] : 0, ver.size() > 4 ? ver[2] : 0, ver.size() > 4 ? ver[3] : 0, ver.size() > 4 ? ver[4] : 0,
+                          prog, verif, cambios);
+            if (std::getenv("BSL_VER")) std::printf("ok1 %d ok2 %d ok %d pc %05X\n", ok1, ok2, ok, unsigned(f5.nucleo.cpu.pc()));
+            check(ok && ver == std::vector<uint8_t>({0x3A, 0x00, 0x06, 0x05, 0x34}) && prog && verif && cambios >= 4, t2);
+            f5.usb.vbus(false);
+        }
+        // Con un programa, el vector no está en blanco: arranca el programa aunque haya VBUS
+        f5.reset(true);
+        wait(1, SC_US);
+        f5.carga("verif/fw/f5529/SimpleUsbBackchannel.txt");
+        const unsigned n1 = f5.bsl_entradas;
+        f5.usb.vbus(true);
+        f5.reset(false);
+        wait(20, SC_MS);
+        check(f5.bsl_entradas == n1, "con un programa (el vector puesto) y VBUS, arranca el programa");
+        f5.usb.vbus(false);
+    }
+
     void run() {
         const char* solo = std::getenv("TESTF5_SOLO");
         auto va = [&](char g) { return !solo || std::strchr(solo, g); };
@@ -578,6 +790,7 @@ SC_MODULE(TbF5) {
         if (va('B')) f11();
         if (va('C')) f12();
         if (va('D')) f13();
+        if (va('E')) f14();
         std::printf("\nTOTAL F5: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

@@ -109,7 +109,7 @@ public:
     }
     std::vector<std::string> limitaciones() const override {
         return {"el USB: la reanudacion remota la contesta el anfitrion al momento",
-                "el BSL de Flash no esta (M9); con el vector de reset borrado, el chip no arranca nada"};
+                "el BSL de Flash es el B1 de mcu-sim (el USB de MSPDebugStack; --bsl FICHERO para el de TI): no carga el RAM BSL de las herramientas"};
     }
 
     void registra_nodos(const std::string& prefijo, NodeMap& n) override {
@@ -176,8 +176,14 @@ public:
     }
     std::string sin_firmware() override { aparca_en_wfe(); return "el nucleo para el perro y duerme en LPM4"; }
     void set_ondas_reloj(bool) override {}
-    bool admite_opcion(const std::string& clave) const override { return clave == "usb"; }
+    // `--bsl` (M9): b1 el propio (por omisión), un fichero con el BSL de
+    // Flash, 0x1000-0x17FF (B2), o ninguno (B3)
+    bool admite_opcion(const std::string& clave) const override { return clave == "usb" || clave == "bsl"; }
     std::string opcion(const std::string& clave, const std::string& valor) override {
+        if (clave == "bsl") {
+            if (valor == "b1" || valor == "B1") { chip_->pon_bsl_b1(); return ""; }
+            return chip_->carga_bsl(valor == "b3" || valor == "B3" ? std::string("ninguno") : valor);
+        }
         if (clave == "usb") {
             const serie::Destino d = serie::parsea(valor);
             if (!d.valido) return d.error;
@@ -192,6 +198,7 @@ public:
     }
     std::string describe_opcion(const std::string& clave) const override {
         if (clave == "usb") return puente_usb_ ? puente_usb_->describir() : "";
+        if (clave == "bsl") return chip_->bsl_origen;
         return "";
     }
     PuenteUsbCdc* puente_usb() { return puente_usb_.get(); }

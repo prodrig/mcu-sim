@@ -15,3 +15,10 @@ elf/%.elf: %.c
 elf/%.elf: ejemplos/%.c ejemplos/ta_uart.h
 	@mkdir -p elf
 	$(MSPGCC)gcc $(CFLAGS) -o $@ $<
+
+# El BSL de usuario de la G2xx de MSPBSL (BSD-3, en ensamblador de GNU) y la
+# aplicación que se le carga en G9 (M9)
+all: elf/g2_bsl_usuario.elf elf/g2_bsl_app.elf
+elf/g2_bsl_%.elf: g2_bsl_%.S g2_bsl_usuario.ld
+	@mkdir -p elf
+	$(MSPGCC)gcc -mmcu=msp430g2553 -I$(TI) -L$(TI) -g -nostdlib -nostartfiles -T g2_bsl_usuario.ld -o $@ $<

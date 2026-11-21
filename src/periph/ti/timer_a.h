@@ -128,6 +128,7 @@ public:
     bool pide_reloj(unsigned s) const { return mc() != 0 && tassel() == s; }
     // El MSP430 borra CCIFG de CCR0 al aceptar su vector (el MSP432, no): lo
     // llama el SoC cuando la CPU reconoce la interrupción TAx_0
+    uint16_t cctl(unsigned n) const { return n < NCC ? cctl_[n] : 0; }
     void reconoce_ccr0() { cctl_[0] &= uint16_t(~CC_IFG); borrado(); }
     // Las peticiones tal como están ahora (irq0/irqn las publican un delta
     // después): las mira el SoC de las FR2xx/FR4xx, para no volver a entrar

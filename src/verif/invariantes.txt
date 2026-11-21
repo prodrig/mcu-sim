@@ -460,7 +460,16 @@ test430               776      8295637000000  resto
 # P-20 (2): G6 (USCI_B0 en SPI e I2C con un OPT3001, Comp_A+, la DTC del
 # ADC10, captura y PWM) y G7 (los ejemplos y la demo de fabrica) anaden 15
 # comprobaciones; G1-G5 acaban donde antes (1363803568644).
-testg2                 40       4948892901984        total
+# M9 (21-11-2026): movida de 40/4948892901984 al anadir G8 (el BSL B1 de
+# ROM: la secuencia de TEST y RST, el protocolo de 1xx/2xx, la contrasena,
+# blink y B3; 7 comprobaciones) y G9 (el BSL de usuario de la G2xx de MSPBSL
+# cargando por el canal de vuelta con S2; 4). G1-G4 acaban donde antes; G5
+# dura 28889120 ps mas, y G6-G7 lo mismo que antes: en G5 la CPU, con el
+# vector de reset en blanco, acaba ejecutando en 0x0C00, donde ahora esta el
+# B1 (pone el DCO a 8 MHz) y antes 0x3FFF («jmp $»), y el JTAG la para mas
+# tarde. Con el BSL quitado (`carga_bsl("ninguno")`, el 0x3FFF de antes) G5 da
+# lo de antes al picosegundo. Ninguna otra suite de MSP430 se mueve.
+testg2                 51      12414990473648        total
 
 # testf5: el MSP430F5529 (M4 de doc/analisis_msp430.md). F1 el SoC contra el
 # descriptor y la TLV de fabrica; F2 f5_basico.c con la DriverLib de TI
@@ -487,7 +496,13 @@ testg2                 40       4948892901984        total
 # instruccion anterior, y con TCLK de MCLK CPUOFF no la duerme (las MOVA de
 # ReadCpuRegXv2 en LPM). F1-F9 acaban donde antes (20005009000000: F10 empieza
 # ahi); test430 y testg2 no se mueven. Igual en dos pasadas.
-testf5                 59       25861134250000       total
+# M9 (21-11-2026): movida de 59/25861134250000 al anadir F14 (el BSL USB de
+# Flash, el de la MSP Debug Stack portado a gcc: el chip en blanco con VBUS
+# entra, enumera como 2047:0200 y contesta la bateria; con un programa no
+# entra; 3 comprobaciones, 4 con BSL_TI=<imagen de TI>, que da lo mismo).
+# F14 empieza en 25861134250000: F1-F13 acaban donde antes, con el hilo de
+# ACLK a TB0.CCI6B y la entrada de los modulos al cambiar PxSEL.
+testf5                 62      26455455250005       total
 
 # testfr2: el MSP430FR2433 (M6 de doc/analisis_msp430.md). R1 el SoC contra el
 # descriptor y la TLV; R2 fr2_basico.c con la DriverLib (el FLL a 16 MHz con
@@ -573,4 +588,11 @@ testfr2476             19        6629302000000       total
 # FR6989); L1-L9 dan lo mismo al picosegundo (FR5_SOLO=123456789: 73 y
 # 36925692000000). El MPY32 ya no satura con MPYSAT un MPYS negativo que no
 # desborda (solo -1 por -1 en fraccional): ninguna otra suite se mueve.
-testfr5                86       40717595000000       total
+# M9 (21-11-2026): movida de 86/40717595000000 al anadir L12 (el BSL B1 de
+# las FR5: la secuencia de TEST y RST, la version, la contrasena mala y el
+# borrado, RX/CRC/TX Data Block, Load PC con blink, la Z-Area leida desde la
+# aplicacion, B3, el FR5994 y el FR6989; 13 comprobaciones). L12 empieza en
+# 40717595000000: L1-L11 acaban donde antes, con el B1 en la ROM del BSL y la
+# entrada de los modulos al cambiar PxSEL (que tampoco mueve testfr2,
+# testfr4, testfr2311, testfr2355 ni testfr2476).
+testfr5                99       42490696000000       total

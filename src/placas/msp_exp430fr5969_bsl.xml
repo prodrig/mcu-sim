@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La MSP-EXP430FR5969 con el adaptador del BSL (M9), como en el
+     laboratorio: fuera los puentes RXD, TXD, RST y TST de J13 (el eZ-FET ya no
+     llega al chip) y el adaptador en su lado del MCU.
+         ./build/mcu-sim placas/msp_exp430fr5969_bsl.xml --tiempo-real --ms=60000
+         python3 ../herramientas/bsl5_uart_py3.py -p rfc2217://localhost:3370 \
+             --invert-reset -e -P verif/fr5969/elf/fr59_blink.hex -V -r -->
+<sistema nombre="msp-exp430fr5969-bsl">
+  <placa id="LP" fichero="msp_exp430fr5969.xml" x="0" y="0"/>
+  <placa id="A" fichero="bsl_adaptador.xml" x="110" y="0"/>
+  <jumper ref="LP/J13" puente="1 2, 3 4"/>
+  <hilo a="A/P1.TXD" b="LP/J13.5"/>   <!-- a P2.1, UCA0RXD -->
+  <hilo a="A/P1.RXD" b="LP/J13.7"/>   <!-- de P2.0, UCA0TXD -->
+  <hilo a="A/P1.RST" b="LP/J13.9"/>
+  <hilo a="A/P1.TEST" b="LP/J13.11"/>
+  <hilo a="A/P1.GND" b="LP/J2.1"/>
+</sistema>

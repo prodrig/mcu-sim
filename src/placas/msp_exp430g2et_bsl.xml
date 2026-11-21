@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La MSP-EXP430G2ET con el adaptador del BSL (M9): fuera los puentes RXD,
+     TXD, RST y TST de J101 (el eZ-FET ya no llega al chip) y el adaptador en
+     los pines del BSL de los G2xx3: su TXD a P1.5 (lo que lee el BSL) y su
+     RXD a P1.1 (lo que manda) [BSL SLAU319 tabla 1-2].
+         ./build/mcu-sim placas/msp_exp430g2et_bsl.xml --tiempo-real --ms=60000
+         python3 -m msp430.bsl.target -p rfc2217://localhost:3370 \
+             invert-reset -e -P verif/g2553/elf/ej_blink.elf -V -r
+     (con dos guiones delante de invert-reset: aquí no caben) -->
+<sistema nombre="msp-exp430g2et-bsl">
+  <placa id="LP" fichero="msp_exp430g2et.xml" x="0" y="0"/>
+  <placa id="A" fichero="bsl_adaptador.xml" x="110" y="0"/>
+  <jumper ref="LP/J101" puente="1 2, 3 4, 5 6"/>
+  <hilo a="A/P1.TXD" b="LP/J1.7"/>     <!-- a P1.5, el RX del BSL -->
+  <hilo a="A/P1.RXD" b="LP/J1.3"/>     <!-- de P1.1, el TX del BSL -->
+  <hilo a="A/P1.RST" b="LP/J101.11"/>
+  <hilo a="A/P1.TEST" b="LP/J101.13"/>
+  <hilo a="A/P1.GND" b="LP/J101.1"/>
+</sistema>

@@ -38,6 +38,7 @@
 //       y WDG5 en el FR5969; TA22 y RTC12 en el FR6989
 // =============================================================================
 #include <systemc>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -769,6 +770,152 @@ SC_MODULE(TbFr5) {
         fr69.p(9, 2).set_hiz(d[4]); fr69.p(9, 0).set_hiz(d90);
     }
 
+    // L12 (FR5_SOLO=C): el BSL B1 del FR5969 por la secuencia de TEST y RST
+    // y el protocolo de TI, con un anfitrión en el banco
+    static uint16_t crc_ccitt(const std::vector<uint8_t>& v) {
+        uint16_t c = 0xFFFF;
+        for (uint8_t b : v) { uint16_t x = uint16_t((c >> 8) ^ b); x ^= x >> 4; c = uint16_t((c << 8) ^ (x << 12) ^ (x << 5) ^ x); }
+        return c;
+    }
+    // Manda una orden; devuelve el ACK (o -1 si no llega) y, si se espera, el núcleo de la respuesta
+    int bsl5(SocFR2& m, const std::vector<uint8_t>& nucleo, std::vector<uint8_t>* resp, int ms = 200) {
+        m.uart_tx.clear();
+        const uint16_t k = crc_ccitt(nucleo);
+        std::vector<uint8_t> t{0x80, uint8_t(nucleo.size()), uint8_t(nucleo.size() >> 8)};
+        t.insert(t.end(), nucleo.begin(), nucleo.end());
+        t.push_back(uint8_t(k)); t.push_back(uint8_t(k >> 8));
+        for (uint8_t b : t) m.uart_rx(b);
+        auto u = [&](size_t i) { return uint8_t(m.uart_tx[i]); };
+        int i = 0;
+        for (; i < ms * 10 && m.uart_tx.empty(); ++i) wait(100, SC_US);
+        if (m.uart_tx.empty()) return -1;
+        const int ack = u(0);
+        if (!resp || ack) return ack;
+        resp->clear();
+        for (; i < ms * 10 && m.uart_tx.size() < 4; ++i) wait(100, SC_US);
+        if (m.uart_tx.size() < 4 || u(1) != 0x80) return -2;
+        const size_t n = size_t(u(2) | (u(3) << 8));
+        for (; i < ms * 10 && m.uart_tx.size() < 6 + n; ++i) wait(100, SC_US);
+        if (m.uart_tx.size() < 6 + n) return -3;
+        for (size_t j = 0; j < n; ++j) resp->push_back(u(4 + j));
+        if (crc_ccitt(*resp) != uint16_t(u(4 + n) | (u(5 + n) << 8))) return -4;
+        return 0;
+    }
+    // La secuencia de entrada [BSLFR §3.3.2]: RST bajo, dos subidas de TEST, RST arriba con TEST alto, TEST abajo
+    void entra_bsl(SocFR2& m, int drst, int dtest) {
+        auto r = [&](bool v) { m.rst.set_drive(drst, v ? 3.3f : 0.0f, 10.0f); };
+        auto t = [&](bool v) { m.test.set_drive(dtest, v ? 3.3f : 0.0f, 10.0f); };
+        t(false); r(false); wait(1, SC_MS);
+        t(true); wait(100, SC_US); t(false); wait(100, SC_US);
+        t(true); wait(100, SC_US);
+        r(true); wait(100, SC_US);
+        t(false); wait(20, SC_MS);                                   // el BSL borra su RAM y pone la UART
+    }
+    void l12() {
+        grupo("L12 el BSL B1 del FR5969: la secuencia de TEST y RST, el protocolo de TI y blink");
+        const int drst = fr.rst.register_driver("bsl_rst"), dtest = fr.test.register_driver("bsl_test");
+        corre(std::string(DIR5969) + "fr59_basico.elf");             // un programa con su contraseña en los vectores
+        wait(20, SC_MS);
+        const unsigned n0 = fr.bsl_entradas;
+        entra_bsl(fr, drst, dtest);
+        std::vector<uint8_t> v;
+        check(fr.bsl_entradas == n0 + 1 && fr.bsl_origen == "B1", "la secuencia de TEST y RST arranca el BSL (0x1000)");
+        int a = bsl5(fr, {0x19}, &v);
+        check(a == 0 && v == std::vector<uint8_t>({0x3A, 0x00, 0x07, 0x34, 0xB2}), "TX BSL Version: 00.07.34.B2, la del FR5969 [BSLFRAM §7]");
+        a = bsl5(fr, {0x18, 0x00, 0x1C, 0x00, 0x04, 0x00}, &v);
+        check(a == 0 && v == std::vector<uint8_t>({0x3B, 0x04}), "bloqueado: TX Data Block da 0x3B 0x04 (BSL locked)");
+        // La contraseña mala: el borrado masivo y el BSL vuelve a empezar
+        const uint16_t antes = lee_dbg(0x4400);
+        std::vector<uint8_t> pw{0x11};
+        for (int i = 0; i < 32; ++i) pw.push_back(0x00);
+        a = bsl5(fr, pw, &v, 100);
+        wait(300, SC_MS);
+        const uint16_t despues = lee_dbg(0x4400), vec = lee_dbg(0xFFFE);
+        check(antes != 0xFFFF && despues == 0xFFFF && vec == 0xFFFF && a == -2,
+              "una contraseña mala: ACK y nada más, y el borrado masivo de la FRAM principal (vectores incluidos)");
+        pw.assign(1, 0x11);
+        for (int i = 0; i < 32; ++i) pw.push_back(0xFF);
+        a = bsl5(fr, pw, &v);
+        check(a == 0 && v == std::vector<uint8_t>({0x3B, 0x00}), "tras el borrado, la contraseña de 0xFF desbloquea");
+        // blink: RX Data Block, la comprobación y Load PC
+        std::vector<TrozoFw> t;
+        { const std::string e = lee_elf(std::string(DIR5969) + "fr59_blink.elf", t, ELF_MSP430); if (!e.empty() || t.empty()) { check(false, "fr59_blink.elf: " + e); return; } }
+        bool ok = true;
+        uint32_t entrada = 0;
+        t.erase(std::remove_if(t.begin(), t.end(), [](const TrozoFw& x) { return x.dir < 0x4400 || x.datos.empty(); }), t.end());
+        for (const TrozoFw& tr : t)
+            for (size_t o = 0; o < tr.datos.size(); o += 240) {
+                const uint32_t ad = tr.dir + uint32_t(o);
+                std::vector<uint8_t> c{0x10, uint8_t(ad), uint8_t(ad >> 8), uint8_t(ad >> 16)};
+                const size_t n = std::min<size_t>(240, tr.datos.size() - o);
+                c.insert(c.end(), tr.datos.begin() + o, tr.datos.begin() + o + n);
+                ok = ok && bsl5(fr, c, &v, 500) == 0 && v == std::vector<uint8_t>({0x3B, 0x00});
+                if (tr.dir <= 0xFFFE && tr.dir + tr.datos.size() >= 0x10000) entrada = tr.datos[0xFFFE - tr.dir] | (tr.datos[0xFFFF - tr.dir] << 8);
+            }
+        check(ok && entrada, "RX Data Block: blink, en trozos de 240 bytes, con 0x3B 0x00");
+        // TX Data Block y CRC Check del primer trozo
+        {
+            const TrozoFw& tr = t[0];
+            const uint32_t ad = tr.dir;
+            const size_t n = std::min<size_t>(64, tr.datos.size());
+            a = bsl5(fr, {0x18, uint8_t(ad), uint8_t(ad >> 8), uint8_t(ad >> 16), uint8_t(n), 0}, &v);
+            std::vector<uint8_t> esp{0x3A};
+            esp.insert(esp.end(), tr.datos.begin(), tr.datos.begin() + n);
+            const bool tx = a == 0 && v == esp;
+            a = bsl5(fr, {0x16, uint8_t(ad), uint8_t(ad >> 8), uint8_t(ad >> 16), uint8_t(n), 0}, &v);
+            const uint16_t k = crc_ccitt(std::vector<uint8_t>(tr.datos.begin(), tr.datos.begin() + n));
+            check(tx && a == 0 && v == std::vector<uint8_t>({0x3A, uint8_t(k), uint8_t(k >> 8)}),
+                  "TX Data Block lee lo escrito y CRC Check da su CRC-CCITT");
+        }
+        // Una orden de Flash que la FRAM no tiene, y un CRC malo
+        a = bsl5(fr, {0x12, 0x00, 0x44, 0x00}, &v);
+        const bool desconocida = a == 0 && v == std::vector<uint8_t>({0x3B, 0x07});
+        fr.uart_tx.clear();
+        for (uint8_t b : {0x80, 0x01, 0x00, 0x19, 0x00, 0x00}) fr.uart_rx(b);
+        wait(20, SC_MS);
+        check(desconocida && fr.uart_tx == std::string("\x52"), "Erase Segment no existe en FRAM (0x3B 0x07); un CRC malo da 0x52");
+        // Change Baud Rate a 115200 y Load PC: blink corre
+        a = bsl5(fr, {0x52, 0x06}, nullptr);
+        wait(2, SC_MS);
+        a = a == 0 ? bsl5(fr, {0x19}, &v) : a;
+        const bool b115 = a == 0 && v.size() == 5;
+        subidas_[0] = subidas_[1] = 0;
+        a = bsl5(fr, {0x17, uint8_t(entrada), uint8_t(entrada >> 8), 0}, nullptr, 20);
+        wait(600, SC_MS);
+        check(b115 && subidas_[0] >= 4 && subidas_[1] >= 4,
+              "Change Baud Rate a 115200 (sigue contestando) y Load PC arranca blink: LED1 y LED2 parpadean (" +
+                  std::to_string(subidas_[0]) + ", " + std::to_string(subidas_[1]) + ")");
+        // La Z-Area se lee desde fuera; el resto del BSL da 0x3FFF (lo lee la CPU de blink)
+        check(lee_dbg(0x1C00) == 0x3C11 && lee_dbg(0x1C02) == 0x3FFF,
+              "desde la aplicación, la Z-Area se lee (0x1000: JMP) y el resto del BSL da 0x3FFF");
+        // B3: sin BSL la secuencia no hace nada; blink sigue
+        fr.quita_bsl();
+        const unsigned n1 = fr.bsl_entradas;
+        entra_bsl(fr, drst, dtest);
+        subidas_[0] = 0;
+        wait(300, SC_MS);
+        check(fr.bsl_entradas == n1 && subidas_[0] >= 3, "B3 (--bsl ninguno): la secuencia arranca la aplicación");
+        fr.pon_bsl_b1();
+        fr.rst.set_hiz(drst); fr.test.set_hiz(dtest);
+        // El FR5994 contesta su versión; el FR6989 lo arranca con UCA0 en P2.0/P2.1 (SEL 01)
+        {
+            const int r94 = fr94.rst.register_driver("bsl_rst"), t94 = fr94.test.register_driver("bsl_test");
+            entra_bsl(fr94, r94, t94);
+            a = bsl5(fr94, {0x19}, &v);
+            check(a == 0 && v == std::vector<uint8_t>({0x3A, 0x00, 0x08, 0x35, 0xB3}), "el FR5994: 00.08.35.B3 [BSLFRAM §7]");
+            fr94.rst.set_hiz(r94); fr94.test.set_hiz(t94);
+            const int r69 = fr69.rst.register_driver("bsl_rst"), t69 = fr69.test.register_driver("bsl_test");
+            const unsigned n69 = fr69.bsl_entradas;
+            entra_bsl(fr69, r69, t69);
+            uint8_t d[2] = {0, 0};
+            tlm::tlm_generic_payload gp; gp.set_command(tlm::TLM_READ_COMMAND); gp.set_address(0x020B); gp.set_data_ptr(d); gp.set_data_length(1);
+            fr69.acceso(gp, true);
+            check(fr69.bsl_entradas == n69 + 1 && (d[0] & 3) == 3 && fr69.nucleo.cpu.pc() >= 0x1000 && fr69.nucleo.cpu.pc() < 0x1800,
+                  "el FR6989 entra en el BSL, con UCA0 en P2.0/P2.1 (P2SEL0)");
+            fr69.rst.set_hiz(r69); fr69.test.set_hiz(t69);
+        }
+    }
+
     void run() {
         wait(10, SC_US);
         const char* solo = std::getenv("FR5_SOLO");
@@ -784,6 +931,7 @@ SC_MODULE(TbFr5) {
         if (toca('9')) l9();
         if (toca('A')) l10();
         if (toca('B')) l11();
+        if (toca('C')) l12();
         std::printf("\nTOTAL FR5 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

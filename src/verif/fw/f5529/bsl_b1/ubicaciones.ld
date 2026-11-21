@@ -1,0 +1,20 @@
+/* GENERADO por portar.py: las variables que el BSL USB de TI tiene en una dirección fija */
+PROVIDE(bConfigurationNumber = 0x2400);
+PROVIDE(bInterfaceNumber = 0x2401);
+PROVIDE(wBytesRemainingOnIEP0 = 0x2402);
+PROVIDE(wBytesRemainingOnOEP0 = 0x2404);
+PROVIDE(pbIEP0Buffer = 0x2406);
+PROVIDE(pbOEP0Buffer = 0x240A);
+PROVIDE(bHostAskMoreDataThanAvailable = 0x240E);
+PROVIDE(bStatusAction = 0x2410);
+PROVIDE(bFunctionSuspended = 0x2411);
+PROVIDE(bEnumerationStatus = 0x2412);
+PROVIDE(wUSBPLL = 0x2414);
+PROVIDE(tSetupPacket = 0x2380);
+PROVIDE(tEndPoint0DescriptorBlock = 0x0920);
+PROVIDE(tInputEndPointDescriptorBlock = 0x23C8);
+PROVIDE(tOutputEndPointDescriptorBlock = 0x2388);
+PROVIDE(abIEP0Buffer = 0x2378);
+PROVIDE(abOEP0Buffer = 0x2370);
+PROVIDE(LockedStatus = 0x2416);
+PROVIDE(FwRamKey = 0x2418);

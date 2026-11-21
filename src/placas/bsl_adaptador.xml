@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     ADAPTADOR USB-SERIE PARA EL BSL DEL MSP430 (M9): un FT232 con DTR y RTS
+     cableados a RST y TEST, como la «BSL Rocket» o el adaptador de dos hilos
+     del laboratorio [BSLFR SLAU550G §3.3.2; doc/analisis_msp430.md §9.2]
+
+     El conector P1, de arriba abajo:
+         GND    la masa
+         VCC    3,3 V de referencia (no alimenta la placa)
+         TXD    lo que MANDA el adaptador: al RXD del BSL (UCA0RXD, P2.1)
+         RXD    lo que RECIBE: del TXD del BSL (UCA0TXD, P2.0)
+         RST    a RST/NMI: el DTR del FT232 tal cual (DTR activo, bajo)
+         TEST   a TEST: el RTS tal cual (RTS activo, bajo)
+
+     Es lo que esperan `python-msp430-tools` y BSL-Scripter con las líneas
+     sin inversor: TEST por RTS como dice la herramienta (activo = TEST a
+     masa) y RST por DTR al revés que ella (--invert-reset). Con el puerto
+     cerrado, DTR y RTS quedan inactivos (altos): RST alto y el chip corre;
+     un inversor en RST lo dejaría en reset al cerrar. Desde src/:
+         python3 ../herramientas/bsl5_uart_py3.py -p rfc2217://localhost:3370 \
+             --invert-reset -e -P verif/fr5969/elf/fr59_blink.hex -V -r
+     (bsl5_uart_py3.py: la herramienta de PyPI con lo que le falta para
+     Python 3; -r deja RST a masa y el cierre del puerto lo suelta).
+
+     EL PUENTE UART, U1: RFC 2217 en el 3370; los baudios y el formato
+     (9600 8E1 del BSL) los pone el terminal.
+     ========================================================================= -->
+<placa nombre="bsl-adaptador">
+  <componente tipo="Conector" id="P1" filas="6" columnas="1" acodado="si"
+              nombres="GND VCC TXD RXD RST TEST">
+    <pin nombre="VCC" nodo="VCC"/>
+    <pin nombre="GND" nodo="GND"/>
+  </componente>
+  <nodo id="VCC"/>
+  <componente tipo="Fuente" id="REG_3V3" v="3.3" limite_ma="50" visible="no">
+    <pin nombre="pin" nodo="VCC"/>
+  </componente>
+  <nodo id="GND"/>
+  <componente tipo="Gnd" id="MASA" visible="no">
+    <pin nombre="pin" nodo="GND"/>
+  </componente>
+  <componente tipo="PuenteSerie" id="U1" host="rfc2217:3370"
+              baudios="host" formato="8E1" muestra="no">
+    <pin nombre="rx"    nodo="P1.RXD"/>
+    <pin nombre="tx"    nodo="P1.TXD"/>
+    <pin nombre="rts"   nodo="P1.TEST"/>
+    <pin nombre="dtr"   nodo="P1.RST"/>
+    <pin nombre="vccio" nodo="VCC"/>
+  </componente>
+</placa>

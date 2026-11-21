@@ -65,6 +65,13 @@
 #include "../../../common/imagen_fw.h"
 #include "../desc/msp430g2553.h"
 
+namespace stm32 { namespace bsl_g2 {
+// El BSL B1 del G2553 (verif/fw/g2553/bsl_b1, AGPLv3): su 1 KB de 0x0C00
+inline const uint8_t IMAGEN[] = {
+#include "bsl_g2.inc"
+};
+static_assert(sizeof(IMAGEN) == BSL_G2_BYTES && BSL_G2_TAM == 0x400, "bsl_g2.inc mal generado");
+} }
 namespace stm32 {
 
 inline constexpr M430Caps M430_G2553 {"msp430g2553", M430Arq::CPU, m430::msp430g2553::DESC.errata, false};
@@ -94,6 +101,38 @@ SC_MODULE(SocG2553), public m430_irq_if {
     double vcc = 3.3;
     double temperatura = 25.0;           // °C, para el sensor del ADC10
     bool cristal_32k = false;            // la G2ET lo trae sin montar
+    // El BSL de ROM (M9): B1 el propio, B2 un fichero (`--bsl FICHERO`, el
+    // volcado de la ROM de un chip), B3 ninguno (0x3FFF, con el ID en 0x0FF0)
+    uint8_t rom_bsl[0x400];
+    bool bsl_hay = true;
+    std::string bsl_origen = "B1";
+    unsigned bsl_entradas = 0;
+    void pon_bsl_b1() {
+        std::fill(rom_bsl, rom_bsl + 0x400, 0xFF);
+        std::copy(bsl_g2::IMAGEN, bsl_g2::IMAGEN + sizeof bsl_g2::IMAGEN, rom_bsl);
+        bsl_hay = true; bsl_origen = "B1";
+    }
+    std::string carga_bsl(const std::string& ruta) {
+        for (unsigned i = 0; i < 0x400; ++i) rom_bsl[i] = (i & 1) ? 0x3F : 0xFF;
+        rom_bsl[0x3F0] = 0x25; rom_bsl[0x3F1] = 0x53;
+        if (ruta == "ninguno") { bsl_hay = false; bsl_origen = "ninguno"; return std::string(); }
+        std::vector<TrozoFw> t;
+        std::string e;
+        switch (formato_fw(ruta)) {
+        case FormatoFw::Elf: e = lee_elf(ruta, t, ELF_MSP430); break;
+        case FormatoFw::TiTxt: e = lee_titxt(ruta, t); break;
+        case FormatoFw::IntelHex: e = lee_ihex(ruta, t); break;
+        default: return ruta + ": el BSL va en TI-TXT, Intel HEX o ELF";
+        }
+        if (!e.empty()) return e;
+        size_t n = 0;
+        for (const TrozoFw& tr : t)
+            for (size_t i = 0; i < tr.datos.size(); ++i)
+                if (tr.dir + i >= 0x0C00 && tr.dir + i < 0x1000) { rom_bsl[tr.dir + i - 0x0C00] = tr.datos[i]; ++n; }
+        if (!n) return ruta + ": no trae nada en 0x0C00-0x0FFF";
+        bsl_hay = true; bsl_origen = ruta;
+        return std::string();
+    }
 
     // La ventana llega a +0x2E, donde el modelo (el del MSP432) tiene TAxIV: en
     // el 2xx, TA0IV y TA1IV están en 0x012E y 0x011E y el SoC los reenvía ahí
@@ -172,6 +211,8 @@ SC_MODULE(SocG2553), public m430_irq_if {
         SC_THREAD(adc_proc);
         SC_METHOD(test_proc); sensitive << test.value_changed_event(); dont_initialize();   // JTAG de 4 hilos
         SC_METHOD(rst_pin_proc); sensitive << rst.value_changed_event() << ev_rst_pin_; dont_initialize();
+        SC_METHOD(bsl_proc); sensitive << ev_bsl_; dont_initialize();
+        pon_bsl_b1();
         SC_METHOD(entradas_proc);
         for (auto& p : pin) sensitive << p->value_changed_event();
         sensitive << ev_ca_;
@@ -346,16 +387,31 @@ private:
     // resetea [JTAG §2.3.1]. NMI (WDTNMI) no se modela.
     sc_core::sc_event ev_rst_pin_;
     bool rst_pin_bajo_ = false;
+    // La entrada del BSL [BSL SLAU319 §2.3]: con RST bajo, dos subidas de
+    // TEST; RST sube con TEST alto y la CPU sale en el BSL (0x0C00) [de
+    // modelo: el arranque de la ROM, de alto nivel]
+    unsigned flancos_test_ = 0;
+    bool test_alto_ = false;
+    sc_core::sc_event ev_bsl_;
+    void bsl_proc() {
+        nucleo.cpu.pon_reg(0, 0x0C00);
+        nucleo.cpu.pon_reg(2, 0);
+        ++bsl_entradas;
+        nucleo.espera(false);
+    }
     void rst_pin_proc() {
         const bool bajo = !rst.floating() && rst.voltage() < 0.5f * float(vcc) && !pines_dbg->rst_es_sbw();
         if (bajo && !rst_pin_bajo_) {
-            if (!(ev_rst_pin_.triggered())) { ev_rst_pin_.notify(sc_core::sc_time(2, sc_core::SC_US)); return; }
+            if (!(ev_rst_pin_.triggered())) { ev_rst_pin_.notify(sc_core::sc_time(2, sc_core::SC_US)); flancos_test_ = 0; return; }
             rst_pin_bajo_ = true;
             rst_n.write(false);
         } else if (!bajo && rst_pin_bajo_) {
             rst_pin_bajo_ = false;
             ifg1_ |= 0x08;                                         // RSTIFG
             reset_regs();
+            const bool bsl = bsl_hay && flancos_test_ >= 2 && !test.floating() && test.voltage() > 0.5f * float(vcc);
+            flancos_test_ = 0;
+            if (bsl) { nucleo.espera(true); ev_bsl_.notify(sc_core::sc_time(1, sc_core::SC_US)); }
             rst_n.write(true);
         }
     }
@@ -492,7 +548,12 @@ private:
     }
     bool tx_nivel_ = true;
     void salidas_ta() { pines_salida(); }
-    void test_proc() { pines_salida(); }
+    void test_proc() {
+        const bool alto = !test.floating() && test.voltage() > 0.5f * float(vcc);
+        if (alto && !test_alto_ && !rst.floating() && rst.voltage() < 0.5f * float(vcc)) ++flancos_test_;
+        test_alto_ = alto;
+        pines_salida();
+    }
     bool nivel(unsigned i) const { return !pin[i]->floating() && pin[i]->voltage() > 0.5f * float(vcc); }
     void entradas_proc() {
         for (unsigned k = 0; k < 3; ++k) {
@@ -944,14 +1005,11 @@ private:
             } else if (!(a & 1)) escribe16(w, uint16_t(d[0] | (n == 2 ? d[1] << 8 : 0)));
             return;
         }
-        if (a >= 0x0C00 && a < 0x1000) {                       // BSL de ROM (declarado)
-            if (gp.is_read())
-                for (unsigned i = 0; i < n; ++i) {
-                    const uint32_t x = a + i;
-                    // El identificador del chip en 0x0FF0 (0x25, 0x53: la «version»
-                    // 0x5325 de devicedb, que GetDevice del Replicator lee) [DS tabla «Device ID»]
-                    d[i] = x == 0x0FF0 ? 0x25 : x == 0x0FF1 ? 0x53 : (x & 1) ? 0x3F : 0xFF;
-                }
+        if (a >= 0x0C00 && a < 0x1000) {                       // BSL de ROM (M9)
+            // El identificador del chip en 0x0FF0 (0x25, 0x53: la «version»
+            // 0x5325 de devicedb, que GetDevice del Replicator lee) [DS tabla
+            // «Device ID»]: lo lleva la imagen
+            if (gp.is_read()) for (unsigned i = 0; i < n; ++i) d[i] = rom_bsl[(a + i - 0x0C00) & 0x3FF];
             return;
         }
         if (es_flash(a) && gp.is_write() && !dbg) { escribe_flash(a, uint16_t(d[0] | (n == 2 ? d[1] << 8 : 0)), n == 1); return; }
