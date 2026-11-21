@@ -1896,11 +1896,47 @@ programa con la MPU puesta, con `compare-sections`.
 contraseña para siempre; en `verif/f5529/replicator_fr` va con su `i++`
 marcado.
 
-**Queda [de modelo]:** el HFXT se modela solo como presente o ausente; el LEA
-y el ESI, declarados; RAMCTL no; las erratas de las FR5 (SLAZ473, SLAZ517,
-SLAZ681) no se han repasado; de las funciones de los pines del FR6989 solo
-las que usan la LaunchPad y sus programas; el cronómetro de la demo del
-FR6989 corre algo deprisa (2,00 s mostrados en 1,6 s: sin mirar).
+**Lo que quedaba de M8 (hecho):**
+* **El HFXT** (`cs_fr.h`): las condiciones de encendido, el margen de HFFREQ,
+  el arranque de la tabla 5-5 del DS con el contador de 1024 ciclos
+  (ENSTFCNT2), el bypass por un reloj en HFXIN (un ExtClock o `f_hfxt_ext`) y
+  el del LFXT; el atributo `hfxt` del `<mcu>` da la frecuencia del cristal.
+* **RAMCTL** (RCCTL0, clave 0x5A): los sectores de cada chip, que se pierden
+  en LPM3/LPM4 con RCRSxOFF = 01 y siguen apagados (0x3FFF, sin escribir) con
+  10.
+* **Las funciones de todos los pines** de FR5969, FR5994 y FR6989 (las tablas
+  6-20 a 6-60 de sus DS): las CCIxB, DMAE0, RTCCLK, los bits del SR, las
+  salidas del ESI, el cristal y lo analógico (CEPD, los canales del ADC y del
+  Comp_E).
+* **El cronómetro del FR6989**: el RTC_C de las FR5 con la clave de sus
+  registros, RTCPS de 16 bits y los preescaladores a cero al escribir la
+  hora; la demo cuenta al centisegundo.
+* **Las erratas** de SLAZ473AG, SLAZ517AG y SLAZ681O, clasificadas en
+  `doc/todo.md`: se modelan ADC41/42/43/66/69/71, AES1, COMP10, REF9, WDG5,
+  RTC12, TA22 y TB25.
+* **El LEA del FR5994** (`periph/ti/lea.h`): sus registros (0x0A80), la pila
+  de parámetros, la memoria de código con la suma de la revisión B y las
+  órdenes cargadas (por su huella), la interrupción y el disparo 27 del DMA;
+  las órdenes, con la aritmética de la DSPLib sin LEA (vectores, MAC,
+  máximos, matrices, FIR, biquads, FFT de 16 y 32 bits, partir, intercalar).
+  TI no publica el LEA a nivel de registro: la DSPLib es la fuente.
+* **El ESI del FR6989** (`periph/ti/esi.h`, UG cap. 37): la TSM con sus tres
+  disparos y la secuencia de prueba, los dos AFE (DAC con histéresis,
+  muestra, excitación, entradas directas), la PSM con su RAM y sus
+  contadores, las nueve banderas con ESIIV, el oscilador con ESICNT3, ESIO0-2
+  a TA3 (que tiene cinco CCR, no dos) y las salidas a los pines.
+* Y el MPY32: MPYSAT ya no satura un MPYS negativo que no desborda.
+
+**`testfr5`** suma L7 (el HFXT y RAMCTL), L8 (los pines), L9 (las erratas),
+L10 (la DSPLib con el LEA da bit a bit lo mismo que con la CPU, en 39
+funciones, unas 15 veces más deprisa) y L11 (el ESI: el oscilador, la RAM,
+las entradas contra el DAC, la histéresis, la muestra, una cuadratura de 12
+pasos adelante y 5 atrás por la PSM, la secuencia de prueba, ESIIV y la
+excitación).
+
+**Queda [de modelo]:** el tiempo de las órdenes del LEA; el ESI sin la
+sincronización de la tabla 37-5, sin la subida de VMID ni las oscilaciones de
+un sensor LC.
 
 ### M9 · BSL de 2xx, 5xx y FR5xx/FR6xx
 

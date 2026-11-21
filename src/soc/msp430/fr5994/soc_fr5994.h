@@ -102,6 +102,7 @@ inline constexpr ChipFr2 CHIP_FR5994 = [] {
     c.tlv_id = 0x82A1;
     c.rtcb_base = 0; c.rtcc_base = 0x04A0;
     c.crc32_base = 0x0980;
+    c.lea_base = 0x0A80; c.dma_tsel_lea = 27;          // el LEA y su disparo [DS SLASE54D tabla 9-11]
     c.dma_canales = 6;
     c.dma_tsel_ccr0 = fr5994::DMA_CCR0; c.dma_tsel_usci = fr5994::DMA_USCI;
     c.v_rtc5 = "RTC_C"; c.v_adc5 = "ADC12_B";

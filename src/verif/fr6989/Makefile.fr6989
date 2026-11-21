@@ -5,7 +5,7 @@ MSPGCC ?= msp430-elf-
 REFS   ?= ../../../doc/refs/msp430
 TI     ?= $(REFS)/ti/msp430/include_gcc
 CFLAGS := -mmcu=msp430fr6989 -mlarge -I$(TI) -Ishim -L$(TI) -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
-PROGS  := fr69_errata
+PROGS  := fr69_errata fr69_esi
 
 all: $(PROGS:%=elf/%.elf)
 

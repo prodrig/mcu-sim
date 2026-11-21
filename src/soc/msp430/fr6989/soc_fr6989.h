@@ -30,7 +30,7 @@ inline constexpr Fr2Timer TIMERS[] = {
     {"timer1_a3", 0x0380, 3, "TIMER1_A0", "TIMER1_A1"},
     {"timer0_b7", 0x03C0, 7, "TIMER0_B0", "TIMER0_B1", true},
     {"timer2_a2", 0x0400, 2, "TIMER2_A0", "TIMER2_A1"},
-    {"timer3_a2", 0x0440, 2, "TIMER3_A0", "TIMER3_A1"},
+    {"timer3_a5", 0x0440, 5, "TIMER3_A0", "TIMER3_A1"},       // TA3: cinco CCR (las CCI2B-CCI4B, del ESI) [DS tabla 6-15]
 };
 enum : uint8_t { TA0 = 0, TA1 = 1, TB0 = 2, TA2 = 3, TA3 = 4 };
 inline constexpr Fr2Usci USCIS[] = {
@@ -151,6 +151,9 @@ inline constexpr ChipFr2 CHIP_FR6989 = [] {
     c.bcl_usci = fr6989::UA1; c.bcl_tx = fr2_pin(3, 4); c.bcl_rx = fr2_pin(3, 5);
     c.tlv_id = 0x81A8;
     c.rtcb_base = 0; c.rtcc_base = 0x04A0;
+    // El ESI: ESICH0-3 en P9.0-P9.3, ESICI0-3 en P9.4-P9.7; ESIO0-2 a TA3 [DS tablas 6-15 y 6-82]
+    c.esi_base = 0x0D00; c.esi_ram = 0x0E00; c.esi_timer = fr6989::TA3;
+    for (unsigned k = 0; k < 4; ++k) { c.esi_ch_pin[k] = fr2_pin(9, k); c.esi_ci_pin[k] = fr2_pin(9, 4 + k); }
     c.lcd_base = 0x0A00; c.lcd_l = fr6989::LCD_L.data(); c.nlcd = 64; c.lcd_c = true;
     // A0-A3/C0-C3 en P1.0-P1.3, A4-A7/C4-C7 en P8.7-P8.4, A8-A11/C8-C11 en
     // P9.0-P9.3 (ESICH0-3), A12-A15/C12-C15 en P9.4-P9.7 (ESICI0-3) [DS tablas

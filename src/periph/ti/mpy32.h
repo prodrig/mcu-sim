@@ -34,7 +34,7 @@ class Mpy32 {
 public:
     enum Modo { MPY = 0, MPYS = 1, MAC = 2, MACS = 3 };
 
-    void reset() { op1_ = 0; op2_ = 0; res_ = 0; sumext_ = 0; ctl_ = 0; modo_ = MPY; op2l_ = 0; }
+    void reset() { op1_ = 0; op2_ = 0; res_ = 0; sumext_ = 0; ctl_ = 0; modo_ = MPY; op2l_ = 0; desb_ = false; }
 
     uint16_t lee16(uint32_t off) const {
         switch (off & 0x3E) {
@@ -111,6 +111,7 @@ private:
     uint16_t op2l_ = 0;
     uint64_t res_ = 0;
     uint16_t sumext_ = 0, ctl_ = 0;
+    bool desb_ = false;                       // la última operación con signo desbordó (lo que satura MPYSAT)
     Modo modo_ = MPY;
 
     bool ancho64() const { return (ctl_ & (OP1_32 | OP2_32)) != 0; }
@@ -143,17 +144,20 @@ private:
                 const bool ovf = (sa == sp) && (sa != neg);
                 sumext_ = neg ? 0xFFFF : 0;
                 ctl_ = uint16_t((ctl_ & ~MPYC) | (ovf ? MPYC : 0));
+                desb_ = ovf;
             }
         } else {
             res_ = p & mask;
             const bool neg = s && (w ? (int64_t(res_) < 0) : ((res_ >> 31) & 1u));
             sumext_ = neg ? 0xFFFF : 0;
             ctl_ = uint16_t((ctl_ & ~MPYC) | (neg ? MPYC : 0));
+            // MPYS solo desborda en fraccional con -1 · -1 (el producto, al revés de signo)
+            desb_ = s && (ctl_ & MPYFRAC) && neg && ((x1 < 0) == (x2 < 0));
         }
     }
     // MPYSAT: el resultado con signo saturado (lo que se lee) [§5.2.4]
     uint64_t resultado() const {
-        if (!(ctl_ & MPYSAT) || !(modo_ == MPYS || modo_ == MACS) || !(ctl_ & MPYC)) return res_;
+        if (!(ctl_ & MPYSAT) || !(modo_ == MPYS || modo_ == MACS) || !desb_) return res_;
         const bool w = ancho64();
         const bool neg_res = w ? (int64_t(res_) < 0) : ((res_ >> 31) & 1u);
         // desbordado: el signo del resultado está al revés

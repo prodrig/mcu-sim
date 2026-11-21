@@ -657,6 +657,118 @@ SC_MODULE(TbFr5) {
                   lin("rtc12 despierta") + "»");
     }
 
+    // L10 (FR5_SOLO=A): el LEA con DSPLib, contra la misma DSPLib sin él
+    std::string corre94(const char* elf, int ms) {
+        fr94.reset(true);
+        wait(1, SC_US);
+        const std::string e = fr94.carga(elf);
+        if (!e.empty()) std::printf("  %s\n", e.c_str());
+        fr94.uart_tx.clear();
+        fr94.reset(false);
+        for (int i = 0; i < ms * 10 && fr94.uart_tx.find("fin lea\n") == std::string::npos; ++i) wait(100, SC_US);
+        return fr94.uart_tx;
+    }
+    void l10() {
+        grupo("L10 el LEA del FR5994 (fr5994_lea.c con DSPLib): con el LEA y con la CPU dan lo mismo");
+        const unsigned n0 = fr94.lea5 ? fr94.lea5->ordenes() : 0;
+        const std::string lea = corre94("verif/fr5994/elf/fr5994_lea.elf", 3000);
+        const unsigned n_ord = fr94.lea5 ? fr94.lea5->ordenes() - n0 : 0;
+        const std::string cpu = corre94("verif/fr5994/elf/fr5994_lea_cpu.elf", 6000);
+        auto lineas = [](const std::string& u) {
+            std::vector<std::string> v; size_t i = 0;
+            while (i < u.size()) { const size_t j = u.find('\n', i); if (j == std::string::npos) break; v.push_back(u.substr(i, j - i)); i = j + 1; }
+            return v;
+        };
+        const auto a = lineas(lea), b = lineas(cpu);
+        if (std::getenv("LEA_VER")) std::printf("%s\n----\n%s\n", lea.c_str(), cpu.c_str());
+        check(!a.empty() && a[0] == "hola lea rev 1" && !b.empty() && b[0] == "hola lea cpu",
+              "msp_lea_getRevision lee la suma de la ROM por LEACMA: la revisión B («" + (a.empty() ? std::string() : a[0]) + "»)");
+        unsigned iguales = 0, total = 0, ceros = 0;
+        std::string distintas;
+        for (size_t i = 1; i < a.size() && i < b.size(); ++i) {
+            if (a[i].rfind("ciclos", 0) == 0 || a[i] == "fin lea") continue;
+            ++total;
+            if (a[i] == b[i]) ++iguales; else distintas += " [" + a[i] + " | " + b[i] + "]";
+            if (a[i].find(" 0 ") == std::string::npos && a[i].rfind("  shift", 0) != 0) ++ceros;      // un estado distinto de MSP_SUCCESS
+        }
+        check(a.size() == b.size() && total >= 30 && iguales == total,
+              std::to_string(iguales) + " de " + std::to_string(total) + " resultados iguales bit a bit (vectores, matrices, FIR, IIR, FFT, intercalar)" + distintas);
+        check(ceros == 0, "todas las funciones devuelven MSP_SUCCESS con el LEA (" + std::to_string(ceros) + " con otro estado)");
+        const long cl = num(linea(lea, "ciclos"), "ciclos "), cc = num(linea(cpu, "ciclos"), "ciclos ");
+        check(n_ord >= 30 && cl > 0 && cc > 2 * cl,
+              "las hace el LEA: " + std::to_string(n_ord) + " órdenes, " + std::to_string(cl) + " ciclos frente a " + std::to_string(cc) +
+                  " de la CPU [de modelo: el tiempo de cada orden]");
+    }
+
+    // L11 (FR5_SOLO=B): el ESI del FR6989
+    void l11() {
+        grupo("L11 el ESI del FR6989 (fr69_esi.c): TSM, AFE, PSM, contadores, interrupciones y salidas");
+        int d[5];
+        const unsigned ci[4] = {4, 5, 6, 7};
+        const float vci[4] = {0.6f, 1.8f, 1.2f, 2.4f};
+        for (unsigned k = 0; k < 4; ++k) { d[k] = fr69.p(9, ci[k]).register_driver("esici"); fr69.p(9, ci[k]).set_drive(d[k], vci[k], 100.0f); }
+        const int d90 = fr69.p(9, 0).register_driver("esich0"); fr69.p(9, 0).set_drive(d90, 1.0f, 100.0f);
+        d[4] = fr69.p(9, 2).register_driver("subida"); fr69.p(9, 2).set_drive(d[4], 3.3f, 10000.0f);
+        fr69.reset(true);
+        wait(1, SC_US);
+        const std::string e = fr69.carga("verif/fr6989/elf/fr69_esi.elf");
+        if (!e.empty()) std::printf("  %s\n", e.c_str());
+        fr69.uart_tx.clear();
+        fr69.reset(false);
+        auto lin = [&](const char* c) { return linea(fr69.uart_tx, c); };
+        auto espera = [&](const char* c, int ms) {
+            auto entera = [&] { const size_t i = fr69.uart_tx.find(c); return i != std::string::npos && fr69.uart_tx.find('\n', i) != std::string::npos; };
+            for (int i = 0; i < ms * 10 && !entera(); ++i) wait(100, SC_US);
+            return entera();
+        };
+        espera("psm listo", 300);
+        check(lin("osc") == "osc antes 1 cnt3 146",
+              "ESICNT3: 1 mientras cuenta y luego los ciclos del oscilador (4,8 MHz) en un periodo de ACLK: «" + lin("osc") + "»");
+        check(lin("ram") == "ram 5A A5 en 00 luego 5A", "la RAM de la PSM: con ESIEN, se lee 0 y no se escribe: «" + lin("ram") + "»");
+        check(lin("afe") == "afe ppu 000A ifg1 1 start 0",
+              "ESICI0-3 (0,6/1,8/1,2/2,4 V) contra el DAC a VCC/2: ESIOUT = 1010b, ESIIFG1, ESISTART borrado: «" + lin("afe") + "»");
+        check(lin("hist") == "hist 0 1 0", "la histéresis: ESIOUT1 = 1 usa ESIDAC1R3 (2,6 V) y baja; luego ESIDAC1R2 y sube: «" + lin("hist") + "»");
+        check(lin("sh") == "sh 1 0", "la muestra de ESICH0 (1,0 V) contra 0,9 V y 1,3 V: «" + lin("sh") + "»");
+        // La cuadratura: 12 pasos adelante y 5 atrás, uno cada 10 ms
+        {
+            static const unsigned seq[4] = {0, 1, 3, 2};
+            unsigned pos = 0;
+            auto pon = [&](unsigned v) {
+                fr69.p(9, 4).set_drive(d[0], (v & 1) ? 2.4f : 0.6f, 100.0f);
+                fr69.p(9, 5).set_drive(d[1], (v & 2) ? 2.4f : 0.6f, 100.0f);
+            };
+            pon(0);
+            wait(10, SC_MS);
+            for (int i = 0; i < 12; ++i) { pos = (pos + 1) % 4; pon(seq[pos]); wait(10, SC_MS); }
+            for (int i = 0; i < 5; ++i) { pos = (pos + 3) % 4; pon(seq[pos]); wait(10, SC_MS); }
+        }
+        espera("psm cnt0", 300);
+        {
+            const std::string l = lin("psm cnt0");
+            const long st = num(l, "stop "), cap = num(l, "cap ");
+            // 250 ms entre 50 ciclos de ACLK: 163 secuencias
+            check(l.find("psm cnt0 12 cnt1 7 cnt2 FFFB ifg3 1 ifg7 1 ifg2 1") == 0 && st >= 160 && st <= 166 && cap >= st - 2 && cap <= st + 2,
+                  "la PSM en cuadratura: ESICNT0 = 12 adelante, ESICNT2 = -5, ESICNT1 = 7, ESIIFG3/7/2; ESIO0 (ESIEX) a TA3 CCI2B: «" + l + "»");
+        }
+        espera("test tch", 300);
+        fr69.p(9, 4).set_drive(d[0], 0.6f, 100.0f); fr69.p(9, 5).set_drive(d[1], 1.8f, 100.0f);
+        check(lin("test tch") == "test tch 2 testd 0", "la secuencia de prueba: ESITCHOUT0 (ESICI2) = 0, ESITCHOUT1 (ESICI3) = 1; ESITESTD borrado: «" + lin("test tch") + "»");
+        espera("iv", 100);
+        check(lin("iv") == "iv 02 04 06 08 0A 0C 0E 10 12 00 borra 000",
+              "ESIIV por prioridad (IFG1, 0, 8, 3, 6, 5, 4, 7, 2) y escribirlo borra todas: «" + lin("iv") + "»");
+        espera("ex listo", 100);
+        bool bajo = false, alto26 = false;
+        for (int i = 0; i < 300 && fr69.uart_tx.find("fin esi") == std::string::npos; ++i) {
+            if (fr69.p(9, 2).voltage() < 0.3f) bajo = true;
+            if (fr69.p(2, 6).voltage() > 1.6f) alto26 = true;
+            wait(100, SC_US);
+        }
+        check(bajo && alto26 && fr69.p(9, 2).voltage() > 3.0f,
+              "la excitación tira de ESICH2 (P9.2) a ESIDVSS durante ESIEX y ESIC1OUT (P2.6) da el comparador; luego P9.2 sube");
+        for (unsigned k = 0; k < 4; ++k) fr69.p(9, ci[k]).set_hiz(d[k]);
+        fr69.p(9, 2).set_hiz(d[4]); fr69.p(9, 0).set_hiz(d90);
+    }
+
     void run() {
         wait(10, SC_US);
         const char* solo = std::getenv("FR5_SOLO");
@@ -670,6 +782,8 @@ SC_MODULE(TbFr5) {
         if (toca('7')) l7();
         if (toca('8')) l8();
         if (toca('9')) l9();
+        if (toca('A')) l10();
+        if (toca('B')) l11();
         std::printf("\nTOTAL FR5 : %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

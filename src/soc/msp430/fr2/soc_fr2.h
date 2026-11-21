@@ -86,6 +86,8 @@
 #include "../../../periph/ti/aes256.h"
 #include "../../../periph/ti/crc32.h"
 #include "../../../periph/ti/dma5xx.h"
+#include "../../../periph/ti/lea.h"
+#include "../../../periph/ti/esi.h"
 #include "../../../common/analog_net.h"
 #include "../../../pins/pin_mux.h"
 #include "../../../common/imagen_fw.h"
@@ -242,6 +244,11 @@ struct ChipFr2 {
     // si lo hay, el CRC32. Los puertos: P1..Pn y PJ (el índice FR5_PJ)
     bool fr5 = false;
     uint32_t ref_base = 0, adc12b_base = 0, compe_base = 0, rtcb_base = 0, aes_base = 0, dma_base = 0, crc32_base = 0;
+    uint32_t lea_base = 0;                    // el LEA (FR5994): 0xA80, con su RAM en ram_lea
+    uint8_t dma_tsel_lea = 0;                 // su disparo del DMA (el 27 del FR5994)
+    uint32_t esi_base = 0, esi_ram = 0;       // el ESI (FR6989): 0x0D00 y su RAM, 0x0E00
+    int8_t esi_ch_pin[4] = {-1, -1, -1, -1}, esi_ci_pin[4] = {-1, -1, -1, -1};
+    uint8_t esi_timer = 0;                    // ESIO0-2 a las CCI2B-CCI4B de este Timer (TA3)
     uint32_t mpu_base = 0;
     int8_t ce_pin[16] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};   // C0..C15
     int8_t adc5_pin[32] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -316,6 +323,9 @@ SC_MODULE(SocFR2), public m430_irq_if {
     std::unique_ptr<Aes256P4> aes5;
     std::unique_ptr<Crc32Fr> crc5;
     std::unique_ptr<Dma5xx> dma5;
+    std::unique_ptr<Lea> lea5;
+    std::unique_ptr<Esi> esi5;
+    double v_esici = 0.0;                     // el pin ESICI (no es de un puerto; lo pone el banco)
     bool cristal_hfxt = false;                // lo pone la placa: un cristal en HFXIN/HFXOUT
     double f_hfxt = 16e6;                     // y su frecuencia (`hfxt` del <mcu>)
     // Un reloj externo en HFXIN o LFXIN para el bypass, además del que declare
@@ -1053,6 +1063,8 @@ private:
         if (chip.fr5) {
             if (adc5) adc5->reset();
             if (dma5) dma5->reset();
+            if (lea5) lea5->reset();
+            if (esi5) esi5->reset();
         }
         for (Puerto& x : pt_) { x.out = x.dir = x.ifg = x.ies = x.ie = x.sel0 = x.sel1 = x.ren = 0; }
         crc_ = 0xFFFF;
@@ -1335,6 +1347,8 @@ private:
             if (ce5) pon(Fuente::LINEA, 2, "COMP_E");
             if (aes5) pon(Fuente::LINEA, 3, "AES256");
             if (dma5) pon(Fuente::LINEA, 4, "DMA");
+            if (lea5) pon(Fuente::LINEA, 5, "LEA");
+            if (esi5) pon(Fuente::LINEA, 6, "ESCAN_IF");
         } else pon(Fuente::RTC, 0, "RTC");
         for (unsigned k = 0; k < chip.nuscis; ++k) pon(Fuente::USCI, k, chip.uscis[k].vec);
         if (!chip.fr5) pon(Fuente::ADC, 0, "ADC");
@@ -1793,7 +1807,7 @@ private:
     }
     uint8_t ies5_[11] = {}, ie5_[11] = {};
     bool dmae0_ = false;
-    // Las salidas del ESI (FR6989; tipo 16) [de modelo hasta que lo haya]
+    // Las salidas del ESI (FR6989; tipo 16): ESITEST0-4, ESIC1OUT y ESIC2OUT (esi.h)
     bool esi_salida(unsigned n) const;
     sc_core::sc_event ev_entradas_;
     uint16_t piv(unsigned k, bool dbg) {
@@ -1880,6 +1894,7 @@ private:
     // La tensión que un módulo pone en el pin `i` (< 0: ninguno)
     double v_salida_analogica(unsigned i) const {
         for (unsigned k = 0; k < chip.nsacs; ++k) if (chip.sacs[k].pin_sal == i && sac[k]->salida() >= 0.0) return sac[k]->salida();
+        if (esi5) { const int e = esi5->excita(); if (e >= 0 && chip.esi_ch_pin[e] == int(i)) return 0.0; }   // la excitación: a ESIDVSS
         if (tia && chip.tia->pin_sal == i && tia->salida() >= 0.0) return tia->salida();
         return -1.0;
     }
@@ -2021,6 +2036,11 @@ private:
             if (dma5 && a >= chip.dma_base && a < chip.dma_base + 0x10 * (chip.dma_canales + 1)) { v = dma5->lee16(a - chip.dma_base, dbg); return true; }
             if (chip.mpu_base && a >= chip.mpu_base && a < chip.mpu_base + 0x10) return lee_mpu(a - chip.mpu_base, v);
             if (a == 0x158 && chip.nram_sectores) { v = rcctl0_; return true; }
+            if (esi5 && a >= chip.esi_base && a < chip.esi_base + 0xA0) { v = esi5->lee(a - chip.esi_base, dbg); return true; }
+            if (esi5 && a >= chip.esi_ram && a < chip.esi_ram + 0x80) {
+                v = uint16_t(esi5->lee_ram(a - chip.esi_ram) | esi5->lee_ram(a - chip.esi_ram + 1) << 8); return true;
+            }
+            if (lea5 && a >= chip.lea_base && a < chip.lea_base + 0x80) { v = dbg && ((a - chip.lea_base) & ~2u) == 0x7C ? 0 : lea5->lee16(a - chip.lea_base); return true; }
             if (!traduce5(a)) return false;
             if (a == 0x15C) { v = lee_sniv5(dbg); return true; }
         }
@@ -2085,6 +2105,17 @@ private:
             }
             if (chip.mpu_base && a >= chip.mpu_base && a < chip.mpu_base + 0x10) { escribe_mpu(a - chip.mpu_base, v, m); return; }
             if (a == 0x158 && chip.nram_sectores) { escribe_rcctl0(v, m); return; }
+            if (esi5 && a >= chip.esi_base && a < chip.esi_base + 0xA0) { esi5->escribe(a - chip.esi_base, v, m); pines_salida(); return; }
+            if (esi5 && a >= chip.esi_ram && a < chip.esi_ram + 0x80) {
+                if (m & 0x00FF) esi5->escribe_ram(a - chip.esi_ram, uint8_t(v));
+                if (m & 0xFF00) esi5->escribe_ram(a - chip.esi_ram + 1, uint8_t(v >> 8));
+                return;
+            }
+            if (lea5 && a >= chip.lea_base && a < chip.lea_base + 0x80) {
+                const uint32_t o = a - chip.lea_base;
+                lea5->escribe16(o, m == 0xFFFF || (o & ~2u) == 0x7C ? v : mz(lea5->lee16(o)));
+                return;
+            }
             if (!traduce5(a)) return;
         }
         if (es_mpy(a)) { mpy.escribe(a - 0x4C0, v, m != 0xFFFF); return; }
@@ -2270,11 +2301,42 @@ private:
             for (auto& u : usci) sensitive << u->dma_rx << u->dma_tx;
             dont_initialize();
         }
+        if (c.lea_base && desc.ram_lea.existe()) {
+            lea5.reset(new Lea("lea"));
+            lea5->mb = desc.ram_lea.ini; lea5->mt = desc.ram_lea.fin + 1;
+            lea5->reset();
+            lea5->mem = [this](uint32_t a) { return &mem_[a]; };
+            lea5->f_mclk = [this] { return cs.f_mclk_fuente; };
+            lea5->al_cambiar = [this] { avisa_irq(); };
+            lea5->al_acabar = [this] { if (dma5 && chip.dma_tsel_lea) dma5->dispara(chip.dma_tsel_lea); };
+        }
+        if (c.esi_base) {
+            esi5.reset(new Esi("esi"));
+            esi5->f_aclk = [this] { return cs.f_aclk > 0 ? cs.f_aclk : f_aclk_; };          // la pide el ESI aunque esté en LPM
+            esi5->f_smclk = [this] { return f_smclk_ > 0 ? f_smclk_ : cs.f_smclk_peticion; };
+            esi5->v_avcc = [this] { return vcc; };
+            esi5->v_ch = [this](unsigned k) { return k < 4 && chip.esi_ch_pin[k] >= 0 ? v_pin(unsigned(chip.esi_ch_pin[k])) : 0.0; };
+            esi5->v_ci = [this](unsigned k) { return k < 4 ? (chip.esi_ci_pin[k] >= 0 ? v_pin(unsigned(chip.esi_ci_pin[k])) : 0.0) : v_esici; };
+            esi5->al_cambiar = [this] { esi_cambia(); };
+        }
         SC_METHOD(irq5_proc); sensitive << irq_ce5_ << irq_rtc5_ << irq_aes5_; dont_initialize();
     }
     void irq5_proc() {
         if (lpm5_ && irq_rtc5_.read()) despierta_lpm5(-1);           // LPM3.5: el RTC_B despierta
         avisa_irq();
+    }
+    // El ESI cambia: sus interrupciones, sus salidas al Timer y a los pines
+    bool esio_ant_[3] = {};
+    int esi_ex_ant_ = -1;
+    bool esi_pin_ant_[7] = {};
+    void esi_cambia() {
+        avisa_irq();
+        if (chip.esi_timer < ta.size())
+            for (unsigned k = 0; k < 3; ++k)
+                if (esi5->esio[k] != esio_ant_[k]) { esio_ant_[k] = esi5->esio[k]; ta[chip.esi_timer]->cci_b[2 + k].write(esi5->esio[k]); }
+        bool otro = esi5->excita() != esi_ex_ant_;
+        for (unsigned n = 0; n < 7; ++n) if (esi5->salida(n) != esi_pin_ant_[n]) { esi_pin_ant_[n] = esi5->salida(n); otro = true; }
+        if (otro) { esi_ex_ant_ = esi5->excita(); pines_salida(); }
     }
     bool linea5(unsigned i) const {
         switch (i) {
@@ -2283,6 +2345,8 @@ private:
         case 2: return irq_ce5_.read();
         case 3: return irq_aes5_.read();
         case 4: return dma5 && dma5->pide_irq();
+        case 5: return lea5 && lea5->pide();
+        case 6: return esi5 && esi5->pide();
         default: return false;
         }
     }
@@ -2688,7 +2752,7 @@ private:
     unsigned transport_dbg(tlm::tlm_generic_payload& gp) { de_cpu_ = false; acceso(gp, true); return gp.get_data_length(); }
 };
 
-inline bool SocFR2::esi_salida(unsigned) const { return false; }
+inline bool SocFR2::esi_salida(unsigned n) const { return esi5 && esi5->salida(n); }
 
 } // namespace stm32
 #endif // STM32_SOC_MSP430_FR2_SOC_FR2_H

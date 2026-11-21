@@ -568,4 +568,9 @@ testfr2476             19        6629302000000       total
 # salida de TI para REF9) y L5 porque el cronometro del FR6989 se comprueba al
 # centisegundo (RTCPS de 16 bits y los preescaladores a cero al escribir la
 # hora).
-testfr5                73       36925692000000       total
+# Movida de 73/36925692000000 al anadir L10 (el LEA del FR5994: DSPLib con el
+# LEA contra la misma DSPLib con la CPU y el MPY32) y L11 (el ESI del
+# FR6989); L1-L9 dan lo mismo al picosegundo (FR5_SOLO=123456789: 73 y
+# 36925692000000). El MPY32 ya no satura con MPYSAT un MPYS negativo que no
+# desborda (solo -1 por -1 en fraccional): ninguna otra suite se mueve.
+testfr5                86       40717595000000       total
