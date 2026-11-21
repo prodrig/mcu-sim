@@ -2070,6 +2070,54 @@ mismo con B2, byte a byte). Y con la herramienta de verdad:
 
 **Tamaño:** pequeño. El intérprete, la interfaz y la API son los de M9.
 
+**Hecho (21-11-2026):**
+* **El B1 de las FR2xx/FR4xx** (`verif/fw/fr2/bsl_b1`, AGPLv3, sin código de
+  TI; SLAU550AB, que no estaba en `doc/refs`, llegó en esta fase): una fuente
+  y dos imágenes, dentro del simulador (`soc/msp430/fr2/bsl_fr2.inc` y
+  `bsl_fr4.inc`, con su huella en `verif/fw/huellas.txt`).
+  * **FR23xx-FR26xx** (FR2311, FR2433, FR2355, FR2476): 3 KB, el BSL1 en
+    0x1000-0x17FF y el BSL2 en 0xFFC00-0xFFFFF (la interfaz I2C, la
+    configuración de cada chip y la espera); MCLK = 8 MHz del FLL; UART
+    (eUSCI_A0, 9600 8E1, sube hasta 115200) e I2C (eUSCI_B0 de esclava en
+    P1.2/P1.3, 0x48) con detección automática: la que hable primero; sin
+    nadie en 10 s, LPM4 (el temporizador de la tabla 7-1: Timer0_B o, en la
+    FR2433, Timer0_A); borra la RAM de la tabla 7-1; las órdenes de las FR5
+    más Mass Erase con respuesta; la contraseña mala contesta 0x3B 0x05 y
+    borra también la información; TX BSL Version es protegida; la versión de
+    cada chip (00.08.35.B3, 00.09.36.B4, 00.09.36.B5). En FR2355 y FR2476 la
+    configuración sale de la TLV (la etiqueta 0xB5 de la tabla 3-1, que el
+    modelo pone en la TLV de esos dos chips [de modelo: en 0x1A24]) y de la
+    del usuario (0xFF88: la interfaz, no borrar la RAM ni la diminuta, la
+    dirección I2C), con ~300 ms de arranque.
+  * **FR4xx** (FR4133): 1 KB, solo UART y solo a 9600; RX Data Block, RX
+    Password, Load PC y TX Data Block; lo demás, 0x3B 0x07.
+* **El chip en blanco** (vector de reset 0xFFFF) entra en el BSL sin la
+  secuencia en las FR23xx-FR26xx; la secuencia de TEST y RST, en todas; la
+  firma de 0xFF84/0xFF86 a 0x5555 lo apaga, y a 0xAAAA quita el borrado.
+* La protección de lectura del BSL (0x3FFF desde fuera de él, salvo la
+  Z-Area) cubre también el BSL2. `--bsl` en todas las FR.
+* `placas/msp_exp430fr2433_bsl.xml` y `make -f Makefile.mcu-sim
+  fr2-bsl-python`: `msp430.bsl5.uart` borra, escribe, verifica y arranca
+  `fr2_blink` en la FR2433.
+* **Lo que salió por el camino:** (1) el perro corre desde el reset y, si la
+  herramienta deja TEST arriba un rato antes de bajarlo (decenas de ms, como
+  `python-msp430-tools`), muerde mientras el arranque del BSL borra su RAM:
+  el BSL lo para ya en su primera instrucción, también el de las FR5 (que
+  cambia su imagen y el tiempo de L12); (2) UCBUSY de la eUSCI también es
+  «recibiendo»: esperar a que acabe lo enviado con él cuelga el BSL si el
+  anfitrión manda enseguida; (3) `I2cExtMaster` admite ya hasta 300 bytes por
+  transacción.
+
+**Pruebas:** `testfr2` R7 (10: la secuencia y la RAM borrada, TX BSL
+Version protegida, la contraseña mala con el borrado de la información, la
+versión, 115200, blink escrito con su CRC y arrancado, Mass Erase, el chip
+en blanco y LPM4 a los 10 s); `testfr4` F5 (4: las órdenes que no tiene el
+de 1 KB, la contraseña mala y blink); `testfr2476` K4 (6: por I2C en la 0x60
+de la configuración del usuario, solo I2C, sin borrar la RAM, los ~300 ms,
+la versión, la FRAM de arriba de 0x10000 con su CRC y Load PC); `testfr2355`
+J5 (1: el chip en blanco, la UART de la TLV y la versión) y `testfr2311` H4
+(1: el chip en blanco y la versión).
+
 ### M11 · La eZ-FET emulada
 
 **Objetivo:** que las herramientas de TI vean la LaunchPad como la ven en el

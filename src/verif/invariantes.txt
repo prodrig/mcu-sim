@@ -512,7 +512,12 @@ testf5                 62      26455455250005       total
 # BAKMEM, la RAM perdida, LOCKLPM5); R4 LPM4.5 y el despertar por P2.3; R5
 # el JSTATE por SBW; R6 la demo de fabrica de TI, su binario (la CTPL en
 # LPM3.5, S1 y S1+S2). Sin sockets: total. Igual en dos pasadas.
-testfr2                26       13377796000000       total
+testfr2                36       24351397000000       total
+# M10 (21-11-2026): movida de 26/13377796000000 al anadir R7 (el BSL B1 de
+# las FR2xx por UART: la secuencia, la contrasena, el borrado y la
+# proteccion, 115200, RX/CRC Data Block y Load PC con blink, el chip en
+# blanco y los 10 s hasta LPM4; 10 comprobaciones). R7 empieza en
+# 13377796000000: R1-R6 acaban donde antes con el BSL en la ROM.
 # Movido (17-11-2026, M7): 13367796000000 -> 13377796000000. El SoC de la
 # familia miraba la peticion de CCR0 de los Timer por su senal irq0, que
 # el Timer publica un delta despues; una rutina corta (la de fr2_basico.c:
@@ -539,7 +544,10 @@ testfr2                26       13377796000000       total
 # XT1, y SYS23; F4 la demo de fabrica de TI, su binario (los textos del
 # vidrio, el cronometro y el termometro). Sin sockets: total. Igual en dos
 # pasadas.
-testfr4                27       34584002000000       total
+testfr4                31       35407103000000       total
+# M10 (21-11-2026): movida de 27/34584002000000 al anadir F5 (el BSL de
+# 1 KB de las FR4xx: UART a 9600, sus ordenes, la contrasena y blink; 4
+# comprobaciones). F5 empieza en 34584002000000: F1-F4 no cambian.
 
 # testfr2311: el MSP430FR2311 (M7). H1 el descriptor y la TLV; H2
 # fr23_basico.c con la DriverLib y una red en el banco (el Timer_B con CNTL y
@@ -547,7 +555,10 @@ testfr4                27       34584002000000       total
 # con 1 Mohm y 1 uA); H3 la demo de fabrica de TI, su binario, con el
 # fotodiodo y R3 (el PWM de LED2 segun la luz). Sin sockets: total. Igual en
 # dos pasadas.
-testfr2311             15        1328202000000       total
+testfr2311             16        1496903000000       total
+# M10 (21-11-2026): movida de 15/1328202000000 al anadir H4 (el chip en
+# blanco entra solo en el BSL por P1.6/P1.7; 1 comprobacion). H4 empieza en
+# 1328202000000: H1-H3 no cambian.
 # testfr2355: el MSP430FR2355 (M7). J1 el descriptor, la TLV y el ICC tras el
 # reset; J2 fr235_basico.c (el FLL a 24 MHz, el ADC de 12 bits y REFVSEL, el
 # ICC anidando por niveles, el DAC del SAC3 cargado por TB2.1 y el SAC1 en PGA
@@ -555,17 +566,24 @@ testfr2311             15        1328202000000       total
 # el MPY32); J3 la demo de fabrica de TI, su binario (el sensor de luz con el
 # fotodiodo, S1, y el generador de funciones por S2). Sin sockets: total.
 # Igual en dos pasadas.
-testfr2355             36        6560025667008       total
+testfr2355             37        7190426667008       total
 # Movido (17-11-2026, M7): 23/6522402000000 -> 36/6560025667008. J4 nuevo
 # (fr235_extra.c: la ROM de bibliotecas, la modulacion IR, TB0OUTH y el
 # MFM). J1-J3 no cambian de resultado (el arreglo de pide0 de arriba no
 # mueve su tiempo: sus rutinas de CCR0 eran lo bastante largas).
+# M10 (21-11-2026): movida de 36/6560025667008 al anadir J5 (el chip en
+# blanco, la configuracion por la TLV 0xB5, los ~300 ms y la UART de
+# P1.6/P1.7; 1 comprobacion). J5 empieza en 6560025667008: J1-J4 no cambian.
 # testfr2476: el MSP430FR2476 (M7). K1 el descriptor y la TLV; K2
 # fr247_basico.c con -mlarge (la FRAM de arriba de 0x10000 y PFWP alli, el ADC
 # de 12 bits y REFVSEL, TA2.1 reasignado por TA2RMP, TB0.6, el eCOMP0 contra la
 # de 1,2 V, la interrupcion de P6); K3 la demo de fabrica de TI, su binario
 # (el TMP235 y el LED RGB, S2 y S1). Sin sockets: total. Igual en dos pasadas.
-testfr2476             19        6629302000000       total
+testfr2476             25        7577023000000       total
+# M10 (21-11-2026): movida de 19/6629302000000 al anadir K4 (el BSL por I2C
+# con la configuracion del usuario en 0xFF88: solo I2C, la direccion 0x60,
+# la RAM sin borrar; 6 comprobaciones). K4 empieza en 6629302000000: K1-K3
+# no cambian.
 
 # testfr5: las FR5xx/FR6xx (M8). L1 el FR5969 contra su descriptor y la TLV;
 # L2 fr59_basico.c con -mlarge (el DCO, el LFXT, el ADC12_B con el sensor y

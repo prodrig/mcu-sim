@@ -223,4 +223,7 @@ c6  esp32c6/direct_boot.bin               3456  0xDE48AE73
 # 9.3.1.11 de TI (mitto), con las opciones de cada Makefile.
 m430  g2553/bsl_b1/bsl_g2.bin             1024  0xFC388403
 m430  f5529/bsl_b1/bsl_f5529.bin          2048  0x94BD72EE
-m430  fr5/bsl_b1/bsl_fr5.bin              2048  0x8CF791B0
+m430  fr5/bsl_b1/bsl_fr5.bin            2048  0xFF075218
+m430  fr2/bsl_b1/bsl_fr2.bin            2048  0xEBE16C22
+m430  fr2/bsl_b1/bsl_fr2b.bin           1024  0x4EC66620
+m430  fr2/bsl_b1/bsl_fr4.bin            1024  0xE8C62A1E

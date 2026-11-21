@@ -19,6 +19,9 @@
 //       TB0OUTH (por el eCOMP0 y por TB0TRG) y el MFM (un paquete de 32
 //       bytes en Manchester por P5.1, que arranca TB2.0, y otro que el banco
 //       manda por P5.0; la UCB1 de esclava; el fin en TB2 CCI0B)
+//   J5  el BSL B1 (M10): el chip en blanco entra solo; la configuración de
+//       la TLV (la etiqueta 0xB5: la UART en P1.6/P1.7), los ~300 ms de
+//       arranque, la contraseña y la versión 00.09.36.B4
 // =============================================================================
 #include <systemc>
 #include <algorithm>
@@ -32,6 +35,7 @@
 #include "soc/msp430/fr2355/soc_fr2355.h"
 #include "parts/ext_parts.h"
 #include "parts/fotodiodo.h"
+#include "top/banco_bsl_fram.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -46,6 +50,7 @@ static const char* const DIR = "verif/fr2355/elf/";
 
 SC_MODULE(TbFr2355) {
     SocFR2355 fr{"fr2355"};
+    banco_bsl::Uart bsl_{"bsl_uart", fr.p(1, 7), fr.p(1, 6)};
     AnalogNet gnd{"gnd"};
     // La red de la LaunchPad: R3 (2,37 Mohm) de OA2O (P3.1) a OA2- (P3.2),
     // el fotodiodo D1 con el ánodo a masa, y OA2+ (P3.3) a masa por J9
@@ -372,6 +377,35 @@ SC_MODULE(TbFr2355) {
         fr.p(5, 0).set_hiz(d_p50_);
     }
 
+
+    void j5() {
+        grupo("J5 el BSL B1 (M10) del FR2355: el chip en blanco, la configuración de la TLV (0xB5), los ~300 ms, y la UART de P1.6/P1.7");
+        corre(std::string(DIR) + "fr235_basico.elf");
+        wait(5, SC_MS);
+        const int drst = fr.rst.register_driver("bsl_rst"), dtest = fr.test.register_driver("bsl_test");
+        fr.test.set_drive(dtest, 0.0f, 10.0f);
+        bsl_.conecta(true);
+        // El chip en blanco: el vector de reset a 0xFFFF y un reset sin la secuencia [BSLFRAM §3.3.3]
+        fr.poke(0xFFFE, 0xFF); fr.poke(0xFFFF, 0xFF);
+        const unsigned v0 = fr.bsl_vacios;
+        fr.rst.set_drive(drst, 0.0f, 10.0f); wait(1, SC_MS); fr.rst.set_drive(drst, 3.3f, 10.0f);
+        std::vector<uint8_t> v;
+        wait(100, SC_MS);
+        const int pronto = bsl_.orden({0x19}, &v, 50);
+        wait(300, SC_MS);
+        const uint16_t antes = fr.mem16(0x8000);
+        int a = bsl_.orden(banco_bsl::contrasena(0x00), &v);
+        const bool mala = a == 0 && v == std::vector<uint8_t>({0x3B, 0x05}) && antes != 0xFFFF && fr.mem16(0x8000) == 0xFFFF;
+        a = bsl_.orden(banco_bsl::contrasena(0xFF), &v);
+        const int b = bsl_.orden({0x19}, &v);
+        check(fr.bsl_vacios == v0 + 1 && pronto == -1 && mala && a == 0 && b == 0 &&
+              v == std::vector<uint8_t>({0x3A, 0x00, 0x09, 0x36, 0xB4}),
+              "el vector en blanco lo arranca; a los 100 ms aún no contesta (la TLV, §3.6); por la UART de la TLV "
+              "(P1.6/P1.7), la contraseña (mala: borra; luego la de 0xFF) y la versión 00.09.36.B4 [tabla 7-3]");
+        bsl_.conecta(false);
+        fr.rst.set_hiz(drst); fr.test.set_hiz(dtest);
+    }
+
     void run() {
         const char* solo = std::getenv("TESTFR2355_SOLO");
         auto va = [&](char g) { return !solo || std::strchr(solo, g); };
@@ -379,6 +413,7 @@ SC_MODULE(TbFr2355) {
         if (va('2')) j2();
         if (va('3')) j3();
         if (va('4')) j4();
+        if (va('5')) j5();
         std::printf("\nTOTAL FR2355: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

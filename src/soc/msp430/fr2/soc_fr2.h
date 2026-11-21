@@ -7,12 +7,13 @@
 // una tabla.
 //
 //   0x00000-0x00FFF  periféricos
-//   0x01000-...      BSL1 (ROM; aquí vacía: 0xFF, M10), del descriptor
+//   0x01000-...      BSL1 (ROM: el B1 de mcu-sim, M9/M10), del descriptor
 //   0x01800-0x019FF  información (FRAM, 512 B; DFWP la protege)
 //   0x01A00-0x01AFF  TLV (de fábrica)
 //   0x02000-...      RAM (se pierde en LPMx.5), del descriptor
 //   ...-0x0FFFF      FRAM principal (PFWP la protege), vectores y firmas en
 //                    0xFF80-0xFFFF; y la de arriba de 0x10000 si la hay
+//   0xFFC00-0xFFFFF  BSL2 (ROM) en las FR23xx-FR26xx
 //
 // LO QUE ES DE TODOS (del capítulo de cada módulo en el UG):
 //   SFR; SYS (SYSRSTIV, SYSSNIV, SYSUNIV, el JMB, SYSCFG0 con la protección
@@ -95,6 +96,20 @@ inline const uint8_t IMAGEN[] = {
 #include "bsl_fr5.inc"
 };
 static_assert(sizeof(IMAGEN) == BSL_FR5_BYTES && BSL_FR5_TAM == 0x800, "bsl_fr5.inc mal generado");
+} }
+namespace stm32 { namespace bsl_fr2 {
+// El BSL B1 de las FR23xx-FR26xx (verif/fw/fr2/bsl_b1, AGPLv3, M10): el BSL1
+// (2 KB de 0x1000) e IMAGEN2, el BSL2 (1 KB de 0xFFC00)
+inline const uint8_t IMAGEN[] = {
+#include "bsl_fr2.inc"
+};
+static_assert(sizeof(IMAGEN) == BSL_FR2_BYTES && BSL_FR2_TAM == 0x800, "bsl_fr2.inc mal generado");
+static_assert(sizeof(IMAGEN2) == BSL_FR2B_BYTES && BSL_FR2B_TAM == 0x400, "bsl_fr2.inc mal generado");
+// El de las FR4xx: 1 KB de 0x1000
+inline const uint8_t IMAGEN4[] = {
+#include "bsl_fr4.inc"
+};
+static_assert(sizeof(IMAGEN4) == BSL_FR4_BYTES && BSL_FR4_TAM == 0x400, "bsl_fr4.inc mal generado");
 } }
 #include "../../../common/analog_net.h"
 #include "../../../pins/pin_mux.h"
@@ -334,22 +349,32 @@ SC_MODULE(SocFR2), public m430_irq_if {
     std::unique_ptr<Lea> lea5;
     std::unique_ptr<Esi> esi5;
     double v_esici = 0.0;                     // el pin ESICI (no es de un puerto; lo pone el banco)
-    // El BSL (M9): B1 el propio (por omisión en las FR5), B2 un fichero
-    // (`--bsl FICHERO`: el volcado de la ROM de un chip), B3 ninguno
+    // El BSL (M9, M10): B1 el propio (por omisión), B2 un fichero (`--bsl
+    // FICHERO`: el volcado de la ROM de un chip), B3 ninguno. En las FR23xx-
+    // FR26xx son dos trozos: el BSL1 (0x1000-0x17FF) y el BSL2 (0xFFC00-0xFFFFF)
     std::string bsl_origen;                   // "B1", la ruta del fichero o "ninguno"
     unsigned bsl_entradas = 0;                // las veces que la secuencia de TEST y RST lo ha arrancado
+    unsigned bsl_vacios = 0;                  // las veces que lo ha arrancado el chip en blanco
+    void borra_bsl() {
+        std::fill(mem_.begin() + desc.bsl.ini, mem_.begin() + desc.bsl.fin + 1, 0xFF);
+        if (desc.bsl2.existe()) std::fill(mem_.begin() + desc.bsl2.ini, mem_.begin() + desc.bsl2.fin + 1, 0xFF);
+    }
     void pon_bsl_b1() {
         if (!desc.bsl.existe()) return;
-        std::fill(mem_.begin() + desc.bsl.ini, mem_.begin() + desc.bsl.fin + 1, 0xFF);
-        std::copy(bsl_fr5::IMAGEN, bsl_fr5::IMAGEN + sizeof bsl_fr5::IMAGEN, mem_.begin() + desc.bsl.ini);
+        borra_bsl();
+        if (chip.fr5) std::copy(bsl_fr5::IMAGEN, bsl_fr5::IMAGEN + sizeof bsl_fr5::IMAGEN, mem_.begin() + desc.bsl.ini);
+        else if (desc.bsl2.existe()) {
+            std::copy(bsl_fr2::IMAGEN, bsl_fr2::IMAGEN + sizeof bsl_fr2::IMAGEN, mem_.begin() + desc.bsl.ini);
+            std::copy(bsl_fr2::IMAGEN2, bsl_fr2::IMAGEN2 + sizeof bsl_fr2::IMAGEN2, mem_.begin() + desc.bsl2.ini);
+        } else std::copy(bsl_fr2::IMAGEN4, bsl_fr2::IMAGEN4 + sizeof bsl_fr2::IMAGEN4, mem_.begin() + desc.bsl.ini);
         bsl_hay_ = true; bsl_origen = "B1";
     }
     void quita_bsl() {
         if (!desc.bsl.existe()) return;
-        std::fill(mem_.begin() + desc.bsl.ini, mem_.begin() + desc.bsl.fin + 1, 0xFF);
+        borra_bsl();
         bsl_hay_ = false; bsl_origen = "ninguno";
     }
-    // B2: TI-TXT, Intel HEX o ELF, con lo de 0x1000-0x17FF
+    // B2: TI-TXT, Intel HEX o ELF, con lo del BSL1 (y del BSL2)
     std::string carga_bsl(const std::string& ruta) {
         if (ruta == "ninguno") { quita_bsl(); return std::string(); }
         std::vector<TrozoFw> t;
@@ -361,12 +386,12 @@ SC_MODULE(SocFR2), public m430_irq_if {
         default: return ruta + ": el BSL va en TI-TXT, Intel HEX o ELF";
         }
         if (!e.empty()) return e;
-        std::fill(mem_.begin() + desc.bsl.ini, mem_.begin() + desc.bsl.fin + 1, 0xFF);
+        borra_bsl();
         size_t n = 0;
         for (const TrozoFw& tr : t)
             for (size_t i = 0; i < tr.datos.size(); ++i)
-                if (desc.bsl.contiene(tr.dir + uint32_t(i))) { mem_[tr.dir + i] = tr.datos[i]; ++n; }
-        if (!n) return ruta + ": no trae nada en 0x1000-0x17FF";
+                if (desc.bsl.contiene(tr.dir + uint32_t(i)) || desc.bsl2.contiene(tr.dir + uint32_t(i))) { mem_[tr.dir + i] = tr.datos[i]; ++n; }
+        if (!n) return ruta + ": no trae nada en el BSL (0x1000)";
         bsl_hay_ = true; bsl_origen = ruta;
         return std::string();
     }
@@ -387,7 +412,8 @@ SC_MODULE(SocFR2), public m430_irq_if {
           eem(c.desc->disparadores, 4), tap(c.desc->jtag_id, true, &eem),
           test(nodo_alim(cab, "TEST")), rst(nodo_alim(cab, "RST")),
           mem_(std::max<size_t>(std::max<size_t>(0x10000, c.desc->principal2.existe() ? c.desc->principal2.fin + 1 : 0),
-                                c.rom_imagen && c.desc->rom.existe() ? c.desc->rom.fin + 1 : 0), 0xFF) {
+                                std::max<size_t>(c.rom_imagen && c.desc->rom.existe() ? c.desc->rom.fin + 1 : 0,
+                                                 c.desc->bsl2.existe() ? c.desc->bsl2.fin + 1 : 0)), 0xFF) {
         cs.fr5 = c.fr5;
         pin.assign(NPIN, nullptr);
         for (unsigned i = 0; i < NPIN; ++i) {
@@ -436,7 +462,8 @@ SC_MODULE(SocFR2), public m430_irq_if {
         nucleo.eem = &eem;
         nucleo.perif_hi = 0x1000;
         nucleo.cpu.conserva_registros = true;
-        // Con el vector borrado arrancaría el BSL [UG FR2 §1.9]; es de M10: el chip se duerme (LPM4)
+        // Con el vector borrado, el chip se duerme (LPM4); en las FR23xx-FR26xx
+        // con BSL, el arranque lo lleva al BSL antes (arranque(), M10)
         nucleo.vector_vacio_apaga = true;
         nucleo.xv2 = true;
         // El TAP de Xv2: el buzón, el BOR, los ID, la firma y el JSTATE
@@ -528,7 +555,8 @@ SC_MODULE(SocFR2), public m430_irq_if {
             lcd->al_fase = [this] { pines_lcd(); };
         }
         construye_analogico();
-        if (c.fr5) { construye_fr5(); pon_bsl_b1(); }
+        if (c.fr5) construye_fr5();
+        pon_bsl_b1();
         busca_rom();
         construye_fuentes();
         uno.write(true);
@@ -566,6 +594,7 @@ SC_MODULE(SocFR2), public m430_irq_if {
         SC_METHOD(puc_fin_proc); sensitive << ev_puc_fin_; dont_initialize();
         SC_METHOD(bor_fin_proc); sensitive << ev_bor_fin_; dont_initialize();
         SC_METHOD(test_bajo_proc); sensitive << ev_test_bajo_; dont_initialize();
+        SC_METHOD(bsl_vacio_proc); sensitive << ev_bsl_vacio_; dont_initialize();
         SC_METHOD(buzon_proc); sensitive << ev_buzon_; dont_initialize();
         SC_METHOD(patron_proc); sensitive << ev_patron_; dont_initialize();
         SC_METHOD(test_proc); sensitive << test.value_changed_event(); dont_initialize();
@@ -738,7 +767,8 @@ private:
     bool es_fram_principal(uint32_t a) const { return (a >= desc.principal.ini && a < 0x10000) || desc.principal2.contiene(a); }
     bool es_info(uint32_t a) const { return desc.info.contiene(a); }
     bool es_fram(uint32_t a) const { return es_fram_principal(a) || es_info(a); }
-    bool es_bsl(uint32_t a) const { return desc.bsl.contiene(a) || (chip.rom_imagen && desc.rom.contiene(a)); }
+    bool es_bsl(uint32_t a) const { return desc.bsl.contiene(a) || desc.bsl2.contiene(a) || (chip.rom_imagen && desc.rom.contiene(a)); }
+    bool en_bsl(uint32_t a) const { return desc.bsl.contiene(a) || desc.bsl2.contiene(a); }
 
     // --- SFR y SYS ------------------------------------------------------------------
     uint16_t sfrie1_ = 0, sfrifg1_ = 0, sfrrpcr_ = 0x1C;
@@ -1035,6 +1065,26 @@ private:
         t[0x1E] = 0x12; t[0x1F] = 0x04;                               // REF y DCO
         w(0x20, 0x8000);                                              // factor de la referencia: 1
         w(0x22, 256);                                                 // el grifo de 16 MHz a 30 °C [de modelo]
+        // La configuración del BSL de FR2355 y FR2476 [BSLFRAM §3.6, tabla 3-1]:
+        // el temporizador de la espera, las eUSCI, los puertos y las máscaras
+        // de sus pines [DS, «Bootloader (BSL)»], la dirección I2C, la RAM
+        // diminuta y dónde está la del usuario. Los valores, de las hojas de
+        // datos; dónde va la etiqueta, [de modelo]: detrás de la de REF y DCO
+        if (chip.tlv_id == 0x830C || chip.tlv_id == 0x832A) {
+            const bool fr2355 = chip.tlv_id == 0x830C;
+            t[0x24] = 0xB5; t[0x25] = 0x1C;
+            w(0x26, fr2355 ? 0x0380 : 0x0480);                        // Timer0_B
+            w(0x28, 0x0500); w(0x2A, 0x0540);                         // eUSCI_A0, eUSCI_B0
+            w(0x2C, 0x0200);                                          // P1
+            t[0x2E] = fr2355 ? 0xC0 : 0x30; t[0x2F] = 0x00;           // PxSEL0, PxSEL1 de la UART
+            t[0x30] = fr2355 ? 0x40 : 0x20; t[0x31] = fr2355 ? 0x80 : 0x10;   // RX, TX
+            w(0x32, 0x0200);
+            t[0x34] = 0x0C; t[0x35] = 0x00; t[0x36] = 0x04; t[0x37] = 0x08;   // la I2C: P1.2 SDA, P1.3 SCL
+            t[0x3C] = 0x48;                                           // la dirección I2C
+            t[0x3D] = fr2355 ? 0x00 : 0x1A;                           // la RAM diminuta: 0006-001F en el FR2476
+            w(0x3E, fr2355 ? 0x0000 : 0x0006);
+            w(0x40, 0xFF88);                                          // la configuración del usuario
+        }
         // CRC-CCITT de 0x1A04 al final que dice la hoja de datos
         uint16_t c = 0xFFFF;
         for (unsigned i = 0x04; i <= chip.tlv_crc_fin; ++i) {
@@ -1174,12 +1224,29 @@ private:
             return;
         }
         tap.pon_bloqueo(mem16(0xFF80) == 0x5555 && mem16(0xFF82) == 0x5555);
-        if (tap.fusible()) return;
+        // El BSL [BSLFRAM §3.3.2]: la misma secuencia que en las FR5; la firma
+        // de 0xFF84/0xFF86 a 0x5555 lo apaga [UG FR2 §1.11.2]
+        const bool bsl_apagado = mem16(0xFF84) == 0x5555 && mem16(0xFF86) == 0x5555;
+        bsl_pedido_ = bsl_hay_ && flancos_test_ >= 2 && !test.floating() && test.voltage() > 0.5f * float(vcc) && !bsl_apagado;
+        flancos_test_ = 0;
+        if (tap.fusible() && !bsl_pedido_) return;
         mira_patron();
         if (!magico_ && !test.floating() && test.voltage() > 0.5f * float(vcc)) {
             arranque_espera_ = true;
             nucleo.espera(true);
+        } else if (!magico_ && bsl_hay_ && desc.bsl2.existe() && !bsl_apagado && mem16(0xFFFE) == 0xFFFF) {
+            // El chip en blanco (FR23xx-FR26xx): el vector de reset a 0xFFFF
+            // entra en el BSL sin la secuencia [BSLFRAM §3.3.3]
+            nucleo.espera(true);
+            ev_bsl_vacio_.notify(sc_core::sc_time(1, sc_core::SC_US));
         }
+    }
+    sc_core::sc_event ev_bsl_vacio_;
+    void bsl_vacio_proc() {
+        ++bsl_vacios;
+        nucleo.cpu.pon_reg(0, desc.bsl.ini);
+        nucleo.cpu.pon_reg(2, 0);                                     // aunque el vector esté en blanco (LPM4)
+        nucleo.espera(false);
     }
     void mira_patron() {
         if ((sysjmbc_ & 0x01) && jmbi_[0] == 0xA55A) {
@@ -2805,9 +2872,10 @@ public:
                 }
             }
             // El BSL protegido: desde fuera de él solo se lee la Z-Area (0x1000-0x100F)
-            // [BSLFR §3.2.1.1]; el resto da 0x3FFF [de modelo: el salto desde fuera no se vigila]
-            if (gp.is_read() && chip.fr5 && desc.bsl.contiene(a) && !dbg && de_cpu_ && a >= desc.bsl.ini + 0x10 &&
-                !desc.bsl.contiene(nucleo.cpu.pc())) {
+            // [BSLFR §3.2.1.1; BSLFRAM §3.2.2]; el resto (también el BSL2 de las
+            // FR23xx-FR26xx) da 0x3FFF [de modelo: el salto desde fuera no se vigila]
+            if (gp.is_read() && en_bsl(a) && !dbg && de_cpu_ && a >= desc.bsl.ini + 0x10 &&
+                !en_bsl(nucleo.cpu.pc())) {
                 for (unsigned i = 0; i < n; ++i) d[i] = ((a + i) & 1u) ? 0x3F : 0xFF;
                 return;
             }

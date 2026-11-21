@@ -8,7 +8,7 @@ TI     ?= $(REFS)/ti/msp430/include_gcc
 DL     ?= $(REFS)/launchpads/MSP-EXP430FR4133/sw/MSP-EXP430FR4133_Software_Examples_linux/Firmware/Source/OutOfBox_MSP430FR4133/driverlib/MSP430FR2xx_4xx
 CFLAGS := -mmcu=msp430fr4133 -I$(TI) -L$(TI) -I$(DL) -Ishim -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
 DLSRC  := cs.c eusci_a_uart.c adc.c gpio.c wdt_a.c pmm.c lcd_e.c rtc.c
-PROGS  := fr4_basico
+PROGS  := fr4_basico fr4_blink
 
 all: $(PROGS:%=elf/%.elf)
 

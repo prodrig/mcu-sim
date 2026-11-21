@@ -1525,7 +1525,7 @@ SC_MODULE(Sim) {
             }
             if (!todos.empty() && aceptan == 0)
                 muere(std::string("--") + clave + " " + todos + ": ninguno de los MCUs de "
-                      "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432; el bsl, tambien de los MSP430G2553, F5529 y FR5xx/FR6xx; el usb, del STM32F303 y el F5529)");
+                      "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432; el bsl, tambien de los MSP430G2553, F5529 y FR; el usb, del STM32F303 y el F5529)");
         }
         // --flash-rapida: los tiempos de programar y borrar de la Flash SPI
         // de los chips que la tienen (ESP32-C3), al 1 % (E6)
@@ -2368,7 +2368,7 @@ static const OpcionCli OPCIONES[] = {
      "ventana (0x0200_0000 en el P4, 0x0100_0000 en el E4) o un ELF. Sin ID, de "
      "todos los que la tienen"},
     {"--bsl", "valor", "texto", "", "", "", true, true, "u0=ninguno",
-     "el BSL de un MSP432P4 o de un MSP430 (G2553, F5529, FR5xx/FR6xx), como "
+     "el BSL de un MSP432P4 o de un MSP430 (G2553, F5529, las FR), como "
      "[ID=]VALOR: b1 (el de mcu-sim, por omision), ninguno, o el de TI de un "
      "fichero: el BSL432_MSP432P401.txt (o .out) del paquete MSP432BSL, o el "
      "volcado de la ROM (o de la Flash del BSL del F5529) de un chip en TI-TXT, "

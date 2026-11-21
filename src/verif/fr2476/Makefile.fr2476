@@ -6,7 +6,7 @@ MSPGCC ?= msp430-elf-
 REFS   ?= ../../../doc/refs/msp430
 TI     ?= $(REFS)/ti/msp430/include_gcc
 CFLAGS := -mmcu=msp430fr2476 -mlarge -I$(TI) -Ishim -L$(TI) -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
-PROGS  := fr247_basico
+PROGS  := fr247_basico fr247_bsl_i2c
 
 all: $(PROGS:%=elf/%.elf)
 

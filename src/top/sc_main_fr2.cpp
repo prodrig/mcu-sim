@@ -15,6 +15,11 @@
 //   R6  la demo de fábrica de TI (su binario TI-TXT): registra en la FRAM
 //       despertando de LPM3.5 con el RTC (la CTPL); S1 manda el registro en
 //       JSON; S1 y S2 a la vez, el modo en vivo
+//   R7  el BSL B1 (M10) por UART (P1.4/P1.5, 9600 8E1): la secuencia de TEST
+//       y RST, la versión, la contraseña mala (borra la FRAM y la información,
+//       y contesta 0x3B 0x05), el cambio a 115200, blink escrito, comprobado
+//       por CRC y arrancado con Load PC, el borrado masivo, el chip en blanco
+//       que entra solo y LPM4 a los 10 s sin nadie
 // =============================================================================
 #include <systemc>
 #include <cmath>
@@ -25,6 +30,7 @@
 #include "common/asan_opciones.h"
 #include "soc/msp430/fr2433/soc_fr2433.h"
 #include "m430/sonda/sonda_xv2.h"
+#include "top/banco_bsl_fram.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -40,6 +46,7 @@ static const char* const DIR = "verif/fr2433/elf/";
 SC_MODULE(TbFr2) {
     SocFR2433 fr{"fr2433"};
     int d_s1_ = -1, d_s2_ = -1;
+    banco_bsl::Uart bsl_{"bsl_uart", fr.p(1, 4), fr.p(1, 5)};
     SC_CTOR(TbFr2) {
         SC_THREAD(run);
         SC_METHOD(led1_proc); sensitive << fr.p(1, 0).value_changed_event(); dont_initialize();
@@ -235,12 +242,83 @@ SC_MODULE(TbFr2) {
               "S1 y S2: el modo en vivo con el umbral («" + lv + "»)");
     }
 
+
+    void r7() {
+        grupo("R7 el BSL B1 (M10) por UART: la secuencia, la contraseña, 115200, blink, el borrado, el chip en blanco y los 10 s");
+        const int drst = fr.rst.register_driver("bsl_rst"), dtest = fr.test.register_driver("bsl_test");
+        auto suelta = [&] { fr.rst.set_hiz(drst); fr.test.set_hiz(dtest); };
+        auto orden = [&](const std::vector<uint8_t>& c, std::vector<uint8_t>* r) { return bsl_.orden(c, r); };
+        corre(std::string(DIR) + "fr2_blink.elf");
+        wait(10, SC_MS);
+        fr.poke(0x1800, 0x12);                                   // algo en la información, para ver el borrado
+        fr.poke(0x2100, 0x77);                                   // y en la RAM que el BSL borra
+        bsl_.conecta(true);
+        const unsigned n0 = fr.bsl_entradas;
+        banco_bsl::entra(fr.rst, fr.test, drst, dtest);
+        std::vector<uint8_t> v;
+        int a = bsl_.orden({0x19}, &v);
+        check(fr.bsl_entradas == n0 + 1 && a == 0 && v == std::vector<uint8_t>({0x3B, 0x04}) && fr.mem8(0x2100) == 0x00,
+              "la secuencia de TEST y RST arranca el BSL y borra la RAM 0x2000-0x23FF [tabla 7-1]; bloqueado, TX BSL Version da 0x3B 0x04 (protegida, §4.1.5)");
+        a = bsl_.orden({0x18, 0x00, 0xC4, 0x00, 0x04, 0x00}, &v);
+        check(a == 0 && v == std::vector<uint8_t>({0x3B, 0x04}), "bloqueado: TX Data Block da 0x3B 0x04");
+        const uint16_t antes = fr.mem16(0xC400);
+        a = bsl_.orden(banco_bsl::contrasena(0x00), &v);
+        check(a == 0 && v == std::vector<uint8_t>({0x3B, 0x05}) && antes != 0xFFFF && fr.mem16(0xC400) == 0xFFFF &&
+              fr.mem16(0xFFFE) == 0xFFFF && fr.mem8(0x1800) == 0xFF,
+              "la contraseña mala contesta 0x3B 0x05 y borra la FRAM de código Y la información [§4.1.5.2]");
+        a = bsl_.orden(banco_bsl::contrasena(0xFF), &v);
+        check(a == 0 && v == std::vector<uint8_t>({0x3B, 0x00}), "con la de 0xFF, 0x3B 0x00");
+        a = bsl_.orden({0x19}, &v);
+        check(a == 0 && v == std::vector<uint8_t>({0x3A, 0x00, 0x08, 0x35, 0xB3}), "desbloqueado, TX BSL Version: 00.08.35.B3 [BSLFRAM tabla 7-1]");
+        a = bsl_.orden({0x52, 0x06}, nullptr);
+        bsl_.baudios(115200);
+        wait(2, SC_MS);
+        const int a2 = bsl_.orden({0x19}, &v);
+        check(a == 0 && a2 == 0 && v.size() == 5, "Change Baud Rate a 115200 (0x06): el ACK a 9600 y lo demás a 115200");
+        uint16_t entrada = 0;
+        std::vector<uint8_t> pw;
+        const bool prog = banco_bsl::programa(orden, std::string(DIR) + "fr2_blink.elf", 0xC400, entrada, &pw);
+        const unsigned l0 = led1_;
+        bsl_.orden({0x17, uint8_t(entrada), uint8_t(entrada >> 8), 0x00}, nullptr);
+        wait(300, SC_MS);
+        char t[200];
+        std::snprintf(t, sizeof t, "blink por RX Data Block y CRC Check a 115200; Load PC 0x%04X lo arranca: %u destellos de LED1 en 300 ms",
+                      unsigned(entrada), led1_ - l0);
+        check(prog && led1_ - l0 >= 3, t);
+        // Otra vez en el BSL (a 9600): la contraseña es ya la de blink; el borrado masivo
+        bsl_.baudios(9600);
+        banco_bsl::entra(fr.rst, fr.test, drst, dtest);
+        a = bsl_.orden(pw, &v);
+        const int b = bsl_.orden({0x15}, &v);
+        check(a == 0 && b == 0 && v == std::vector<uint8_t>({0x3B, 0x00}) && fr.mem16(0xFFFE) == 0xFFFF && fr.mem16(0xC400) == 0xFFFF,
+              "con la contraseña de blink, Mass Erase (0x15) contesta 0x3B 0x00 y deja la FRAM en blanco");
+        // El chip en blanco: un reset sin la secuencia entra en el BSL [§3.3.3]
+        const unsigned v0 = fr.bsl_vacios;
+        fr.test.set_drive(dtest, 0.0f, 10.0f);
+        fr.rst.set_drive(drst, 0.0f, 10.0f); wait(1, SC_MS); fr.rst.set_drive(drst, 3.3f, 10.0f);
+        wait(20, SC_MS);
+        a = bsl_.orden({0x19}, &v);
+        check(fr.bsl_vacios == v0 + 1 && a == 0 && v == std::vector<uint8_t>({0x3B, 0x04}), "el chip en blanco (vector de reset 0xFFFF) entra solo en el BSL y contesta");
+        // Sin nadie, a LPM4 a los 10 s [§3.4]
+        fr.rst.set_drive(drst, 0.0f, 10.0f); wait(1, SC_MS); fr.rst.set_drive(drst, 3.3f, 10.0f);
+        const sc_time t0 = sc_time_stamp();
+        auto lpm4 = [&] { return (fr.nucleo.cpu.sr() & 0x00F0) == 0x00F0; };
+        wait(sc_time(9.8, SC_SEC) - (sc_time_stamp() - t0));
+        const bool despierto = !lpm4();
+        wait(sc_time(10.2, SC_SEC) - (sc_time_stamp() - t0));
+        a = bsl_.orden({0x19}, &v, 50);
+        check(despierto && lpm4() && a == -1, "sin comunicación, a los 10 s el BSL se duerme en LPM4 y ya no contesta");
+        bsl_.conecta(false);
+        suelta();
+    }
+
     void run() {
         const char* solo = std::getenv("TESTFR2_SOLO");
         auto va = [&](char g) { return !solo || std::strchr(solo, g); };
         if (va('1')) r1();
         if (va('2') || va('3') || va('4') || va('5')) { r2(); r3(); r4(); r5(); }
         if (va('6')) r6();
+        if (va('7')) r7();
         std::printf("\nTOTAL FR2: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

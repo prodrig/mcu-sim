@@ -12,6 +12,11 @@
 //       LaunchPad: el TMP235 en A1 con la referencia de 1,5 V, el PWM por
 //       programa del LED RGB (verde a la temperatura de la calibración, rojo
 //       por encima), S2 manda la temperatura por la UART y S1 recalibra
+//   K4  el BSL B1 (M10) por I2C, con la configuración del usuario de
+//       fr247_bsl_i2c.c (0xFF88: solo I2C, sin borrar la RAM, en la 0x60): el
+//       arranque de unos 300 ms, la UART que no contesta, la 0x48 tampoco, la
+//       contraseña, la versión 00.09.36.B5, la RAM que sigue, escribir por
+//       encima de 0x10000 con su CRC, y Load PC
 // =============================================================================
 #include <systemc>
 #include <cmath>
@@ -23,6 +28,7 @@
 #include "soc/msp430/fr2476/soc_fr2476.h"
 #include "parts/ext_parts.h"
 #include "parts/tmp235.h"
+#include "top/banco_bsl_fram.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -40,6 +46,8 @@ SC_MODULE(TbFr2476) {
     AnalogNet gnd{"gnd"}, v33{"v33"};
     // El TMP235 (U1) con VDD a 3V3 por J9 y la salida en A1 (P1.1)
     Tmp235 u1{"u1", v33, fr.p(1, 1), 25.0};
+    banco_bsl::Uart bsl_u_{"bsl_uart", fr.p(1, 4), fr.p(1, 5)};
+    banco_bsl::I2c bsl_i_{"bsl_i2c", fr.p(1, 3), fr.p(1, 2)};
     int d_gnd_ = -1, d_v33_ = -1, d_p11_ = -1, d_p61_ = -1, d_s1_ = -1, d_s2_ = -1;
 
     SC_CTOR(TbFr2476) {
@@ -223,12 +231,61 @@ SC_MODULE(TbFr2476) {
         check(std::fabs(c[5] - 72.0 / 256) < 0.01 && std::fabs(c[4] - 183.0 / 256) < 0.01 && c[3] < 0.01, t);
     }
 
+
+    void k4() {
+        grupo("K4 el BSL B1 (M10) por I2C con la configuración del usuario: solo I2C, la 0x60, sin borrar la RAM");
+        const int drst = fr.rst.register_driver("bsl_rst"), dtest = fr.test.register_driver("bsl_test");
+        corre(std::string(DIR) + "fr247_bsl_i2c.elf");
+        wait(10, SC_MS);
+        fr.poke(0x21F0, 0xA5);                                   // en la RAM que el BSL borraría
+        bsl_u_.conecta(true); bsl_i_.conecta(true);
+        const unsigned n0 = fr.bsl_entradas;
+        banco_bsl::entra(fr.rst, fr.test, drst, dtest);           // y 20 ms
+        std::vector<uint8_t> v;
+        wait(60, SC_MS);
+        const int pronto = bsl_i_.orden(0x60, {0x19}, &v);
+        wait(320, SC_MS);
+        const int u = bsl_u_.orden({0x19}, &v, 100);
+        const int d48 = bsl_i_.orden(0x48, {0x19}, &v);
+        check(fr.bsl_entradas == n0 + 1 && pronto == -1 && u == -1 && d48 == -1,
+              "la secuencia lo arranca; a los 80 ms aún lee la TLV (unos 300 ms, §3.6), y luego ni la UART ni la 0x48 contestan");
+        std::vector<uint8_t> pw{0x11};
+        for (uint32_t a = 0xFFE0; a <= 0xFFFF; ++a) pw.push_back(fr.mem8(a));
+        int a = bsl_i_.orden(0x60, pw, &v);
+        check(a == 0 && v == std::vector<uint8_t>({0x3B, 0x00}), "por I2C en la 0x60 de 0xFFA0: la contraseña del programa, 0x3B 0x00");
+        a = bsl_i_.orden(0x60, {0x19}, &v);
+        check(a == 0 && v == std::vector<uint8_t>({0x3A, 0x00, 0x09, 0x36, 0xB5}) && fr.mem8(0x21F0) == 0xA5,
+              "TX BSL Version: 00.09.36.B5 [tabla 7-4]; la RAM no se ha borrado (0xFF8A = 0x5A06)");
+        a = bsl_i_.orden(0x60, {0x18, 0x88, 0xFF, 0x00, 0x04, 0x00}, &v);
+        check(a == 0 && v == std::vector<uint8_t>({0x3A, 0x5A, 0x69, 0x06, 0x5A}), "TX Data Block de 0xFF88: la configuración, 5A 69 06 5A");
+        const std::vector<uint8_t> d{0xDE, 0xC0, 0xAD, 0x0B};
+        std::vector<uint8_t> w{0x10, 0x00, 0x00, 0x01};
+        w.insert(w.end(), d.begin(), d.end());
+        a = bsl_i_.orden(0x60, w, &v);
+        const uint16_t k = banco_bsl::crc_ccitt(d);
+        std::vector<uint8_t> c;
+        const int b = bsl_i_.orden(0x60, {0x16, 0x00, 0x00, 0x01, 0x04, 0x00}, &c);
+        check(a == 0 && b == 0 && fr.mem16(0x10000) == 0xC0DE && c == std::vector<uint8_t>({0x3A, uint8_t(k), uint8_t(k >> 8)}),
+              "RX Data Block en 0x10000 (la FRAM de arriba) y su CRC Check");
+        const uint16_t e = fr.mem16(0xFFFE);
+        a = bsl_i_.orden(0x60, {0x17, uint8_t(e), uint8_t(e >> 8), 0x00}, nullptr);
+        unsigned cambios = 0;
+        bool ant = alto(1, 0);
+        for (int i = 0; i < 3000; ++i) { wait(100, SC_US); const bool x = alto(1, 0); if (x != ant) ++cambios; ant = x; }
+        char t[160];
+        std::snprintf(t, sizeof t, "Load PC 0x%04X (con su ACK por I2C) arranca el programa: P1.0 cambia %u veces en 300 ms", unsigned(e), cambios);
+        check(a == 0 && cambios >= 4, t);
+        bsl_u_.conecta(false); bsl_i_.conecta(false);
+        fr.rst.set_hiz(drst); fr.test.set_hiz(dtest);
+    }
+
     void run() {
         const char* solo = std::getenv("TESTFR2476_SOLO");
         auto va = [&](char g) { return !solo || std::strchr(solo, g); };
         if (va('1')) k1();
         if (va('2')) k2();
         if (va('3')) k3();
+        if (va('4')) k4();
         std::printf("\nTOTAL FR2476: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }

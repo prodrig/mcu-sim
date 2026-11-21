@@ -26,6 +26,8 @@ bsl_accion:
 bsl_inicio:
         dint
         nop
+        mov     #0x5A80, &0x015C              ; el perro, parado YA: corre desde el reset, y
+                                            ; con TEST arriba el arranque puede haber esperado
         mov     #0x2000, sp                 ; la pila, en lo alto de la RAM del BSL
         mov     #0x1C00, r12                ; borra 0x1C00-0x1FFF
 2:      clr     @r12

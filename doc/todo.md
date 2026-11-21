@@ -1009,10 +1009,9 @@ la sonda de bancada portada de la MSP Debug Stack y el *backend* de GDB) y su
 SoC de laboratorio (`test430`); encima, la capa de familia en `src/periph/ti/`
 (compartida con el P4) y los chips.
 
-**Estado (2026-11-21):** **M0-M9 hechas** (M9 con los huecos de abajo), y
-cerrado lo que quedaba de M2-M8 que no depende de fases posteriores; sigue
-M10 (el BSL de las FR2xx/FR4xx). El detalle, en §11 del análisis. Lo
-cerrado:
+**Estado (2026-11-21):** **M0-M10 hechas** (M9 con los huecos de abajo), y
+cerrado lo que quedaba de M2-M8 que no depende de fases posteriores. El
+detalle, en §11 del análisis. Lo cerrado:
 
 * **M2**: DATA_QUICK, PSA y el fusible (con VPP por TEST en 4 hilos y por
   SBW); el **Replicator430 de TI como oráculo** (`verif/m430/replicator`,
@@ -1061,6 +1060,13 @@ cerrado:
   Python 3) y en el G2553 (`bsl.target`, tal cual). Dos arreglos del modelo:
   la entrada de un módulo al elegir su pin (FR2/FR5 y F5529) y DTR/RTS del
   PuenteSerie al cerrar el puerto.
+
+* **M10** (`testfr2` R7, `testfr4` F5, `testfr2476` K4, `testfr2355` J5,
+  `testfr2311` H4; `make fr2-bsl-python`): el BSL de las FR2xx/FR4xx, propio:
+  3 KB (BSL1 y BSL2) con UART e I2C y detección automática, la espera de 10
+  s a LPM4, el chip en blanco, la configuración de la TLV (0xB5) y la del
+  usuario (0xFF88) en FR2355 y FR2476; y el de 1 KB, solo UART a 9600, del
+  FR4133.
 
 **Lo que queda, con su fase**: el tiempo y el ECC de la FRAM (**M8**, con las
 FR5xx/FR6xx, que tienen más estados de espera); el G2553 en `mcu-sim-gui`
@@ -1144,7 +1150,7 @@ grupos, porque son 79:
 | PORT28 | la resistencia de bajada de TEST/SBWTCK | se documenta | TEST sin conducir es «suelto» |
 | RTC15 | el RTC se para si se le cambia la fuente desde XT1CLK con XT1 parado | se documenta | — |
 | USCI42, USCI45, USCI47, USCI50 | UCTXCPTIFG por byte, estiramiento del reloj SPI, SPI esclavo con UCCKPH = 1, SPI maestro de 4 hilos con UCSTEM = 0 | se documenta | la eUSCI es la del MSP432P4 (las mismas, sin modelar) |
-| BSL18 | el vector vacío no llama al BSL | no aplica (M10) | con el vector borrado el modelo duerme en LPM4 |
+| BSL18 | el vector vacío no llama al BSL | no aplica | solo la revisión A; el modelo es de la última: con el vector borrado entra en el BSL (M10, R7 de `testfr2`) |
 | EEM23 | el EEM con módulos con esperas (MPY, CRC, FRAM) | se documenta | el EEM del modelo no tiene esas carreras |
 
 **SLAZ550AA (MSP430FR4133, revisión B), clasificada** [§10.4 del análisis;

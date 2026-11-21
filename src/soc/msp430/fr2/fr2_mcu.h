@@ -145,11 +145,11 @@ public:
     SocFR2& chip() { return *chip_; }
     const McuDesc& desc() const override { return desc_; }
     // `hfxt="<Hz>"` en el <mcu>: un cristal en HFXIN/HFXOUT (las FR5xx/FR6xx;
-    // las LaunchPad no lo montan) [UG FR5 §3.2.3]. `--bsl` (M9, las FR5xx/
-    // FR6xx): b1 el propio (por omisión), un fichero con el volcado de la ROM
-    // del BSL (B2) o ninguno (B3)
+    // las LaunchPad no lo montan) [UG FR5 §3.2.3]. `--bsl` (M9 y M10, todas):
+    // b1 el propio (por omisión), un fichero con el volcado de la ROM del BSL
+    // (B2: el BSL1 y, en las FR23xx-FR26xx, el BSL2) o ninguno (B3)
     bool admite_opcion(const std::string& clave) const override {
-        return (clave == "hfxt" && caps_.chip->hfxt_bits) || (clave == "bsl" && caps_.chip->fr5);
+        return (clave == "hfxt" && caps_.chip->hfxt_bits) || (clave == "bsl" && caps_.chip->desc->bsl.existe());
     }
     std::string opcion(const std::string& clave, const std::string& valor) override {
         if (!admite_opcion(clave)) return mcu_if::opcion(clave, valor);
@@ -185,7 +185,10 @@ public:
         if (caps_.chip->fr5)
             return {"el BSL de ROM es el B1 de mcu-sim (--bsl FICHERO para el volcado de un chip): con el vector de reset borrado no se arranca solo",
                     "la FRAM no tiene estados de espera ni cache en el tiempo: NWAITS solo avisa"};
-        return {"el BSL de ROM no esta (M10); con el vector de reset borrado, el chip no arranca nada",
+        if (caps_.chip->desc->bsl2.existe())
+            return {"el BSL de ROM es el B1 de mcu-sim (--bsl FICHERO para el volcado de un chip): con el vector de reset borrado arranca en el",
+                    "la FRAM no tiene estados de espera ni cache en el tiempo: NWAITS solo avisa"};
+        return {"el BSL de ROM es el B1 de mcu-sim, solo UART a 9600 (--bsl FICHERO para el volcado de un chip); con el vector de reset borrado, el chip no arranca nada",
                 "la FRAM no tiene estados de espera ni cache en el tiempo: NWAITS solo avisa"};
     }
 

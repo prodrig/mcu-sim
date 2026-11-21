@@ -11,6 +11,8 @@
 //   H3  la demo de fábrica de TI (su binario TI-TXT) con el fotodiodo D1 y R3
 //       como en la LaunchPad: la luz que ve el SAC0 en transimpedancia, el ADC
 //       y el PWM de LED2 (TB1.1 en P2.0)
+//   H4  el BSL B1 (M10): el chip en blanco entra solo; la UART de P1.6/P1.7,
+//       la contraseña mala, y la versión 00.08.35.B3
 // =============================================================================
 #include <systemc>
 #include <cmath>
@@ -22,6 +24,7 @@
 #include "soc/msp430/fr2311/soc_fr2311.h"
 #include "parts/ext_parts.h"
 #include "parts/fotodiodo.h"
+#include "top/banco_bsl_fram.h"
 
 using namespace sc_core;
 using namespace stm32;
@@ -36,6 +39,7 @@ static const char* const DIR = "verif/fr2311/elf/";
 
 SC_MODULE(TbFr2311) {
     SocFR2311 fr{"fr2311"};
+    banco_bsl::Uart bsl_{"bsl_uart", fr.p(1, 7), fr.p(1, 6)};
     AnalogNet gnd{"gnd"};
     // La red del banco: 20k de OA0O (P1.3) a OA0- (P1.2) y 10k de OA0- a masa
     // (ganancia 3); 1 Mohm de TRI0O (P1.5) a TRI0- (P1.6) y la corriente; y la
@@ -232,12 +236,38 @@ SC_MODULE(TbFr2311) {
         check(c300 > 0.98, t);
     }
 
+
+    void h4() {
+        grupo("H4 el BSL B1 (M10) del FR2311: el chip en blanco entra solo; la UART de P1.6/P1.7 y la versión");
+        corre(std::string(DIR) + "fr23_basico.elf");
+        wait(5, SC_MS);
+        const int drst = fr.rst.register_driver("bsl_rst"), dtest = fr.test.register_driver("bsl_test");
+        fr.test.set_drive(dtest, 0.0f, 10.0f);
+        bsl_.conecta(true);
+        // El chip en blanco: el vector de reset a 0xFFFF y un reset sin la secuencia [BSLFRAM §3.3.3]
+        fr.poke(0xFFFE, 0xFF); fr.poke(0xFFFF, 0xFF);
+        const unsigned v0 = fr.bsl_vacios;
+        fr.rst.set_drive(drst, 0.0f, 10.0f); wait(1, SC_MS); fr.rst.set_drive(drst, 3.3f, 10.0f);
+        std::vector<uint8_t> v;
+        wait(30, SC_MS);
+        const uint16_t antes = fr.mem16(0xF100);
+        int a = bsl_.orden(banco_bsl::contrasena(0x00), &v);
+        const bool mala = a == 0 && v == std::vector<uint8_t>({0x3B, 0x05}) && antes != 0xFFFF && fr.mem16(0xF100) == 0xFFFF;
+        a = bsl_.orden(banco_bsl::contrasena(0xFF), &v);
+        const int b = bsl_.orden({0x19}, &v);
+        check(fr.bsl_vacios == v0 + 1 && mala && a == 0 && b == 0 && v == std::vector<uint8_t>({0x3A, 0x00, 0x08, 0x35, 0xB3}),
+              "el vector en blanco lo arranca; la contraseña mala borra desde 0xF100; la versión 00.08.35.B3 [tabla 7-1]");
+        bsl_.conecta(false);
+        fr.rst.set_hiz(drst); fr.test.set_hiz(dtest);
+    }
+
     void run() {
         const char* solo = std::getenv("TESTFR2311_SOLO");
         auto va = [&](char g) { return !solo || std::strchr(solo, g); };
         if (va('1')) h1();
         if (va('2')) h2();
         if (va('3')) h3();
+        if (va('4')) h4();
         std::printf("\nTOTAL FR2311: %u comprobaciones OK, %u fallos\n", g_ok, g_fallos);
         sc_stop();
     }
