@@ -68,7 +68,7 @@ jobs:
   # -------------------------------------------------------------------------
   rapidas:
     name: Sin SystemC (red, macros de Windows, vectores)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04     # con nombre: `ubuntu-latest` cambia de version debajo (vease `linux`)
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -146,10 +146,16 @@ jobs:
   # aqui y no en el portatil de un alumno.
   # -------------------------------------------------------------------------
   #
-  # EN DOS DISTRIBUCIONES, y no por gusto. `ubuntu-22.04` es el SUELO que el
+  # EN TRES DISTRIBUCIONES, y no por gusto. `ubuntu-22.04` es el SUELO que el
   # ejecutable de Linux declara soportar (vease `paquete-linux`), y una
   # plataforma soportada que nadie ejecuta no esta verificada: es la leccion de
-  # I-23 con macOS. `ubuntu-latest` sigue porque es donde vive un alumno hoy.
+  # I-23 con macOS. `ubuntu-24.04` y `ubuntu-26.04` porque es donde vive un
+  # alumno hoy, y CON NOMBRE: hasta el 2026-11 era `ubuntu-latest`, que el 19
+  # de octubre de 2026 paso de 24.04 a 26.04 sin que nadie tocara nada y se
+  # llevo debajo la SystemC del paquete (de la 2.3.4 a la 3.0.2). Con eso
+  # salieron I-55 e I-56 (doc/todo.md). Las tres versiones de SystemC que
+  # empaqueta Ubuntu -2.3.3, 2.3.4 y 3.0.2- quedan cada una en su maquina, y
+  # el cambio de version del sistema es un commit, no una sorpresa.
   #
   # Y trae un regalo: 22.04 empaqueta SystemC 2.3.3, no la 2.3.4 de 24.04, asi
   # que esto contrasta los invariantes contra una TERCERA version de SystemC
@@ -167,7 +173,7 @@ jobs:
     strategy:
       fail-fast: false      # que una distribucion no tape a la otra
       matrix:
-        os: [ubuntu-22.04, ubuntu-latest]
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04]
     steps:
       - uses: actions/checkout@v5
 
@@ -177,8 +183,8 @@ jobs:
         # dos Ubuntu, y socat, que es la receta del 7.4 del analisis.
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsystemc-dev python3-serial socat
-          dpkg -l libsystemc-dev python3-serial socat | tail -3
+          sudo apt-get install -y libsystemc-dev python3-serial python3-venv socat
+          dpkg -l libsystemc-dev python3-serial python3-venv socat | tail -4
 
       - name: Las suites (las tres de siempre, testserie, testgui, testp4, teste4, testf3, testrv, testc3, testc6, test430, testg2, testf5, testfr2, testfr4, testfr2311, testfr2355 y testfr2476)
         env:
@@ -241,14 +247,26 @@ jobs:
       # automatico (DTR/RTS) y la ROM de verdad; esptool por RFC 2217 lee el
       # chip, programa blink con el stub y sin el, a 115200 y a 921600, y
       # blink arranca. OBLIGATORIA: sin esptool, falla en vez de omitirse.
+      #
+      # esptool en un venv PROPIO, con pip al dia, y la 5 o posterior. El pip
+      # de Ubuntu 22.04 (22.0) no sabe construir los sdist de esptool 5.x
+      # («metadata for project name unknown»), los descarta uno a uno y acaba
+      # en la 4.7, que no tiene las ordenes con guion (chip-id, write-flash):
+      # las siete pruebas fallaban a los 0 s (CI del 2026-11-16). En el venv
+      # no se toca el Python del sistema (PEP 668 en 24.04 y 26.04) y la
+      # version es la misma en las tres maquinas. ESPTOOL queda en el entorno
+      # para los pasos de abajo (usb-c3, esptool-c6).
       - name: esptool contra el ESP32-C3 por la UART0
         working-directory: src
         env:
           ESPTOOL_OBLIGATORIO: 1
         run: |
-          python3 -m pip install --break-system-packages esptool ||
-            python3 -m pip install --user esptool
-          make -f Makefile.mcu-sim esptool-c3
+          python3 -m venv "$RUNNER_TEMP/esptool"
+          "$RUNNER_TEMP/esptool/bin/python" -m pip install -q --upgrade pip
+          "$RUNNER_TEMP/esptool/bin/python" -m pip install -q 'esptool>=5,<6'
+          "$RUNNER_TEMP/esptool/bin/esptool" version
+          echo "ESPTOOL=$RUNNER_TEMP/esptool/bin/esptool" >> "$GITHUB_ENV"
+          ESPTOOL="$RUNNER_TEMP/esptool/bin/esptool" make -f Makefile.mcu-sim esptool-c3
 
       # El USB-Serial-JTAG del ESP32-C3 (E7): la SuperMini con el PC del
       # simulador en su USB; la consola de ESP-IDF por el CDC y esptool
@@ -691,7 +709,7 @@ jobs:
   # cuenta, esta receta es de momento la unica que existe escrita.
   # -------------------------------------------------------------------------
   windows:
-    name: Windows (MSYS2 / MinGW-w64)
+    name: Windows (MSYS2 UCRT64 / MinGW-w64)
     runs-on: windows-latest
     needs: rapidas
     timeout-minutes: 70
@@ -701,9 +719,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # UCRT64, no MINGW64: MSYS2 da MINGW64 por obsoleto (msvcrt) y
+      # setup-msys2 lo avisa en cada ejecucion. Es el mismo GCC contra la UCRT
+      # de Windows 10 y 11, que ya viene con el sistema: el .exe sigue sin
+      # necesitar ninguna DLL de MinGW (el paso de abajo lo comprueba).
+      # doc/compilacion.md 3.
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: true
           install: git make zip unzip
           pacboy: toolchain:p cmake:p ninja:p
@@ -713,7 +736,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/systemc
-          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-mingw64-qt-v3
+          key: systemc-${{ env.SYSTEMC_VER }}-cxx17-ucrt64-v1
 
       - name: Construir SystemC si no estaba en la cache
         # NI PTHREADS NI FIBER: QuickThreads, como en cualquier Unix, y con el
@@ -856,7 +879,7 @@ jobs:
     name: Publicar los ejecutables de una etiqueta
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [paquete-linux, macos, windows, linux]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write         # solo aqui, y solo para crear la Release
     steps:

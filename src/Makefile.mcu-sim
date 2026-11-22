@@ -142,8 +142,10 @@ CXX    ?= g++
 
 ifeq ($(PLATAFORMA),windows)
   # MinGW-w64 de 64 bits, 11.2 o posterior. Con MSYS2, SystemC suele acabar en
-  # /mingw64; si se compila a mano, en C:/systemc o similar.
-  SYSTEMC_HOME ?= /mingw64
+  # el prefijo del entorno: /ucrt64 en UCRT64 (el recomendado), /mingw64 en
+  # MINGW64; el shell de cada uno lo dice en MINGW_PREFIX. Si se compila a
+  # mano, en C:/systemc o similar.
+  SYSTEMC_HOME ?= $(if $(MINGW_PREFIX),$(MINGW_PREFIX),/ucrt64)
   EXE          := .exe
   # Los sockets son Winsock, no Berkeley (véase common/red.h); y winmm, por
   # timeBeginPeriod, el reloj de 1 ms del freno de tiempo real (sim_main.cpp).

@@ -44,9 +44,9 @@ todas partes— y `verif/invariantes.txt` la otra —el mismo resultado—.
 | Trabajo | Máquina | SystemC | Qué añade |
 | :--- | :--- | :--- | :--- |
 | `rapidas` | Ubuntu | no hace falta | `red`, `macros-win`, `hash`, `cryp`, `vectores`, `serie`, `rfc2217` y `gui-proto`. Menos de un minuto; evita encender cuatro máquinas por una errata. Es el único que clona **también `mcu-sim-gui`**, para comparar las cabeceras que los dos comparten por copia (`protocolo.h` y `proto_io.h`): con su rama del mismo nombre si existe —`cnc` con `cnc`—, y si no, con la principal; así que un cambio del protocolo se sube **primero allí** |
-| `linux` | `ubuntu-latest` | `apt install libsystemc-dev` | Verifica **la vía que documenta `compilacion.md` §4**. Si el paquete desaparece de Ubuntu, quiero enterarme aquí y no en el portátil de un alumno. Y, como es el que tiene a mano las herramientas de fuera, pasa además las pruebas contra ellas (abajo) |
+| `linux` | `ubuntu-22.04`, `ubuntu-24.04` y `ubuntu-26.04` | `apt install libsystemc-dev` (2.3.3, 2.3.4 y 3.0.2) | Verifica **la vía que documenta `compilacion.md` §4**. Si el paquete desaparece de Ubuntu, quiero enterarme aquí y no en el portátil de un alumno. Y, como es el que tiene a mano las herramientas de fuera, pasa además las pruebas contra ellas (abajo) |
 | `macos` | `macos-26` y `macos-26-intel` | compilada, en caché | **La plataforma que nadie ha ejecutado nunca.** Las dos arquitecturas, porque el `Makefile` tiene una rama para cada una y una rama que nadie ejecuta no está verificada |
-| `windows` | `windows-latest` + MSYS2 | compilada, en caché | Las suites **y** que `mcu-sim.exe` no arrastre ninguna DLL de MinGW, que es lo de §5.6 |
+| `windows` | `windows-latest` + MSYS2 UCRT64 | compilada, en caché | Las suites **y** que `mcu-sim.exe` no arrastre ninguna DLL de MinGW, que es lo de §5.6 |
 
 `macos` y `windows` pasan además `make red gui-proto`: la capa de red es lo
 único del modelo que sabe en qué sistema corre, y en Linux ya se prueba en
@@ -373,6 +373,14 @@ Dicho de otra forma: el cambio de T-23 movió el invariante **exactamente lo que
 tenía que moverlo**, y eso ya no es una afirmación de una máquina.
 
 ### Dos avisos con fecha que el propio CI imprime
+
+**Actualizado el 2026-11-22: pasó, y se puso rojo.** Ubuntu 26.04 trae la
+3.0.2, y `testrv` y `testc6` no coincidían con la 2.3.x: tiempo en coma
+flotante en los CLINT, el LP timer y el LEDC (**I-55**; de paso, **I-56** en
+macOS Intel). Arreglado sin tocar la regla de abajo: primero se supo por qué, y
+después se movieron los invariantes. Desde entonces la matriz de Linux nombra
+sus tres Ubuntu (22.04, 24.04 y 26.04: 2.3.3, 2.3.4 y 3.0.2), y nada del CI
+usa `ubuntu-latest`. Lo que decía el aviso:
 
 **`ubuntu-latest` pasa a Ubuntu 26 el 19 de octubre de 2026.** El trabajo de
 Linux se apoya en `libsystemc-dev` de Ubuntu, así que ese día puede cambiarle

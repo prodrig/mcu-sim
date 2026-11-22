@@ -43,6 +43,7 @@
 #include <functional>
 #include <vector>
 #include "../../common/periph_base.h"
+#include "../../common/tics.h"
 #include "../../rv/hart/rv_ifaces.h"
 
 namespace stm32 {
@@ -72,7 +73,7 @@ public:
     }
     uint64_t mtime() const {
         if (!(mctl_ & 1u)) return base_;
-        return base_ + uint64_t((sc_core::sc_time_stamp() - t0_).to_seconds() * hz());
+        return base_ + tics_en(sc_core::sc_time_stamp() - t0_, hz());
     }
     // Los ID que pide: 0 USI, 3 MSI, 4 UTI, 7 MTI
     uint32_t pendientes() const {
@@ -166,8 +167,10 @@ private:
         if ((mctl_ & 2u) && mcmp_ > t) prox = std::min(prox, mcmp_);
         if ((uctl_ & 2u) && ucmp_ > t) prox = std::min(prox, ucmp_);
         if (prox == ~0ull) return;
-        const double s = double(prox - t) / hz();
-        if (s < 1e6) ev_.notify(sc_core::sc_time(s, sc_core::SC_SEC));
+        // En el instante exacto en que mtime llega a prox (common/tics.h)
+        const sc_core::sc_time tope(1e6, sc_core::SC_SEC);
+        const sc_core::sc_time hasta = tiempo_de_tics(prox - base_, hz(), tope);
+        if (hasta < tope) ev_.notify(hasta + t0_ - sc_core::sc_time_stamp());
     }
     void vence() { if (aviso) aviso(); programa(); }
 };
