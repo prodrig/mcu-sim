@@ -97,7 +97,7 @@ protected:
         case 0x00: return mode_;
         case 0x08: return status();
         case 0x0C: {
-            const uint32_t v = raw_ | (fifo_.empty() ? 0 : I_RX);
+            const uint32_t v = raw_ | (fifo_.empty() ? 0u : uint32_t(I_RX));
             raw_ = 0;
             evalua();
             return v;
@@ -184,7 +184,7 @@ private:
         return s;
     }
     void evalua() {
-        const bool n = ((raw_ | (fifo_.empty() ? 0 : I_RX)) & ena_) != 0;
+        const bool n = ((raw_ | (fifo_.empty() ? 0u : uint32_t(I_RX))) & ena_) != 0;
         if (n != o_irq_) { o_irq_ = n; if (irq) irq(n); }
     }
     // Los cambios de ERR_ST y de error pasivo dan sus interrupciones

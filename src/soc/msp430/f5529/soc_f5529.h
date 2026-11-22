@@ -481,7 +481,7 @@ private:
         f_smclk_ = ((sr & 0x0080) && !((ucsctl_[8] & 0x0004) && smclk_pedido_)) || (ucsctl_[6] & 0x0002)
                    ? 0.0 : f_fuente(sels) / div(4);
         f_aclk_ = f_fuente(sela) / div(8);
-        if (sr & 0x0020) f_aclk_ = f_aclk_;                           // OSCOFF: XT1 en LPM4 (no se modela el corte)
+        // OSCOFF (sr & 0x0020): XT1 en LPM4; el corte no se modela, ACLK sigue igual
         // El control de relojes del EEM con la CPU en manos del depurador
         if (nucleo.parada_dbg()) {
             if (eem.genclkctrl() & EemM430::STOP_SMCLK) f_smclk_ = 0.0;

@@ -774,7 +774,7 @@ SC_MODULE(TbC3) {
         informa_c3("G1", sesion_c3(g1, puerto_gdb(0)));
         grupo("C16 lo mismo por G2' (el TAP en MTMS-MTDO, con la sonda de bancada) (E6)");
         const ResC3 r = sesion_c3(g2p, puerto_gdb(1));
-        char b[64];
+        char b[96];
         std::snprintf(b, sizeof b, "con DIS_USB_JTAG (jtag=pines), el IDCODE por los pines: 0x%08X", dmi_pines.idcode());
         check(dmi_pines.idcode() == Esp32C3::IDCODE, b);
         informa_c3("G2'", r);
@@ -1675,7 +1675,7 @@ SC_MODULE(CorreFlash) {
             if (o.size() > visto && std::getenv("C3_DBG_T")) std::fprintf(stderr, "[t] %s %zu\n", sc_time_stamp().to_string().c_str(), o.size());
             if (o.size() > visto) { std::fwrite(o.data() + visto, 1, o.size() - visto, stdout); std::fflush(stdout); visto = o.size(); }
         }
-        if (std::getenv("C3_DBG"))
+        if (std::getenv("C3_DBG")) {
             std::printf("\n[dbg] resets %llu causa %u uart0 %.0f baudios (clkdiv 0x%X clk_conf 0x%X) cpu %.0f apb %.0f",
                         (unsigned long long)c3->resets(), c3->rtc.causa(), c3->uart0.baudios(),
                         c3->uart0.dbg_read(0x14), c3->uart0.dbg_read(0x78), c3->system.hz_cpu(), c3->system.hz_apb());
@@ -1683,6 +1683,7 @@ SC_MODULE(CorreFlash) {
                         (unsigned long long)c3->systimer.alarmas(0), (unsigned long long)c3->systimer.alarmas(1),
                         (unsigned long long)c3->systimer.alarmas(2), c3->systimer.int_raw(),
                         c3->systimer.dbg_read(0), (unsigned long long)c3->intmtx.reclamaciones());
+        }
         std::printf("\n[fin] %.1f ms, pc=0x%08X, %llu instrucciones, %llu errores de bus, cache %llu/%llu\n", ms,
                     c3->core.hart.pc(), (unsigned long long)c3->core.hart.instret(), (unsigned long long)fallos,
                     (unsigned long long)c3->cache.aciertos(), (unsigned long long)c3->cache.fallos());

@@ -2851,7 +2851,7 @@ int sc_main(int argc, char** argv) {
                 "     sim placa.xml --tiempo-real  frena la simulacion al reloj de\n"
                 "                                pared (=0.5 a mitad de velocidad)\n"
                 "     sim placa.xml --flash-rapida  los tiempos de la Flash SPI de\n"
-                "                                un ESP32-C3 al 1 %: para OpenOCD y\n"
+                "                                un ESP32-C3 al 1 %%: para OpenOCD y\n"
                 "                                esptool, con plazos de reloj de pared\n"
                 "     sim placa.xml --jtag [ID=]VALOR  el JTAG de un ESP32-C3: pines\n"
                 "                                (MTMS-MTDO) o usb (USB-Serial-JTAG)\n"
