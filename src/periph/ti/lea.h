@@ -220,7 +220,9 @@ private:
     // El giro W_N^k [msp_transform_tables.c]
     static int16_t tw(double x) { return int16_t(std::max(-32767.0, std::min(32767.0, std::round(32768.0 * x)))); }
     static void giro(unsigned k, unsigned n, int16_t& c, int16_t& s) {
-        const double a = 2.0 * M_PI * double(k) / double(n);
+        // M_PI no es de C++ estandar: MinGW con -std=c++17 no lo define
+        const double pi = 3.14159265358979323846;
+        const double a = 2.0 * pi * double(k) / double(n);
         c = tw(std::cos(a)); s = tw(-std::sin(a));
     }
 

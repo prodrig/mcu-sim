@@ -97,7 +97,13 @@ static std::vector<std::string> lineas(const std::string& s) {
     std::vector<std::string> v;
     std::stringstream ss(s);
     std::string l;
-    while (std::getline(ss, l)) v.push_back(l);
+    // Sin el \r de un fichero sacado en Windows con core.autocrlf (CI del
+    // 22-11-2026: todo dif_* y printf_* distintos en Windows); .gitattributes
+    // ya los saca con LF, esto es por si alguien los copia de otra forma
+    while (std::getline(ss, l)) {
+        if (!l.empty() && l.back() == '\r') l.pop_back();
+        v.push_back(l);
+    }
     return v;
 }
 

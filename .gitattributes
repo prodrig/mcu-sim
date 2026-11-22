@@ -31,3 +31,8 @@
 # ponga CRLF, y los saca con LF en cualquier sistema.
 *.sh            text eol=lf
 Makefile*       text eol=lf
+
+# Las salidas esperadas de los programas diferenciales de test430 se comparan
+# linea a linea: en Windows, con core.autocrlf=true, salian con CRLF y todas
+# eran distintas (CI del 2026-11-22). Tambien las lee sin \r sc_main_430.cpp.
+src/verif/m430/elf/*.txt    text eol=lf
