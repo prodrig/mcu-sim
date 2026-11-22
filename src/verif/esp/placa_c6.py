@@ -6,7 +6,8 @@
 # El `mcu-sim` de verdad con placas/esp32c6_devkitc1.xml:
 #
 #   B1  la placa monta: el ESP32-C6 en QFN40, la Flash de 8 MB del modulo
-#       en SPICS0, el puente USB-UART con el auto-reset, BOOT, RESET y el LED
+#       en SPICS0, el puente USB-UART con el auto-reset, BOOT, RESET, el LED
+#       y las tiras J1/J3 (E13)
 #   B2  ESP-IDF v5.5 hello_world por su flash_args: la consola por los DOS
 #       USB, el del puente (la UART0 en GPIO16/17, por RFC 2217) y el del
 #       chip (el CDC-ACM del USB-Serial-JTAG, que el PC enumera, por RFC
@@ -73,8 +74,10 @@ def main():
 
     # B3 y B1: uart.elf, sin red
     rc, o = corre(a.sim, [os.path.join(FW, "uart.elf"), "--serie", "UART=memoria", "--usb", "u0=memoria", "--ms=40"])
-    check(rc == 0 and "placa 'esp32c6-devkitc-1': 1 MCU(s), 7 componentes" in o and " 0 avisos" in o,
-          "B1: la placa monta: el C6, la Flash, el puente con el auto-reset, BOOT, RESET y el LED, sin avisos")
+    # 9 desde E13: las tiras J1 y J3 (antes, 7; la prueba no se puso al dia y
+    # no lo vio nadie hasta que el CI llego a este paso, el 2026-11-22)
+    check(rc == 0 and "placa 'esp32c6-devkitc-1': 1 MCU(s), 9 componentes" in o and " 0 avisos" in o,
+          "B1: la placa monta: el C6, la Flash, el puente con el auto-reset, BOOT, RESET, el LED y las tiras J1/J3, sin avisos")
     check("[UART] Hola desde el ESP32-C6" in o, "B3: uart.elf en la HP SRAM, sin ROM: su saludo por GPIO16")
     # B4: sin firmware
     rc, o = corre(a.sim, ["--sin-firmware", "--serie", "UART=memoria", "--usb", "u0=memoria", "--ms=60"])
