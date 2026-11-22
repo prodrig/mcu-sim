@@ -55,6 +55,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include "../../common/tics.h"
 #include "c6_sistema.h"
 #include "../../periph/esp/gpio_esp.h"
 #include "../../rv/hart/rv_ifaces.h"
@@ -234,7 +235,9 @@ public:
         ev_.notify(sc_core::SC_ZERO_TIME);
     }
     uint64_t cuenta() const {
-        return uint64_t(std::floor((sc_core::sc_time_stamp() - t0_).to_seconds() * hz + 1e-9)) & ((uint64_t(1) << 48) - 1);
+        // Con enteros (common/tics.h): en el tic justo, el tic, sin el 1e-9
+        // de antes ni depender de cómo calcula SystemC to_seconds()
+        return tics_en(sc_core::sc_time_stamp() - t0_, hz) & ((uint64_t(1) << 48) - 1);
     }
 
 protected:
@@ -295,7 +298,7 @@ private:
     }
     void alarma_proc() {
         for (;;) {
-            double prox = -1;
+            uint64_t prox = ~0ull;                         // el objetivo más cercano
             const uint64_t c = cuenta();
             for (unsigned t = 0; t < 2; ++t) {
                 if (!armada_[t] || !habilitada(t)) continue;
@@ -307,15 +310,14 @@ private:
                     if (alarma) alarma(t);
                     continue;
                 }
-                const double s = double(o - c) / hz;
-                if (prox < 0 || s < prox) prox = s;
+                prox = std::min(prox, o);
             }
-            if (prox < 0) wait(ev_);
+            if (prox == ~0ull) wait(ev_);
             else {
-                // Al tick: sc_time de ps, un poco más allá para que cuente() llegue
-                const double hasta = (t0_.to_seconds() + double(c) / hz) + prox;
-                const double faltan = hasta - sc_core::sc_time_stamp().to_seconds();
-                wait(sc_core::sc_time(std::max(faltan, 0.0) * 1e12 + 1.0, sc_core::SC_PS), ev_);
+                // Al tic justo: el primer instante en que cuenta() ya llega
+                const sc_core::sc_time hasta = t0_ + tiempo_de_tics(prox, hz);
+                const sc_core::sc_time ahora = sc_core::sc_time_stamp();
+                wait(hasta > ahora ? hasta - ahora : sc_core::SC_ZERO_TIME, ev_);
             }
         }
     }

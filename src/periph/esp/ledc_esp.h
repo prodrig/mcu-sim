@@ -33,6 +33,16 @@
 // CHn_GAMMA_WR (0x100 + 0x10·n) y se leen con RD_ADDR y RD_DATA;
 // CHn_GAMMA_CONF.ENTRY_NUM (0x180 + 4·n) dice cuántos se recorren, uno tras
 // otro, antes de DUTY_CHNG_END. GAMMA_PAUSE y GAMMA_RESUME, sin modelar.
+//
+// EL TIEMPO, CON ENTEROS: cada instante (el principio de un periodo, la subida
+// y la bajada) es un número entero de tics de CLK_DIV/256 ciclos del reloj
+// fuente desde el último RST del temporizador o el reset del chip (que pone la
+// cuenta a cero), y se pasa a la resolución de SystemC con aritmética entera,
+// redondeando hacia arriba. Antes era coma flotante en segundos absolutos: a
+// 18 s de simulación un double resuelve ~4 fs, del orden de las tolerancias
+// que se usaban, y el resultado dependía de cómo calcula SystemC
+// `to_seconds()` (la 2.3 y la 3.0, distinto) y de en qué instante absoluto
+// empezaba la prueba (testc6 D9 y testc3 C18, CI del 2026-11-16).
 // =============================================================================
 #ifndef STM32_PERIPH_ESP_LEDC_ESP_H
 #define STM32_PERIPH_ESP_LEDC_ESP_H
@@ -42,6 +52,7 @@
 #include <cstdint>
 #include <functional>
 #include "../../common/periph_base.h"
+#include "../../common/tics.h"
 
 namespace stm32 {
 
@@ -64,7 +75,7 @@ public:
     std::function<uint32_t()> sclk_conf;
     void reset() {
         for (auto& c : ch_) c = Canal();
-        for (auto& t : tim_) t = Temp();
+        for (auto& t : tim_) { t = Temp(); t.inicio = sc_core::sc_time_stamp(); }   // la cuenta, a cero
         raw_ = ena_ = 0; conf_ = 0;
         for (auto& e : ev_) e.notify(sc_core::SC_ZERO_TIME);
         evalua();
@@ -215,16 +226,29 @@ private:
         return sel == 1 ? hz_apb : sel == 2 ? hz_rc_fast : sel == 3 ? hz_xtal : 0.0;
     }
     static uint32_t tics(const Temp& t) { return 1u << (t.res5 > 15 ? t.res5 : (t.conf & 0xFu)); }
+    static uint64_t div256(const Temp& t) { return (t.conf >> 4) & 0x3FFFFu; }   // CLK_DIV, en 1/256
+    uint64_t hz_entero() const { const double f = hz_src(); return f >= 1.0 ? uint64_t(std::llround(f)) : 0u; }
     double tic_s(const Temp& t) const {
-        const double div = double((t.conf >> 4) & 0x3FFFFu) / 256.0;
-        const double f = hz_src();
-        return f > 0.0 && div > 0.0 ? div / f : 0.0;
+        const uint64_t f = hz_entero(), d = div256(t);
+        return f && d ? double(d) / 256.0 / double(f) : 0.0;
     }
     bool corre(const Temp& t) const { return tic_s(t) > 0.0 && !((t.conf >> 22) & 1u) && !((t.conf >> 23) & 1u); }
+    // n tics del temporizador, en unidades de la resolución de SystemC (hacia
+    // arriba): n · CLK_DIV / (256 · f)
+    uint64_t u_de_tics(const Temp& t, uint64_t n) const {
+        using u128 = unsigned __int128;
+        const u128 num = u128(n) * div256(t) * unidades_por_segundo(), den = u128(256) * hz_entero();
+        return uint64_t((num + den - 1) / den);
+    }
+    // Los tics enteros que caben en `u` unidades
+    uint64_t tics_de_u(const Temp& t, uint64_t u) const {
+        using u128 = unsigned __int128;
+        return uint64_t(u128(u) * 256u * hz_entero() / (u128(div256(t)) * unidades_por_segundo()));
+    }
+    static sc_core::sc_time de_u(uint64_t u) { return sc_core::sc_time::from_value(u); }
     uint32_t valor(const Temp& t) const {
         if (!corre(t)) return 0;
-        const double n = (sc_core::sc_time_stamp() - t.inicio).to_seconds() / tic_s(t);
-        return uint32_t(std::fmod(n, double(tics(t))));
+        return uint32_t(tics_de_u(t, (sc_core::sc_time_stamp() - t.inicio).value()) % tics(t));
     }
     // E9: el tramo g_tramo de la RAM gamma, como el fundido del C3
     static void carga_tramo(Canal& c) {
@@ -253,11 +277,12 @@ private:
                 sc_core::wait(ev_[n]);
                 continue;
             }
-            // El principio del periodo siguiente, en la cuenta del temporizador
-            const double ts = tic_s(t), tp = ts * tics(t);
-            const double desde = (sc_core::sc_time_stamp() - t.inicio).to_seconds();
-            const double k = std::floor(desde / tp + 1e-9);
-            const bool frontera = std::fabs(desde / tp - k) < 1e-9;
+            // El periodo en curso, en la cuenta del temporizador: el k-ésimo
+            // empieza en u_de_tics(k · per), y desde ahí la subida y la bajada
+            const uint32_t per = tics(t);
+            const uint64_t desde = (sc_core::sc_time_stamp() - t.inicio).value();
+            const uint64_t k = tics_de_u(t, desde) / per;
+            const bool frontera = desde == u_de_tics(t, k * per);
             // Lo nuevo entra al empezar un periodo (o el primero)
             if ((c.para_up || c.arranca) && (frontera || c.n_periodos == 0)) {
                 c.duty_act = c.duty >> 4; c.hp_act = c.hpoint;
@@ -273,26 +298,20 @@ private:
                     c.fn_cuenta = 0;
                 }
             }
-            const uint32_t per = tics(t);
             const uint32_t on = std::min(c.hp_act, per), off = std::min(c.hp_act + c.duty_act, per);
             // En tiempo absoluto: el periodo [ps, pe), la subida y la bajada
-            const double t_ini = t.inicio.to_seconds();
-            const double ps = t_ini + k * tp, pe = ps + tp;
-            const double sube = ps + on * ts, baja = ps + off * ts;
+            const sc_core::sc_time pe = t.inicio + de_u(u_de_tics(t, (k + 1) * per));
+            const sc_core::sc_time sube = t.inicio + de_u(u_de_tics(t, k * per + on));
+            const sc_core::sc_time baja = t.inicio + de_u(u_de_tics(t, k * per + off));
             bool cortado = false;
-            double ref = -1.0;                                   // un flanco ya pasado por redondeo
             for (;;) {
-                const double ahora = std::max(sc_core::sc_time_stamp().to_seconds(), ref);
-                pon(n, off > on && ahora >= sube - 1e-15 && ahora < baja - 1e-15);
-                double sig = pe;
-                if (off > on && sube > ahora + 1e-15 && sube < sig) sig = sube;
-                if (off > on && baja > ahora + 1e-15 && baja < sig) sig = baja;
-                if (sig <= ahora + 1e-15) break;
-                // Menos de lo que resuelve el reloj de SystemC (1 ps): ya está
-                // [E9: con el PLL_F80M del C6 los flancos caen entre picosegundos]
-                const sc_core::sc_time dt(sig - ahora, sc_core::SC_SEC);
-                if (dt == sc_core::SC_ZERO_TIME) { ref = sig; if (sig == pe) break; continue; }
-                sc_core::wait(dt, ev_[n]);
+                const sc_core::sc_time ahora = sc_core::sc_time_stamp();
+                pon(n, off > on && ahora >= sube && ahora < baja);
+                sc_core::sc_time sig = pe;
+                if (off > on && sube > ahora && sube < sig) sig = sube;
+                if (off > on && baja > ahora && baja < sig) sig = baja;
+                if (sig <= ahora) break;                         // pe > ahora siempre: no pasa
+                sc_core::wait(sig - ahora, ev_[n]);
                 if (ev_[n].triggered()) { cortado = true; break; }
                 if (sig == pe) break;
             }

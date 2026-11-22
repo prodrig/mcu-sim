@@ -46,20 +46,48 @@ import time
 IDF = os.path.join("build", "idf", "v5.5")
 
 
+ESPTOOL_MINIMO = 5   # las ordenes con guion (chip-id, write-flash) y sus mensajes
+
+
+def version_esptool(et):
+    """La version de esptool como (mayor, texto), o (0, "?") si no contesta."""
+    try:
+        r = subprocess.run(et + ["version"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return 0, "?"
+    lineas = (r.stdout or "").strip().splitlines()
+    texto = lineas[-1].strip() if lineas else "?"
+    try:
+        return int(texto.lstrip("v").split(".")[0]), texto
+    except ValueError:
+        return 0, texto
+
+
 def busca_esptool(a):
-    """La orden de esptool, como lista, o None."""
-    for c in (a.esptool, os.environ.get("ESPTOOL")):
-        if c:
-            return [c]
+    """La orden de esptool, como lista, o None. Una anterior a la 5 no vale:
+    las pruebas usan sus ordenes con guion y sus mensajes (en Ubuntu 22.04,
+    el pip de la distribucion no sabe instalar las 5.x y se queda en la 4.7)."""
+    candidatas = [[c] for c in (a.esptool, os.environ.get("ESPTOOL")) if c]
     for n in ("esptool", "esptool.py"):
         r = shutil.which(n)
         if r:
-            return [r]
+            candidatas.append([r])
     try:
         import esptool  # noqa: F401
-        return [sys.executable, "-m", "esptool"]
+        candidatas.append([sys.executable, "-m", "esptool"])
     except ImportError:
-        return None
+        pass
+    vistas = []
+    for et in candidatas:
+        if et in vistas:
+            continue
+        vistas.append(et)
+        mayor, texto = version_esptool(et)
+        if mayor >= ESPTOOL_MINIMO:
+            return et
+        print("  [AVISO] %s es esptool %s: hace falta la %d o posterior (pip install 'esptool>=%d')"
+              % (" ".join(et), texto, ESPTOOL_MINIMO, ESPTOOL_MINIMO))
+    return None
 
 
 def puerto_libre():

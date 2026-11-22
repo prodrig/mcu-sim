@@ -148,9 +148,14 @@ Imprime qué ha decidido: `PLATAFORMA`, `CXX`, `CXXSTD`, `SYSTEMC_HOME`, `EXE`,
 
 Es la plataforma con más aristas, así que va entera.
 
-1. Abre la terminal **MSYS2 MINGW64** (no la MSYS ni la UCRT, salvo que hayas
-   construido SystemC para esa). Instala `mingw-w64-x86_64-gcc` y
-   `mingw-w64-x86_64-make` (o usa el `make` de MSYS2).
+1. Abre la terminal **MSYS2 UCRT64** (no la MSYS). Instala
+   `mingw-w64-ucrt-x86_64-gcc` y `mingw-w64-ucrt-x86_64-make` (o usa el `make`
+   de MSYS2). **MINGW64 también vale**, con sus paquetes `mingw-w64-x86_64-…`
+   y una SystemC construida en ella; pero MSYS2 la da por obsoleta (va contra
+   `msvcrt`, la biblioteca de C de Windows XP) y el CI usa UCRT64 desde el
+   2026-11-22. Lo que no vale es mezclar: SystemC y el modelo, construidos en
+   el mismo entorno. El Makefile toma `SYSTEMC_HOME` del prefijo del shell
+   (`MINGW_PREFIX`: `/ucrt64` o `/mingw64`) si no se le da.
 2. Construye o instala SystemC. Si lo dejas, por ejemplo, en `/opt/systemc`:
 
 ```bash
@@ -165,7 +170,7 @@ Cinco detalles que muerden:
   invertida como escape.
 * **Sin espacios en la ruta.** `C:/Program Files/...` rompe make de formas poco
   divertidas. Instálalo en `/opt/systemc` o `C:/systemc-2.3.4`.
-* **Desde el shell MinGW64, no desde `cmd.exe`.** Las recetas usan `mkdir -p` y
+* **Desde el shell UCRT64 (o MINGW64), no desde `cmd.exe`.** Las recetas usan `mkdir -p` y
   `rm -rf`, que necesitan un shell POSIX. Git Bash también vale.
 * **La plataforma debería detectarse sola** porque MSYS2 hereda `OS=Windows_NT`
   de Windows. Si no, `make PLATAFORMA=windows`.
@@ -199,7 +204,9 @@ propios. Si quieres ver qué ha detectado antes de compilar: `make plataforma`.
 **Homebrew trae la 3.0.2, no la 2.3.4 de Linux y Windows, y da igual**: los
 tres invariantes son los mismos con las dos versiones. No lo fueron siempre
 —con la 3.0.2 la suite llegó a no terminar— y la historia de por qué está en
-**I-24**, que es de las que merece leerse.
+**I-24**, que es de las que merece leerse. Ni siquiera después: en noviembre de
+2026 las suites de RISC-V daban otra cifra con la 3.0.2 por el mismo motivo,
+tiempo en coma flotante (**I-55**, resuelto con `common/tics.h`).
 
 ---
 
@@ -345,7 +352,8 @@ si te aparece con otro prefijo del sistema, el arreglo es el mismo.
 
 ### 5.4 `mkdir: -p: command not found`, o `rm` no reconocido
 
-Estás en `cmd.exe` o en PowerShell. Usa la terminal MSYS2 MINGW64 o Git Bash.
+Estás en `cmd.exe` o en PowerShell. Usa la terminal MSYS2 UCRT64 (o MINGW64) o
+Git Bash.
 
 ### 5.5 Los `%llu` imprimen basura en Windows
 

@@ -324,7 +324,13 @@ testf3                428      116875480154660       resto
 # PMA, el BTB y riscv-arch-test con 202 de 220 y las 18 que difieren) va tras
 # W4-W6 y suma 16 comprobaciones y 34629550000 ps; lo de antes no se mueve
 # (28577500000 con 457 hasta el arranque de V11) (14-11-2026).
-testrv                 473      63207050000           resto
+# I-55 (22-11-2026): 30 ns MENOS, todos en InterruptsSm_wfi_M de V11 (una de
+# las 18 que el C6 hace de otra manera). El CLINT calculaba mtime con
+# to_seconds() * hz en coma flotante: en el tic justo salia uno menos con la
+# SystemC 2.3 y el bueno con la 3.0.2 (ubuntu-latest, ya 26.04, y macOS daban
+# 63207020000). Ahora con enteros (common/tics.h): la cifra de la 3.0.2, la
+# misma con 2.3.4 y 3.0.2; lo de antes de V11 no se mueve.
+testrv                 473      63207020000           resto
 
 # testc3: el ESP32-C3. C1-C7 (E3), sin ROM: el arranque por CHIP_PU y los
 # pines de arranque, la UART0 por los pines, el INTC, el SYSTIMER y TIMG0, la
@@ -385,7 +391,15 @@ testrv                 473      63207050000           resto
 # grupos (desde 19433187364616). arranca() suelta GPIO9 y GPIO8 y un pin de
 # arranque flotante se lee 0: de C18 a C32 el C3 ya no arranca en modo
 # descarga; C1-C33 no se mueven.
-testc3                 313      18846782364616        resto
+# I-56 (22-11-2026): C18 dura 185875579 ps MAS y es lo unico que se mueve.
+# El LEDC contaba desde el instante 0 de la simulacion (el reset del chip no
+# ponia su cuenta a cero) y en coma flotante con segundos absolutos: la fase
+# del PWM dependia de cuanto hubiese durado todo lo anterior, incluidos
+# C15-C16, que van por un socket y tardan lo que el reloj de pared quiera
+# (macOS Intel, CI del 16-11-2026: C15 0,8 ms mas largo y el resto 50 us mas
+# corto). Ahora la cuenta empieza en el reset y va con enteros: C18 dura lo
+# mismo suelto (C3_SOLO=c18) que en la suite, y lo mismo con 2.3.4 y 3.0.2.
+testc3                 313      18846968240195        resto
 
 # testc6: el ESP32-C6 (E9 de doc/analisis_esp32_riscv.md). D1-D5 (E9.2), en
 # arranque directo, sin la ROM: los encapsulados, el nucleo HP y la ROM en su
@@ -416,4 +430,10 @@ testc3                 313      18846782364616        resto
 # vTaskDelay(20 ms) del LEDC cae un tic de FreeRTOS antes. Comprobado: sin
 # esa latencia, D1-D9 acaban en 13115536458348, la cifra de antes. 202
 # comprobaciones; el resto es el comienzo de D10.
-testc6                 202      53173701458348        resto
+# I-55 e I-56 (22-11-2026): D9 vuelve a acabar en 13115536458348, 10 ms mas
+# tarde, y es lo unico que se mueve. Con la 2.3.4 acababa en 13105536458348 y
+# con la 3.0.2 ya en 13115536458348 (ubuntu-latest y macOS, 16-11-2026): el
+# vTaskDelay(20 ms) del LEDC caia a un lado u otro de un tic de FreeRTOS
+# segun el redondeo de to_seconds(). Con el LEDC, el CLINT y el LP timer en
+# enteros, las dos versiones dan esta cifra.
+testc6                 202      53183701458348        resto

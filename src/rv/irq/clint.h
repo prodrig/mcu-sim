@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <vector>
 #include "../hart/nucleo_rv.h"
+#include "../../common/tics.h"
 
 namespace stm32 {
 
@@ -48,8 +49,7 @@ public:
     unsigned harts() const { return unsigned(msip_.size()); }
 
     uint64_t mtime() const {
-        const double s = (sc_core::sc_time_stamp() - t0_).to_seconds();
-        return base_ + uint64_t(s * hz_);
+        return base_ + tics_en(sc_core::sc_time_stamp() - t0_, hz_);
     }
     bool msip(unsigned h) const { return h < msip_.size() && msip_[h]; }
     bool mtip(unsigned h) const { return h < mtimecmp_.size() && mtime() >= mtimecmp_[h]; }
@@ -115,8 +115,11 @@ private:
         ev_[h].cancel();
         const uint64_t ahora = mtime(), c = mtimecmp_[h];
         if (c <= ahora) { avisa(h); return; }
-        const double s = double(c - ahora) / hz_;
-        if (s < 1e6) ev_[h].notify(sc_core::sc_time(s, sc_core::SC_SEC));
+        // En el instante exacto en que mtime llega a c (tics.h): ni antes,
+        // que el hart lo vería sin vencer, ni después
+        const sc_core::sc_time tope(1e6, sc_core::SC_SEC);
+        const sc_core::sc_time hasta = tiempo_de_tics(c - base_, hz_, tope);
+        if (hasta < tope) ev_[h].notify(hasta + t0_ - sc_core::sc_time_stamp());
     }
 };
 
