@@ -156,12 +156,34 @@ Es la plataforma con más aristas, así que va entera.
    2026-11-22. Lo que no vale es mezclar: SystemC y el modelo, construidos en
    el mismo entorno. El Makefile toma `SYSTEMC_HOME` del prefijo del shell
    (`MINGW_PREFIX`: `/ucrt64` o `/mingw64`) si no se le da.
-2. Construye o instala SystemC. Si lo dejas, por ejemplo, en `/opt/systemc`:
+   Para todo lo demás (CMake, Ninja, Qt para `mcu-sim-gui`, Python para las
+   pruebas), desde UCRT64:
+
+   ```bash
+   pacman -S --needed git make \
+     mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja \
+     mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pyserial
+   ```
+2. Construye SystemC **en ese mismo shell**, con la receta del CI. El script
+   usa el compilador del entorno en que estás (`$MINGW_PREFIX/bin/g++`) y no el
+   que CMake encuentre primero: con MINGW64 y UCRT64 instalados y uno de ellos
+   en el `PATH` de Windows, CMake puede coger el del otro, y lo dice en una línea
+   que nadie lee (`Check for working CXX compiler: C:/msys64/mingw64/bin/c++.exe`).
+   Desde la raíz del repositorio:
+
+```bash
+sh ci/construye_systemc.sh /opt/systemc-ucrt64 -G Ninja -DCMAKE_ASM_FLAGS="-x assembler-with-cpp"
+```
+
+   Si `/opt/systemc-ucrt64` ya tiene una SystemC, el script no hace nada:
+   para rehacerla, bórrala antes (`rm -rf /opt/systemc-ucrt64`).
+3. Enlaza el Makefile (una vez por copia de trabajo, §1), comprueba y compila:
 
 ```bash
 cd src
-make plataforma SYSTEMC_HOME=/opt/systemc      # comprueba antes
-make SYSTEMC_HOME=/opt/systemc
+make -f Makefile.mcu-sim enlaza                  # deja src/Makefile; sin el, «No rule to make target»
+make plataforma SYSTEMC_HOME=/opt/systemc-ucrt64 # dice que g++ usa y avisa si no es el del entorno
+make SYSTEMC_HOME=/opt/systemc-ucrt64
 ```
 
 Cinco detalles que muerden:

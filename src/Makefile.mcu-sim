@@ -311,6 +311,13 @@ plataforma:
 	@echo "B            = $(B)"
 	@echo "ANFITRION    = $(ANFITRION)   (uname -s; OS = '$(OS)')"
 	@echo "TMP          = '$(TMP)'   TEMP = '$(TEMP)'"
+	@echo "el CXX es    = $$(command -v $(firstword $(CXX)) 2>/dev/null || echo '(no esta en el PATH)')"
+ifneq ($(MINGW_PREFIX),)
+	@echo "MSYS2        = $(MSYSTEM) (prefijo $(MINGW_PREFIX))"
+	@case "$$(command -v $(firstword $(CXX)) 2>/dev/null)" in $(MINGW_PREFIX)/*) ;; \
+	 *) echo "  AVISO: el compilador no es el de $(MSYSTEM) ($(MINGW_PREFIX)/bin): SystemC y el modelo tienen que salir del mismo entorno (doc/compilacion.md 3)";; \
+	 esac
+endif
 
 $(TEST407): top/sc_main.cpp $(HDRS)
 	@mkdir -p $(B)

@@ -68,7 +68,26 @@ git -C systemc-fuente checkout --quiet "$version"
 # todo esto.
 echo "  [systemc] fuente: $(git -C systemc-fuente describe --tags --always)"
 
-cmake -S systemc-fuente -B systemc-obj \
+# En MSYS2, el compilador DEL ENTORNO EN QUE SE ESTA (UCRT64 o MINGW64), sin
+# dejar que CMake lo busque: con los dos entornos instalados y el otro en el
+# PATH de Windows, CMake cogio el g++ de /mingw64 desde el shell UCRT64 (en la
+# maquina del autor, el 2026-11-23), y una SystemC construida contra msvcrt no
+# enlaza con un modelo construido contra la UCRT. Con CC/CXX puestos, mandan.
+compiladores=""
+if [ -n "${MINGW_PREFIX:-}" ]; then
+    cc_="${CC:-$MINGW_PREFIX/bin/gcc}"; cxx_="${CXX:-$MINGW_PREFIX/bin/g++}"
+    if [ ! -x "$cxx_" ] && [ ! -x "$cxx_.exe" ]; then
+        echo "  [systemc] FALLO: no hay $cxx_ (pacman -S ${MINGW_PACKAGE_PREFIX:-mingw-w64-ucrt-x86_64}-gcc)" >&2
+        exit 1
+    fi
+    # CMake es un programa de Windows: la ruta, en su forma (C:/msys64/...)
+    if command -v cygpath >/dev/null 2>&1; then cc_=$(cygpath -m "$cc_"); cxx_=$(cygpath -m "$cxx_"); fi
+    compiladores="-DCMAKE_C_COMPILER=$cc_ -DCMAKE_CXX_COMPILER=$cxx_"
+    echo "  [systemc] entorno ${MSYSTEM:-?}: $cxx_, con $(command -v cmake)"
+fi
+# -Wno-deprecated: el CMakeLists.txt de SystemC 2.3.4 pide una version de
+# CMake vieja y CMake 4 lo avisa; es de Accellera, no de aqui, y no afecta
+cmake -S systemc-fuente -B systemc-obj -Wno-deprecated $compiladores \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_CXX_STANDARD=17 \
       -DBUILD_SHARED_LIBS=OFF \
