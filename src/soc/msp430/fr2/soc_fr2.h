@@ -1106,7 +1106,11 @@ private:
         auto w = [&](unsigned o, uint16_t v) { t[o] = uint8_t(v); t[o + 1] = uint8_t(v >> 8); };
         t[0x00] = 0x06; t[0x01] = 0x06;
         w(0x04, chip.tlv_id);
-        t[0x06] = 0x10; t[0x07] = 0x10;                               // [de modelo]
+        // La revisión de HW: la de los chips de hoy, la 2.1 (0x21) en las
+        // FR5969/FR6989 (las anteriores son «Legacy» para libmsp430, que no
+        // las abre: legacy.xml y FR69xx.xml de [MSPDS], M11) y la 1.0 en la
+        // FR5994; la de FW [de modelo]
+        t[0x06] = (chip.tlv_id == 0x8169 || chip.tlv_id == 0x81A8) ? 0x21 : 0x10; t[0x07] = 0x10;
         t[0x08] = 0x08; t[0x09] = 0x0A;
         for (unsigned i = 0; i < 10; ++i) t[0x0A + i] = uint8_t(0x30 + i);
         t[0x14] = 0x11; t[0x15] = 0x10;

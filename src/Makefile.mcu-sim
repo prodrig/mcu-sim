@@ -276,6 +276,7 @@ TESTFR2311 := $(B)/testfr2311$(EXE)
 TESTFR2355 := $(B)/testfr2355$(EXE)
 TESTFR2476 := $(B)/testfr2476$(EXE)
 TESTFR5   := $(B)/testfr5$(EXE)
+TESTEZFET := $(B)/testezfet$(EXE)
 ASAN430   := $(B)/asan430$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
@@ -291,7 +292,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 fr2311-slaa754 testf5 testf5-build testfr2 testfr2-build testfr4 testfr4-build testfr2311 testfr2311-build testfr2355 testfr2355-build testfr2476 testfr2476-build testfr5 testfr5-build rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash fr5-bsl-python g2-bsl-python fr2-bsl-python test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 fr2311-slaa754 testf5 testf5-build testfr2 testfr2-build testfr4 testfr4-build testfr2311 testfr2311-build testfr2355 testfr2355-build testfr2476 testfr2476-build testfr5 testfr5-build testezfet testezfet-build ezfet-tilib rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash fr5-bsl-python g2-bsl-python fr2-bsl-python test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -553,6 +554,50 @@ testfr5-build: $(TESTFR5)
 
 testfr5: $(TESTFR5)
 	$(TESTFR5)
+
+# LA eZ-FET EMULADA (fase M11b): make testezfet. Las imagenes del firmware son
+# de la copia de la MSP Debug Stack del usuario: MSPDS=CARPETA (sin ellas, se omite)
+MSPDS ?= ../doc/refs/msp430/MSPDebugStack_OS_Package_3_15_1_1
+$(TESTEZFET): top/sc_main_ezfet.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/ezfet/*.h soc/msp430/f5529/*.h soc/msp430/g2553/*.h soc/msp430/fr2/*.h soc/msp430/fr5969/*.h periph/ti/*.h) parts/puente_usb.h parts/canal_pty.h common/imagen_ezfet.h
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_ezfet.cpp $(LDFLAGS) $(LDLIBS)
+
+testezfet-build: $(TESTEZFET)
+
+testezfet: $(TESTEZFET)
+	MSPDS=$(MSPDS) $(TESTEZFET)
+
+# libmsp430 DE VERDAD contra la eZ-FET emulada (M11b): la de la MSP Debug Stack
+# compilada con herramientas/libmsp430/mcu-sim.patch; la LaunchPad G2ET y la
+# FR5969 con --ezfet-imagenes; prueba_ezfet (identifica, borra, programa,
+# verifica y lee) y, si esta, mspdebug tilib (prog y verify)
+LIB430 := $(B)/libmsp430
+EZFET_PTY ?= /tmp/ttyEZFET-mcusim
+ezfet-tilib: $(MCUSIM)
+	@if [ ! -f $(MSPDS)/Bios/include/eZ_FetCore.h ]; then \
+	   echo "  [OMITE] ezfet-tilib: MSPDS=carpeta de la MSP Debug Stack (la fuente)"; exit 0; fi; \
+	 if [ ! -f $(LIB430)/libmsp430.so ]; then \
+	   echo "  compilando libmsp430 con el parche de mcu-sim (unos minutos)..."; \
+	   sh ../herramientas/libmsp430/compila.sh $(MSPDS) $(LIB430) || exit 1; fi; \
+	 export LD_LIBRARY_PATH=$(LIB430) MSP430_PUERTO_CDC=$(EZFET_PTY) MSP430_ESCALA_TIEMPO=20 MSP430_VERSION_LONG=1; \
+	 f=0; \
+	 for x in "msp_exp430g2et verif/g2553/elf/ej_blink MSP430G2xx3 0xC000 0x4031" \
+	          "msp_exp430fr5969 verif/fr5969/elf/fr59_blink MSP430FR5969 0x4400 0x0001"; do \
+	   set -- $$x; \
+	   $(MCUSIM) placas/$$1.xml --ms=600000 --ezfet-imagenes $(MSPDS) --ezfet-pty $(EZFET_PTY) \
+	       > $(B)/ezfet-$$1-sim.log 2>&1 & sim=$$!; \
+	   sleep 8; \
+	   $(LIB430)/prueba_ezfet $(EZFET_PTY) $$2.hex $$3 $$4 $$5 > $(B)/ezfet-$$1.log 2>&1; r=$$?; \
+	   sed "s/^  \[/  [$$3] [/" $(B)/ezfet-$$1.log | grep "\[OK\|\[FALLO"; \
+	   test $$r = 0 || f=1; \
+	   if command -v mspdebug >/dev/null 2>&1; then \
+	     mspdebug tilib -d $(EZFET_PTY) "prog $$2.elf" "verify $$2.elf" > $(B)/ezfet-$$1-mspdebug.log 2>&1 \
+	       && grep -q "^Done" $(B)/ezfet-$$1-mspdebug.log \
+	       && echo "  [OK  ] ezfet-tilib: mspdebug tilib programa y verifica $$2.elf en la $$3" \
+	       || { echo "  [FALLO] ezfet-tilib: mspdebug con la $$3, vease $(B)/ezfet-$$1-mspdebug.log"; f=1; }; \
+	   else echo "  [OMITE] ezfet-tilib: no esta mspdebug"; fi; \
+	   kill $$sim 2>/dev/null; wait $$sim 2>/dev/null; \
+	 done; exit $$f
 
 # msp430-elf-gdb DE VERDAD contra la MSP-EXP430G2ET (P-20): load, rupturas
 # de software y de hardware, watch, paso, Ctrl-C y monitor reset halt, por

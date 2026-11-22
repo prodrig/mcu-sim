@@ -141,6 +141,7 @@
 #include "../soc/msp430/g2553/g2553_mcu.h"
 #include "../soc/msp430/f5529/f5529_mcu.h"
 #include "../soc/msp430/fr2/fr2_mcu.h"
+#include "../soc/msp430/ezfet/ezfet.h"
 #include "../soc/esp32c6/esp32c6_mcu.h"
 
 using namespace sc_core;
@@ -235,6 +236,9 @@ static std::vector<std::pair<std::string, std::string>> g_roms, g_tlvs, g_bsls,
 static bool        g_lista_mcus = false;
 static unsigned    g_gdb_puerto = 0;
 static bool        g_flash_rapida = false;   // --flash-rapida (E6)
+static std::string g_ezfet_dir;               // --ezfet-imagenes (M11)
+static std::string g_ezfet_pty = "/tmp/ttyEZFET";   // --ezfet-pty
+static stm32::EzFet* g_ezfet = nullptr;
 static bool        g_congela = false;        // --stopped-core-stops-sim
 static bool        g_puerto_dado = false;
 
@@ -554,6 +558,21 @@ SC_MODULE(Sim) {
                 m.stub->pon_programador(m.mcu->programador());
                 m.stub->pon_herramienta(m.mcu->herramienta());
                 m.stub->set_enabled(false);      // se abre al arrancar, no aquí
+            }
+            // --ezfet-imagenes: la eZ-FET de la LaunchPad, un F5528 con el
+            // firmware de TI, cableada por SBW al primer MSP430 de la placa (M11).
+            // Aquí, al montar: es un módulo más
+            if (!g_ezfet_dir.empty() && !g_ezfet) {
+                analog_net_if* tck = m.mcu->nodo_depuracion("sbwtck");
+                analog_net_if* tdio = m.mcu->nodo_depuracion("sbwtdio");
+                if (tck && tdio) {
+                    g_ezfet = new stm32::EzFet("ezfet", *tck, *tdio, g_ezfet_dir, g_ezfet_pty);
+                    if (!g_ezfet->error().empty()) muere("--ezfet-imagenes: " + g_ezfet->error());
+                    std::printf("ezfet de %s: %s\n", d.id.empty() ? "(el mcu)" : d.id.c_str(),
+                                g_ezfet->describir().c_str());
+                    std::printf("  para libmsp430 (la de herramientas/libmsp430): MSP430_PUERTO_CDC=%s\n",
+                                g_ezfet_pty.c_str());
+                }
             }
             // La sonda de OpenOCD se cuelga de los mismos pines, y su SRST es
             // el NRST del chip, como en una sonda de verdad (T5 del MSP432)
@@ -1541,6 +1560,8 @@ SC_MODULE(Sim) {
                 }
             if (!n) muere("--flash-rapida: ningun MCU de la placa tiene una Flash SPI (es del ESP32-C3)");
         }
+        if (!g_ezfet_dir.empty() && !g_ezfet)
+            muere("--ezfet-imagenes: la placa no tiene un MSP430 con SBW (TEST y RST)");
         // Lo que la ROM o el TLV nuevos cambian de lo que se dijo al montar
         for (McuMontado& m : mcus) {
             const std::string nm = m.decl.id.empty() ? std::string("dut") : m.decl.id;
@@ -2390,6 +2411,13 @@ static const OpcionCli OPCIONES[] = {
     {"--flash-rapida", "bandera", "", "", "", "", false, true, "",
      "los tiempos de programar y borrar la Flash SPI de un ESP32-C3, al 1 %: para "
      "programar con OpenOCD (program_esp), que espera con plazos de reloj de pared"},
+    {"--ezfet-imagenes", "valor", "texto", "", "", "", false, true, "~/ti/MSPDebugStack_OS_Package_3_15_1_1",
+     "la eZ-FET de la LaunchPad de bajo nivel: un MSP430F5528 que ejecuta el firmware "
+     "de TI (Bios/include/eZ_Fet*.h de la copia de la MSP Debug Stack de DIR), "
+     "cableado por SBW al MSP430 de la placa; su USB va a un pty (--ezfet-pty) para "
+     "la libmsp430 con el parche de herramientas/libmsp430"},
+    {"--ezfet-pty", "valor", "texto", "/tmp/ttyEZFET", "", "", false, true, "/tmp/ttyEZFET",
+     "el enlace del pty de la eZ-FET (Linux y macOS)"},
     {"--jtag", "valor", "texto", "", "", "", true, true, "u0=pines",
      "a donde va el JTAG de un ESP32-C3, como [ID=]VALOR: pines (MTMS-MTDO, como con "
      "EFUSE_DIS_USB_JTAG quemado: lo que piden --openocd, --cmsis-dap y --gdb) o usb (el "
@@ -2683,6 +2711,10 @@ int sc_main(int argc, char** argv) {
         else if (a == "--openocd") g_gdb_modo = "openocd";
         else if (a == "--cmsis-dap") g_gdb_modo = "cmsis-dap";
         else if (a == "--flash-rapida") g_flash_rapida = true;
+        else if (a == "--ezfet-imagenes" && i + 1 < argc) g_ezfet_dir = argv[++i];
+        else if (a.rfind("--ezfet-imagenes=", 0) == 0) g_ezfet_dir = a.substr(17);
+        else if (a == "--ezfet-pty" && i + 1 < argc) g_ezfet_pty = argv[++i];
+        else if (a.rfind("--ezfet-pty=", 0) == 0) g_ezfet_pty = a.substr(12);
         else if (a == "--stopped-core-stops-sim") g_congela = true;
         else if (a.rfind("--port=", 0) == 0) {
             g_gdb_puerto = unsigned(std::atoi(a.c_str() + 7));

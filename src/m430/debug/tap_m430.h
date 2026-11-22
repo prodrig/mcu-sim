@@ -52,7 +52,10 @@
 //     en IR_DATA_16BIT con TCLK abajo y la CPU la toma al subir); los
 //     accesos de JTAG con CPUSUSP siguen en las bajadas, como en 1xx;
 //   * DATA_QUICK empieza en el MAB (el PC de la búsqueda suspendida), sin
-//     el desfase de 1xx (ReadMemQuick_430Xv2 hace SetPC(Start));
+//     el desfase de 1xx (ReadMemQuick_430Xv2 hace SetPC(Start)), con el
+//     acceso en la bajada de TCLK y luego el incremento (M11: la HAL de la
+//     eZ-FET y el Replicator leen tras SetTCLK, ClrTCLK); y una lectura con
+//     ADDR_16BIT y un pulso de TCLK (ReadMemWordXv2 de la HAL);
 //   * JMB_EXCHANGE, el buzón de JTAG [JTAG §2.3.?; UG5 §1.14]: la primera
 //     palabra es el control (INREQ, OUTREQ, JMB32B) y su captura da el
 //     estado (IN0RDY, IN1RDY, OUT0RDY, OUT1RDY); detrás, una o dos palabras
@@ -183,6 +186,20 @@ public:
         if (nivel && ir_ == IR430_EX_BLOW && armado_ && hay_vpp()) { fusible_ = true; armado_ = false; }
         // DATA_QUICK: la subida hace el acceso; la bajada incrementa
         if (ir_ == IR430_DATA_QUICK && (cntrl_ & bit_halt()) && (cntrl_ & CS430_TCE1)) {
+            // Xv2: el acceso en la BAJADA y luego el incremento. Los dos de TI
+            // (ReadMemQuick_430Xv2 del Replicator y ReadMemQuickXv2 de la HAL)
+            // cargan DATA_QUICK con TCLK arriba y hacen SetTCLK, ClrTCLK y
+            // luego leen el DR: la primera palabra es la de Start [de modelo]
+            if (xv2_) {
+                if (!nivel) {
+                    const bool byte = (cntrl_ & CS430_BYTE) != 0;
+                    if (cntrl_ & CS430_RW) mdb_ = cpu_->jtag_lee(quick_, byte);
+                    else { cpu_->jtag_escribe(quick_, mdb_jtag_, byte); mdb_ = mdb_jtag_; }
+                    quick_ = (quick_ + 2) & 0xFFFFFu;
+                }
+                cpu_->jtag_tclk(nivel);
+                return;
+            }
             if (nivel) {
                 const bool byte = (cntrl_ & CS430_BYTE) != 0;
                 if (cntrl_ & CS430_RW) mdb_ = cpu_->jtag_lee(quick_, byte);
@@ -205,7 +222,12 @@ public:
         // WriteFLASH de SBW del Replicator llega a SetTCLK con TCLK ya arriba
         // (lo deja así TCLKstrobes) y la escritura solo puede ser al bajar
         // [JTAG §2.4.2: «SetTCLK; ClrTCLK» tras DATA_TO_ADDR]
-        if (!nivel && (cntrl_ & bit_halt()) && (cntrl_ & CS430_TCE1) && ir_ == IR430_DATA_TO_ADDR) {
+        // Xv2: también con ADDR_16BIT y R/W de lectura (el ReadMemWordXv2 de la
+        // HAL de la eZ-FET: ADDR_16BIT, la dirección, Tclk(1), Tclk(0) y luego
+        // DATA_CAPTURE [MSPDS Bios/src/hil/edt.h]; el Replicator pasa por
+        // DATA_TO_ADDR) [de modelo]
+        const bool lee_xv2 = xv2_ && ir_ == IR430_ADDR_16BIT && (cntrl_ & CS430_RW);
+        if (!nivel && (cntrl_ & bit_halt()) && (cntrl_ & CS430_TCE1) && (ir_ == IR430_DATA_TO_ADDR || lee_xv2)) {
             const bool byte = (cntrl_ & CS430_BYTE) != 0;
             if (cntrl_ & CS430_RW) mdb_ = cpu_->jtag_lee(mab_jtag_, byte);
             else { cpu_->jtag_escribe(mab_jtag_, mdb_jtag_, byte); mdb_ = mdb_jtag_; }
@@ -303,7 +325,14 @@ private:
         case IR430_CNTRL_SIG_HIGH_BYTE: v = estado_cntrl() >> 8; break;
         case IR430_CNTRL_SIG_LOW_BYTE: v = estado_cntrl() & 0xFFu; break;
         case IR430_ADDR_16BIT: case IR430_ADDR_CAPTURE: v = cpu_ ? cpu_->jtag_mab() : 0; break;
-        case IR430_DATA_TO_ADDR: case IR430_DATA_16BIT: case IR430_DATA_CAPTURE: case IR430_DATA_QUICK:
+        case IR430_DATA_QUICK:
+            // La lectura rápida con TCLK abajo (tras la bajada que incrementa):
+            // la HAL de la eZ-FET lee el DR después de Tclk(1), Tclk(0)
+            // (ReadMemQuick.c); el Replicator, con TCLK arriba [de modelo]
+            if (cpu_ && !xv2_ && !tclk_ && (cntrl_ & CS430_RW) && (cntrl_ & bit_halt()) && (cntrl_ & CS430_TCE1))
+                mdb_ = cpu_->jtag_lee(quick_, (cntrl_ & CS430_BYTE) != 0);
+            v = mdb_; break;
+        case IR430_DATA_TO_ADDR: case IR430_DATA_16BIT: case IR430_DATA_CAPTURE:
             v = mdb_; break;
         case IR430_SHIFT_OUT_PSA: v = psa_; break;
         case IR430_DATA_PSA: v = mdb_; break;
@@ -333,7 +362,12 @@ private:
     void actualiza_ir() {
         ir_ = uint8_t(valor_ir());
         if (fusible() && !jmb_abierto()) { ir_ = IR430_BYPASS; return; }
-        if (cpu_ && ir_ == IR430_DATA_QUICK) quick_ = (cpu_->jtag_mab() + (xv2_ ? 0 : 4)) & (cpux_ ? 0xFFFFFu : 0xFFFFu);
+        // 1xx: MAB+4 con TCLK abajo (el Replicator: SetPC(Start-4), HaltCPU,
+        // ClrTCLK); con TCLK arriba, el MAB (la HAL de la eZ-FET: SetPc(Start-2)
+        // y halt_cpu() acaban con TCLK alto, y la primera bajada lleva a Start)
+        // [de modelo: los dos desfases, de que las dos funcionan en el chip]
+        if (cpu_ && ir_ == IR430_DATA_QUICK)
+            quick_ = (cpu_->jtag_mab() + (xv2_ || tclk_ ? 0 : 4)) & (cpux_ ? 0xFFFFFu : 0xFFFFu);
         if (ir_ == IR430_JMB_EXCHANGE) jmb_fase_ = 0;
         if (cpu_ && ir_ == IR430_DATA_PSA) {
             psa_dir_ = (cntrl_ & bit_halt()) ? mdb_jtag_ : cpu_->jtag_ultima_busqueda();

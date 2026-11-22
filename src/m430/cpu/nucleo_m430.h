@@ -82,6 +82,8 @@ SC_MODULE(NucleoM430), public m430_mem_if, public m430_jtag_cpu_if {
     // (GENCLKCTRL: qué relojes se paran con ella) [UG2 §28.2.4]
     bool parada_dbg() const { return parado_ || tclk_; }
     std::function<void(bool)> al_parada_dbg;
+    // Para depurar firmware ajeno (la eZ-FET de M11): antes de cada instrucción
+    std::function<void()> al_instruccion;
     bool parada_pedida() const { return parada_; }
     // La CPU espera a un periférico (la Flash borrando o escribiendo, con el
     // programa en ella): no ejecuta, pero NO está parada para la depuración
@@ -354,6 +356,7 @@ private:
                     else wait(quantum, ev_irq_ | ev_dbg_ | rst_n.value_changed_event());
                     continue;
                 }
+                if (al_instruccion) al_instruccion();
                 if (traza_limite && cpu.instrucciones() <= traza_limite)
                     std::printf("[%s] pc=0x%05x\n", name(), unsigned(cpu.pc()));
                 if (tclk_) { if (p.ciclos > accesos_paso_ && !suspendida_xv2()) deuda_ += p.ciclos - accesos_paso_; }
