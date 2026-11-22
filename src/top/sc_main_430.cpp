@@ -44,6 +44,7 @@
 //      exit()).
 // =============================================================================
 #include <systemc>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -533,7 +534,21 @@ SC_MODULE(TbM430) {
         const bool rh = cli.pedir("qRcmd," + hexs("reset halt"), sc_time(5, SC_SEC)) == "OK";
         check(rh && reg(0) == cpu.ram16(0xFFFE), p + "monitor reset halt: el PC en el vector de reset");
         cli.enviar("c");
-        wait(300, SC_US);
+        // Hasta que corre de verdad, y en el bucle: la «c» va por un socket y
+        // llega cuando quiere el reloj de pared, no el simulado. Con 300 us
+        // fijos, en macOS Intel (CI del 2026-11-22) el Ctrl-C la alcanzaba y
+        // la CPU paraba antes de llegar al bucle. Este grupo habla por socket,
+        // asi que su tiempo no cuenta en el invariante.
+        {
+            const auto t0w = std::chrono::steady_clock::now();
+            auto en_bucle = [&] {
+                const uint32_t pc = cpu.cpu().pc();
+                return !cpu.nucleo.parado() && pc >= s_obj && pc < s_main + 16;
+            };
+            do wait(100, SC_US);
+            while (!en_bucle() && std::chrono::steady_clock::now() - t0w < std::chrono::seconds(20));
+            wait(300, SC_US);
+        }
         cli.crudo("\x03");
         const std::string pi = espera_parada();
         const uint32_t pc_i = reg(0);
