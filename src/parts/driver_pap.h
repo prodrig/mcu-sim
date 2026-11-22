@@ -645,8 +645,16 @@ private:
             if (a == 0.0) rate_ = obj;
             else if (rate_ < obj) rate_ = std::min(obj, std::sqrt(rate_ * rate_ + 2.0 * a));
             else if (rate_ > obj) {
+                // Al frenar hasta parar, v² baja 2·a por paso y en aritmética
+                // exacta llega a 0; en coma flotante queda un residuo que
+                // depende de si el compilador fusiona rate_·rate_ - 2·a en un
+                // FMA (GCC de Ubuntu 26.04, o -march=x86-64-v3; CI del
+                // 22-11-2026). Con un residuo de 1e-12, la velocidad salía
+                // 1e-6 Hz, el paso siguiente tocaba dentro de 11 días y el
+                // generador no paraba ni cambiaba DIR. Menos de una
+                // millonésima de paso de v² es cero.
                 const double v2 = rate_ * rate_ - 2.0 * a;
-                rate_ = v2 > 0.0 ? std::max(obj, std::sqrt(v2)) : obj;
+                rate_ = v2 > 1e-6 * a ? std::max(obj, std::sqrt(v2)) : obj;
             }
             if (rate_ <= 0.0) { rate_ = 0.0; continue; }
             // El pulso

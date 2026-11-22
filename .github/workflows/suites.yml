@@ -532,7 +532,11 @@ jobs:
     name: macOS ${{ matrix.arq }}
     runs-on: ${{ matrix.os }}
     needs: rapidas
-    timeout-minutes: 50
+    # 90, no 50: el macOS Intel de GitHub tarda lo que quiere. Las suites de
+    # main le llevaron 47 min el 16-11-2026 y 26 min el 22-11-2026, y el
+    # 22-11 por la tarde se paso de 50 y GitHub lo corto a medias. Con las de
+    # MSP430 son mas.
+    timeout-minutes: 90
     strategy:
       fail-fast: false            # que una arquitectura no tape a la otra
       matrix:
