@@ -1,0 +1,71 @@
+# Los programas de testf5 (M4). Los ELF se versionan en elf/: regenerarlos pide
+# msp430-elf-gcc, las cabeceras de TI y la DriverLib de 5xx/6xx que trae el
+# paquete de software de la MSP-EXP430F5529LP (BSD-3), todo en doc/refs.
+#   make -f Makefile.f5529 [MSPGCC=<bin>]
+MSPGCC ?= msp430-elf-
+REFS   ?= ../../../doc/refs/msp430
+TI     ?= $(REFS)/ti/msp430/include_gcc
+DL     ?= $(REFS)/launchpads/MSP-EXP430F5529LP/sw/MSP-EXP430F5529LP_Software_Examples_linux/Firmware/Source/SimpleUsbBackchannel/driverlib/MSP430F5xx_6xx
+CFLAGS := -mmcu=msp430f5529 -mlarge -mcode-region=either -mdata-region=lower -I$(TI) -L$(TI) -I$(DL) -I$(DL)/deprecated/CCS -Ishim -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
+DLSRC  := pmm.c ucs.c usci_a_uart.c flashctl.c adc12_a.c dma.c gpio.c wdt_a.c ref.c crc.c timer_a.c sfr.c rtc_a.c comp_b.c
+PROGS  := f5_basico f5_rtc_cb f5_rtc_cnt f5_cbout f5_usb_hw f5_blink
+
+REP    := replicator/Replicator430.c replicator/JTAGfunc430.c replicator/LowLevelFunc430.c replicator/Devices430.c replicator/target_code.c
+REPFLAGS := -mmcu=msp430f5529 -I$(TI) -L$(TI) -Ishim -O1 -g -D__interrupt= -w
+
+# (FlashWrite.c y FlashErase.c los incluye JTAGfunc430Xv2.c)
+REPX   := replicator_xv2/Replicator430Xv2.c replicator_xv2/JTAGfunc430Xv2.c replicator_xv2/LowLevelFunc430Xv2.c replicator_xv2/JSBW.c replicator_xv2/target_code.c
+
+all: $(PROGS:%=elf/%.elf) elf/rep_sbw.elf elf/rep_jtag.elf elf/repx_sbw.elf elf/repx_jtag.elf elf/repx_firma.elf
+
+elf/%.elf: %.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -o $@ $< $(DLSRC:%=$(DL)/%)
+
+# El Replicator430 de TI en el F5529 (M4): por SBW y por JTAG de 4 hilos
+elf/rep_sbw.elf: $(REP) replicator/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=3 -o $@ $(REP)
+elf/rep_jtag.elf: $(REP) replicator/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=1 -o $@ $(REP)
+
+# El Replicator430Xv2 de TI en el F5529, que programa otro F5529 (M4): por SBW
+# (INTERFACE 2) y por JTAG de 4 hilos (1, SPYBIWIREJTAG_IF)
+elf/repx_sbw.elf: $(REPX) replicator_xv2/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -o $@ $(REPX)
+elf/repx_jtag.elf: $(REPX) replicator_xv2/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=1 -o $@ $(REPX)
+# Y una variante por SBW con el patrón mágico al empezar y la firma de JTAG al
+# acabar (los dos bloques de TI, activados con MCUSIM_FIRMA): F8
+elf/repx_firma.elf: $(REPX) replicator_xv2/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -DMCUSIM_FIRMA -o $@ $(REPX)
+
+# El Replicator430FR de TI en el F5529, que programa el FR5969 (M8): por SBW,
+# y por SBW con la contraseña de JTAG (el bloque de TI activado con
+# MCUSIM_CLAVE, y su bucle arreglado). La parte baja, la del Replicator430Xv2
+# de aquí (es la misma de TI).
+REPFR  := replicator_fr/Replicator430FR.c replicator_fr/JTAGfunc430FR.c replicator_fr/LowLevelFunc430Xv2.c replicator_fr/JSBW.c
+all: elf/repfr_sbw.elf elf/repfr_clave.elf
+elf/repfr_sbw.elf: $(REPFR) replicator_fr/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -o $@ $(REPFR)
+elf/repfr_clave.elf: $(REPFR) replicator_fr/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -DMCUSIM_CLAVE -o $@ $(REPFR)
+
+# El Replicator430FR de TI en el F5529, que programa el FR5969 (M8): por SBW,
+# y por SBW con la contraseña de JTAG (el bloque de TI activado con
+# MCUSIM_CLAVE, y su bucle arreglado). La parte baja, la del Replicator430Xv2
+# de aquí (es la misma de TI).
+REPFR  := replicator_fr/Replicator430FR.c replicator_fr/JTAGfunc430FR.c replicator_fr/LowLevelFunc430Xv2.c replicator_fr/JSBW.c
+all: elf/repfr_sbw.elf elf/repfr_clave.elf
+elf/repfr_sbw.elf: $(REPFR) replicator_fr/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -o $@ $(REPFR)
+elf/repfr_clave.elf: $(REPFR) replicator_fr/*.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(REPFLAGS) -DINTERFACE=2 -DMCUSIM_CLAVE -o $@ $(REPFR)

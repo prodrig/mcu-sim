@@ -50,6 +50,7 @@ class NodeMap;
 class Cableado;   // pins/pin_mux.h
 class programador_nv_if;   // common/gdb_rsp.h
 class herramienta_if;      // common/gdb_rsp.h
+class GdbRspBase;          // common/gdb_rsp.h
 class memoria_nv_if;      // common/memoria_nv.h
 
 class mcu_if {
@@ -122,6 +123,10 @@ public:
     // (T0). nullptr: la de omisión, la del STM32F405/407. La usa el stub de
     // PINES, que `sim` construye por fuera del chip; el interno ya la tiene.
     virtual programador_nv_if* programador() { return nullptr; }
+    // El stub de PINES que el chip sabe hacerse él (P-20): un MSP430, que no
+    // tiene SWD ni el JTAG de los RISC-V, cuelga su sonda de bancada de
+    // TEST/RST. nullptr: el de siempre, el que `sim` construye por fuera.
+    virtual GdbRspBase* stub_pines(const std::string& /*nombre*/, unsigned /*puerto*/) { return nullptr; }
     // Lo que hace la herramienta de verdad (OpenOCD) con este chip por su
     // cuenta -congelar o apagar los perros al parar, su reset-, para que los
     // stubs internos se porten igual (soc/herramientas.h). nullptr: nada.

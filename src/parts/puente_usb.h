@@ -189,6 +189,16 @@ public:
             mem_ = new CanalMemoria(cola);
             canal_.reset(mem_);
         }
+        arranca();
+    }
+    // Con un canal propio (el pty de la eZ-FET de M11, parts/canal_pty.h)
+    PuenteUsbCdc(analog_net_if& dp, analog_net_if& dm, usb_dev_if* dev, std::unique_ptr<CanalHost> canal)
+        : dp_(dp), dm_(dm), hc_(dev), d_(serie::Destino{}) {
+        canal_ = std::move(canal);
+        arranca();
+    }
+
+    void arranca() {
         id_pd_dp_ = dp_.register_driver("usbpc_pd_dp");
         id_pd_dm_ = dm_.register_driver("usbpc_pd_dm");
         id_dp_ = dp_.register_driver("usbpc_dp");
@@ -232,6 +242,9 @@ public:
     // El aviso del dispositivo de que tiene un IN listo (null: una vez por
     // trama, lo de siempre: el E4 y el F303). El C3 da el suyo (E7)
     const sc_core::sc_event* ev_in = nullptr;
+    // En un dispositivo compuesto con varios CDC (la eZ-FET: depuración y
+    // backchannel), cuál se usa: 0 el primero
+    unsigned cdc = 0;
     // Desenchufar y enchufar el cable: sin los 15 kOhm no hay anfitrion
     void enchufa(bool on) {
         enchufado_ = on;
@@ -433,16 +446,20 @@ private:
     // Recorre la configuracion: la interfaz de comunicaciones (clase 2,
     // subclase 2: ACM) y la de datos (clase 0x0A) con sus dos de bulk
     bool busca_cdc(const std::vector<uint8_t>& c) {
-        bool acm = false, en_datos = false, en_jtag = false;
+        bool acm = false, en_datos = false, en_jtag = false, mio = false;
+        int n_acm = 0;
         ep_in_ = ep_out_ = 0;
         jtag_in_ = jtag_out_ = 0;
         for (size_t i = 0; i + 1 < c.size() && c[i] >= 2; i += c[i]) {
             const uint8_t tipo = c[i + 1];
             if (tipo == 4 && i + 7 < c.size()) {
-                en_datos = c[i + 5] == 0x0A;
+                en_datos = c[i + 5] == 0x0A && mio;
                 // El JTAG de Espressif (USB-Serial-JTAG): FF/FF/01 (E7)
                 en_jtag = c[i + 5] == 0xFF && c[i + 6] == 0xFF && c[i + 7] == 0x01;
-                if (c[i + 5] == 0x02 && c[i + 6] == 0x02) { acm = true; iface_ = c[i + 2]; }
+                if (c[i + 5] == 0x02 && c[i + 6] == 0x02) {
+                    mio = n_acm++ == int(cdc);                  // el CDC pedido, el primero por omisión
+                    if (mio) { acm = true; iface_ = c[i + 2]; }
+                }
             } else if (tipo == 5 && en_jtag && i + 6 < c.size() && (c[i + 3] & 3u) == 2) {
                 if (c[i + 2] & 0x80) jtag_in_ = c[i + 2] & 0x0Fu; else jtag_out_ = c[i + 2] & 0x0Fu;
             } else if (tipo == 5 && en_datos && i + 6 < c.size() && (c[i + 3] & 3u) == 2) {

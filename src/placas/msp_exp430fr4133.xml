@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MSP-EXP430FR4133: la LaunchPad del MSP430FR4133 (M7 de doc/analisis_msp430.md)
+
+     Lo que lleva la placa aparte del chip [SLAU595B, §2 y el esquema]:
+
+         MSP1  el MSP430FR4133IPM (LQFP-64)
+         LCD1  el vidrio FH-1138P (4-mux, seis caracteres de 14 segmentos y
+               símbolos), en L0-L26 y L36-L39: COM0-COM3 en L0-L3 (P7.0-P7.3)
+               [tablas 3 y 4]; LCDCAP0/1 y R13/R23/R33 en P4.3-P4.7, con sus
+               condensadores (no se modelan: la bomba de carga es del LCD_E)
+         LED1  rojo, en P1.0 (que es también el UCA0TXD del backchannel), tras
+               el puente JP1, con 470 ohm (R4)
+         LED2  verde, en P4.0 (TA1.1), con 470 ohm (R5)
+         S1    en P1.2, a masa (sin resistencia en la placa: REN del chip)
+         S2    en P2.6, igual
+         S3    RESET, en RST/SBWTDIO, con 47 kohm a 3V3 (R1) y 1 nF (C11)
+         Y1    32 768 Hz en P4.1/P4.2 (XIN/XOUT), conectado: el SoC tiene
+               cristal (cristal_xt1 = true, de la factoría)
+         J101  el bloque de aislamiento con el eZ-FET lite: GND, 5V, 3V3,
+               RXD <<, TXD >>, SBW RST y SBW TST [tabla 2]
+         BCL   el backchannel del eZ-FET: la UCA0 en P1.0 (TXD) y P1.1 (RXD),
+               hasta el PC por RFC 2217 en el 3361
+         J1-J2 los conectores BoosterPack de 20 pines [figura 10]
+
+     El eZ-FET es de M11: --gdb-dap depura contra el núcleo y --gdb por los
+     pines (SBW en TEST/RST con la sonda de bancada). La demo de fábrica:
+
+         ./build/mcu-sim placas/msp_exp430fr4133.xml \
+             verif/fw/fr4133/OutOfBox_MSP430FR4133.txt 20000
+
+         ./build/mcu-sim placas/msp_exp430fr4133.xml --valida
+-->
+<placa nombre="msp-exp430fr4133">
+  <mcu tipo="MSP430FR4133" id="u0"/>
+
+  <!-- El vidrio: la patilla k del FH-1138P y su Lx [SLAU595B tabla 4] -->
+  <componente tipo="LcdFh1138p" id="LCD1" muestra="si">
+    <pin nombre="1" nodo="P3.0"/>  <!-- L8 -->
+    <pin nombre="2" nodo="P3.1"/>  <!-- L9 -->
+    <pin nombre="3" nodo="P3.2"/>  <!-- L10 -->
+    <pin nombre="4" nodo="P3.3"/>  <!-- L11 -->
+    <pin nombre="5" nodo="P3.4"/>  <!-- L12 -->
+    <pin nombre="6" nodo="P3.5"/>  <!-- L13 -->
+    <pin nombre="7" nodo="P3.6"/>  <!-- L14 -->
+    <pin nombre="8" nodo="P3.7"/>  <!-- L15 -->
+    <pin nombre="9" nodo="P6.0"/>  <!-- L16 -->
+    <pin nombre="10" nodo="P6.1"/>  <!-- L17 -->
+    <pin nombre="11" nodo="P6.2"/>  <!-- L18 -->
+    <pin nombre="12" nodo="P6.3"/>  <!-- L19 -->
+    <pin nombre="13" nodo="P6.4"/>  <!-- L20 -->
+    <pin nombre="14" nodo="P6.5"/>  <!-- L21 -->
+    <pin nombre="15" nodo="P6.6"/>  <!-- L22 -->
+    <pin nombre="16" nodo="P6.7"/>  <!-- L23 -->
+    <pin nombre="17" nodo="P7.4"/>  <!-- L4 -->
+    <pin nombre="18" nodo="P7.5"/>  <!-- L5 -->
+    <pin nombre="19" nodo="P7.6"/>  <!-- L6 -->
+    <pin nombre="20" nodo="P7.7"/>  <!-- L7 -->
+    <pin nombre="21" nodo="P7.3"/>  <!-- L3 -->
+    <pin nombre="22" nodo="P7.2"/>  <!-- L2 -->
+    <pin nombre="23" nodo="P7.1"/>  <!-- L1 -->
+    <pin nombre="24" nodo="P7.0"/>  <!-- L0 -->
+    <pin nombre="32" nodo="P2.0"/>  <!-- L24 -->
+    <pin nombre="33" nodo="P2.1"/>  <!-- L25 -->
+    <pin nombre="34" nodo="P2.2"/>  <!-- L26 -->
+    <pin nombre="35" nodo="P5.4"/>  <!-- L36 -->
+    <pin nombre="36" nodo="P5.5"/>  <!-- L37 -->
+    <pin nombre="37" nodo="P5.6"/>  <!-- L38 -->
+    <pin nombre="38" nodo="P5.7"/>  <!-- L39 -->
+  </componente>
+
+  <componente tipo="Jumper" id="JP1" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P1.0"/>
+  </componente>
+  <componente tipo="Led" id="LED1" a_vss="si" vf="2.0" r="470">
+    <pin nombre="anodo" nodo="JP1.2"/>
+  </componente>
+  <componente tipo="Led" id="LED2" a_vss="si" vf="2.1" r="470" color="verde">
+    <pin nombre="anodo" nodo="P4.0"/>
+  </componente>
+  <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P1.2"/>
+  </componente>
+  <componente tipo="Button" id="S2" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P2.6"/>
+  </componente>
+
+  <nodo id="RST" bus="si"/>
+  <componente tipo="Button" id="S3" v_cerrado="0" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="RST"/>
+  </componente>
+  <componente tipo="Rpull" id="R1" v="3.3" r="47000" visible="no">
+    <pin nombre="a" nodo="RST"/>
+  </componente>
+
+  <nodo id="5V" bus="si"/>
+  <nodo id="DVSS" bus="si"/>
+  <componente tipo="Fuente" id="USB" v="5" limite_ma="500">
+    <pin nombre="pin" nodo="J101.4"/>
+  </componente>
+  <componente tipo="Jumper" id="J101" quitable="si" filas="2" columnas="7"
+              puente="1 2, 3 4, 5 6, 7 8, 9 10, 11 12, 13 14">
+    <pin nombre="1" nodo="DVSS"/>       <!-- GND -->
+    <pin nombre="3" nodo="5V"/>         <!-- 5V -->
+    <pin nombre="5" nodo="DVCC"/>       <!-- 3V3 -->
+    <pin nombre="7" nodo="P1.1"/>       <!-- RXD << : UCA0RXD -->
+    <pin nombre="9" nodo="P1.0"/>       <!-- TXD >> : UCA0TXD -->
+    <pin nombre="11" nodo="RST"/>       <!-- SBW RST -->
+    <pin nombre="13" nodo="TEST"/>      <!-- SBW TST -->
+  </componente>
+  <componente tipo="PuenteSerie" id="BCL" host="rfc2217:3361"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="J101.10"/>
+    <pin nombre="tx" nodo="J101.8"/>
+  </componente>
+
+  <!-- Los conectores BoosterPack de 20 pines [SLAU595B figura 10] -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="10">
+    <pin nombre="1" nodo="DVCC"/>  <pin nombre="2" nodo="P8.1"/>  <pin nombre="3" nodo="P1.1"/>
+    <pin nombre="4" nodo="P1.0"/>  <pin nombre="5" nodo="P2.7"/>  <pin nombre="6" nodo="P8.0"/>
+    <pin nombre="7" nodo="P5.1"/>  <pin nombre="8" nodo="P2.5"/>  <pin nombre="9" nodo="P8.2"/>
+    <pin nombre="10" nodo="P8.3"/>
+  </componente>
+  <!-- J2: 11-20, aquí 1-10 (1 es el 11) -->
+  <componente tipo="Conector" id="J2" filas="1" columnas="10">
+    <pin nombre="1" nodo="P1.5"/>  <pin nombre="2" nodo="P1.4"/>  <pin nombre="3" nodo="P1.3"/>
+    <pin nombre="4" nodo="P5.3"/>  <pin nombre="5" nodo="P5.2"/>  <pin nombre="6" nodo="RST"/>
+    <pin nombre="7" nodo="P5.0"/>  <pin nombre="8" nodo="P1.6"/>  <pin nombre="9" nodo="P1.7"/>
+    <pin nombre="10" nodo="DVSS"/>
+  </componente>
+</placa>

@@ -1,0 +1,2359 @@
+# MSP430 en `mcu-sim`
+
+**Análisis y plan por fases** · rama `msp430` · 09-11-2026 (segunda versión)
+
+Esta segunda versión incorpora la documentación que faltaba en la primera y las
+fuentes de TI que la primera pedía como «conveniente»:
+
+* SLAU550AB, que cierra el único hueco: el BSL de las FR2xx/FR4xx;
+* la **MSP Debug Stack** completa, en código abierto: firmware de la eZ-FET,
+  biblioteca `libmsp430` y su base de datos de dispositivos;
+* el **Replicator430** de SLAU320;
+* los fuentes del **BSL a medida** (MSPBSL);
+* SLAA754, programación por Spy-Bi-Wire desde un MSP432P401R;
+* y el `targetdb` de CCS.
+
+Con eso cambian tres cosas del plan:
+
+* la sonda por los pines deja de escribirse desde cero;
+* el BSL del F5529 puede ser el de TI;
+* y la eZ-FET emulada pasa de «arriesgada» a «con dos caminos conocidos».
+
+El objetivo es que `mcu-sim` simule **diez MCUs MSP430 de Texas Instruments, de
+cuatro familias**, igual que hoy simula los STM32, los MSP432 y el ESP32-C3. Eso
+quiere decir:
+
+* ejecutar sin recompilar el binario que sale de Code Composer Studio o de
+  `msp430-elf-gcc`;
+* tener pines eléctricos y placas en XML con su dibujo SVG;
+* tener consola serie por el *backchannel* de la LaunchPad;
+* y descargar y depurar con las herramientas de siempre.
+
+La lista de MCUs y de LaunchPads es la de `doc/refs/msp430/`:
+
+| Familia (guía de usuario) | MCU | LaunchPad |
+| :--- | :--- | :--- |
+| F2xx/G2xx (SLAU144K) | MSP430G2553 | MSP-EXP430G2ET |
+| F5xx/F6xx (SLAU208Q) | MSP430F5529 | MSP-EXP430F5529LP |
+| FR2xx/FR4xx (SLAU445I) | MSP430FR2311 | MSP-EXP430FR2311 |
+| | MSP430FR2355 | MSP-EXP430FR2355 |
+| | MSP430FR2433 | MSP-EXP430FR2433 |
+| | MSP430FR4133 | MSP-EXP430FR4133 |
+| | MSP430FR2476 | LP-MSP430FR2476 |
+| FR5xx/FR6xx (SLAU367P) | MSP430FR5969 | MSP-EXP430FR5969 |
+| | MSP430FR5994 | MSP-EXP430FR5994 |
+| | MSP430FR6989 | MSP-EXP430FR6989 |
+
+El plan tiene tres condiciones que lo ordenan todo:
+
+1. **Tienen que poder entrar MSP430 nuevos sin tocar el núcleo.** Pueden ser de
+   estas familias (un FR2153, un FR5739, un F5438A, un G2231) o de otras (un
+   F1xx, un F4xx con LCD, un i20xx, un FR6047 con USS, un CC430). Por eso la §3
+   separa el núcleo de las familias, y la §5 hace que un MCU nuevo sea, sobre
+   todo, **datos**.
+2. **Depuración por los pines**, con el JTAG de 4 hilos y el Spy-Bi-Wire de 2
+   hilos tal y como los describe SLAU320AJ, y **depuración por stub**, como
+   `--gdb-dap`.
+3. **El cargador de arranque (BSL)** de las tres generaciones:
+   * la ROM de 1xx/2xx/4xx y la Flash de 5xx/6xx, según SLAU319AF;
+   * y la ROM de todas las FRAM, según SLAU550G y SLAU550AB.
+
+Referencias de este documento, todas en `doc/refs/msp430/` y sin versionar:
+
+| Clave | Documento |
+| :--- | :--- |
+| [UG2] | MSP430F2xx, MSP430G2xx Family User's Guide, SLAU144K (2022) |
+| [UG5] | MSP430F5xx and MSP430F6xx Family User's Guide, SLAU208Q |
+| [UGFR2] | MSP430FR4xx and MSP430FR2xx Family User's Guide, SLAU445I (2019) |
+| [UGFR5] | MSP430FR58xx, FR59xx, FR68xx and FR69xx Family User's Guide, SLAU367P (2020) |
+| [CPUX] | MSP430x5xx/6xx CPUX (extracto de SLAU208), SLAU391F (2018) |
+| [JTAG] | MSP430 Programming With the JTAG Interface, SLAU320AJ (2021) |
+| [BSL] | MSP430 Flash Devices Bootloader (BSL), SLAU319AF (2022) |
+| [BSLFR] | MSP430FR57xx, FR58xx, FR59xx, FR68xx and FR69xx Bootloader (BSL), SLAU550G (2017) |
+| [BSLFRAM] | MSP430 FRAM Devices Bootloader (BSL), **SLAU550AB** (septiembre de 2022): todas las FRAM, FR2xx/FR4xx incluidas |
+| — | SLAU610G (2017): solo una página que remite a SLAU550. No aporta nada más |
+| [DBGUG] | MSP Debuggers User's Guide, SLAU647O (2020) |
+| [MSPDS-DG] | MSPDebugStack Developer's Guide, SLAU656D (2021) |
+| [MSPDS] | MSP Debug Stack Open Source Package 3.15.1.1 (`MSPDebugStack_OS_Package_3_15_1_1.zip`). Es **BSD-3** en todo el código fuente (§1.3) |
+| [MSPDS-DEV] | MSP430 DLL Developer Package 3.15.1.1: `libmsp430_64.so`, `MSP430.dll`, cabeceras y guía de la API |
+| [MSPBSL] | MSP430 BSL 1.02.00.01 (MSPBSL_CUSTOMBSL430): fuentes **BSD-3** del BSL de 5xx/6xx e imágenes publicadas |
+| [REP] | Replicator430 de SLAU320 (`REP430F Replicator/TI-SLAU320/slau320aj.zip`), versión 1.22, **BSD-3** |
+| [REP430F] | Elprotronic REP430F, manual de usuario (programador comercial; solo informativo) |
+| [SBW-SL] | MSP430 Spy-Bi-Wire With SimpleLink MCUs, SLAA754 (2017) |
+| [TDB] | `ccs_base/common/targetdb` de CCS 11.2: 603 descripciones de dispositivos MSP430 y 491 de módulos |
+| [GCC] | MSP430 GCC Toolchain User's Guide, SLAU646F |
+| [DS-G2553] | MSP430G2x53, G2x13 Mixed Signal MCU, SLAS735J |
+| [DS-F5529] | MSP430F552x, F551x, SLAS590P |
+| [DS-FR2311] | MSP430FR231x, SLASE58E |
+| [DS-FR2355] | MSP430FR235x, FR215x, SLASEC4D |
+| [DS-FR2433] | MSP430FR243x, SLASE59F |
+| [DS-FR4133] | MSP430FR413x, SLAS865F |
+| [DS-FR2476] | MSP430FR247x, SLASEO7C |
+| [DS-FR5969] | MSP430FR59xx, SLAS704G |
+| [DS-FR5994] | MSP430FR599x, FR596x, SLASE54D |
+| [DS-FR6989] | MSP430FR698x, FR598x, SLAS789D |
+| [ER-…] | Fe de erratas de cada MCU (§1.1) |
+| [LP-…] | Guía de usuario de cada LaunchPad, con sus esquemáticos (`launchpads/<placa>/`) |
+| [CCS] | Carpeta `msp430` de CCS 11.2: `include/` (cabeceras y `.cmd`), `include_gcc/` (cabeceras, `.ld` y **`devices.csv`**), `lib/` y `templates/` |
+
+---
+
+## 0. Resumen
+
+* **La documentación está completa.** Cubre el núcleo, los diez MCUs con sus
+  erratas, el JTAG y el SBW, el BSL de las tres generaciones y las LaunchPad.
+  * El hueco de la primera versión, el BSL de las FR2xx/FR4xx, lo cierra
+    SLAU550AB. SLAU610G es solo una página que remite a ella.
+  * Lo único que falta es **el código de SLAA754** (`slaa754.zip`). No bloquea
+    nada: es una prueba más (§1.4).
+* **Los tres núcleos son uno con rasgos.** La CPU de 16 bits del G2553, la CPUX
+  (ningún MCU de la lista la usa, pero sí los F2xx grandes y los F4xx) y la
+  CPUXV2 de los otros nueve comparten registros, modos de direccionamiento y
+  codificación. Lo que cambia es esto:
+  * si existen las instrucciones de 20 bits y la palabra de extensión;
+  * **la tabla de ciclos**, que CPUX y CPUXV2 no comparten;
+  * el comportamiento de algunos casos límite, que está en las erratas de CPU.
+
+  El núcleo va en `src/m430/` con un `M430Caps` (§3). Se valida contra **dos
+  simuladores independientes**:
+  * el simulador de GDB (`msp430-elf-run`), con CPUX;
+  * y el de `mspdebug` (`sim`), con la CPU de 16 bits.
+* **La mitad de los periféricos ya existe.** El MSP432P4 tiene los módulos de
+  MSP430 detrás de un puente de 16 bits (`periph/msp432p4/bus16.h`): eUSCI,
+  Timer_A, WDT_A, RTC_C, Comp_E, REF_A, AES256, CRC32 y los puertos. Esos
+  módulos pasan a `src/periph/ti/` y se comparten (M0). El MSP432 no puede mover
+  su invariante al hacerlo.
+* **Un MCU nuevo es, sobre todo, datos, y ahora hay cuatro fuentes legibles por
+  programa** (§5):
+  1. `devices.csv` de CCS (693 dispositivos): CPU, erratas de CPU, MPY, SBW,
+     EEM y mapa de memoria;
+  2. las cabeceras de CCS: dirección base de cada módulo y vectores;
+  3. el `targetdb` de CCS: **cada registro con su dirección absoluta, sus campos
+     y sus valores con nombre**, aunque no sus valores de reset;
+  4. la base de datos de dispositivos de la MSP Debug Stack (`devicedb.h`, un
+     ZIP de XML dentro del código BSD), que da:
+     * el identificador que lee la herramienta (`0x5325` para el G2xx3);
+     * el tipo de EEM;
+     * el control de relojes;
+     * y **qué módulos puede parar el depurador** (`eemTimers`).
+
+  El generador `gen_msp430.py` cruza las cuatro. A mano solo quedan los pines.
+* **Depuración por los pines (§7).** Se modelan:
+  * el TAP de MSP430 con su IR de 8 bits y las cuatro generaciones de JTAG ID;
+  * el Spy-Bi-Wire, la «magic pattern» y el buzón JTAG;
+  * las protecciones;
+  * y el **EEM**, cuyos registros ya tienen fuente: `EEM_defs.h` de la MSP
+    Debug Stack (GENCTRL 0x82, EEMVER 0x86, GENCLKCTRL 0x88, MODCLKCTRL0 0x8A,
+    los bloques de disparo de 8 bytes…).
+
+  **La sonda de bancada ya no se escribe desde cero.** Es un *port* de las
+  **94 macros HAL** de la MSP Debug Stack, que son el código que ejecuta la
+  eZ-FET de verdad y es BSD-3. Se contrasta con el **Replicator430**, la otra
+  implementación de TI, también BSD-3. Hay dos pruebas con firmware de verdad
+  corriendo en otro MCU simulado:
+  * **SLAA754**: una MSP-EXP432P401R, que `mcu-sim` ya simula, programa un
+    G2553 y un FR2311 por SBW con P6.0 y P6.1;
+  * **el Replicator430 compilado para un MSP430 anfitrión**.
+* **Depuración por stub (§8).** `--gdb-dap` en un MSP430 es el stub de GDB
+  pegado al control de la CPU y al EEM. Se comporta como `libmsp430`, y ahora
+  con el valor exacto: GENCLKCTRL = 0x26, que para ACLK y SMCLK con la CPU
+  parada, más el bit 0 en los chips de control «estándar». Los módulos que se
+  paran son los `eemTimers` de cada chip. Los puntos de ruptura por software
+  usan `0x4343` (`SoftwareBreakpoints430.cpp`).
+* **BSL (§9).** Hay tres protocolos y cuatro variantes de memoria y entrada:
+  * **El F5529 lleva el BSL USB de TI** (M9). Sus fuentes BSD-3 son las de
+    la MSP Debug Stack (`ThirdParty/BSL430_Firmware`); las de MSPBSL
+    (`IAR_v6_MSP430F552x_USB`) llevan la «Limited License» de TI, aunque su
+    manifiesto diga BSD-3. Las imágenes publicadas (00.07.88.38 y
+    00.08.88.39) son de la licencia «TI Text File», así que se cargan desde
+    fichero.
+  * Para el G2553 y las FRAM, el BSL es ROM sin fuentes. Hay un sustituto
+    propio, escrito desde las guías del BSL (M9): el intérprete y las
+    interfaces de MSPBSL no se pueden usar, por la misma licencia.
+  * SLAU550AB da los datos de cada FR2xx/FR4xx:
+    * dónde está el BSL (1 KB en 0x1000-0x13FF en el FR4133; 2 KB + 1 KB en
+      0x1000-0x17FF y 0xFFC00-0xFFFFF en FR23xx-FR26xx);
+    * la detección de chip en blanco;
+    * el plazo de 10 s, tras el que pasa a LPM4;
+    * la configuración por TLV y por el usuario en las FR2355 y FR2476;
+    * la versión de BSL de cada chip.
+* **La eZ-FET emulada (M11) tiene dos caminos, los dos con fuentes:**
+  1. **Alto nivel**: un C++ que habla el protocolo V3 de la sonda y ejecuta las
+     macros HAL con la sonda de bancada.
+  2. **Bajo nivel**: un **MSP430F5528 simulado**, que es de la familia del F5529
+     (misma hoja de datos), con las imágenes de firmware de la eZ-FET que trae
+     el paquete. Es lo que se hizo con el XDS110 en el P4.
+
+  En los dos hay que contestar la versión y el CRC que espera `libmsp430`, y
+  esos datos están en las imágenes. En Linux, `libmsp430` busca la sonda en
+  `/sys/class/tty/ttyACM*` por VID 0x2047 y PID 0x0013. Así que hace falta
+  **el servidor USB/IP** del puente USB (U4 de `doc/analisis_puente_usb.md`) o
+  una `libmsp430` compilada de los fuentes con la enumeración cambiada.
+* **Dependencia.** Este plan se apoya en la infraestructura de la rama
+  `esp32rv`, que todavía no está en `main`. La rama `msp430` sale de `main`
+  (`69f2582`), así que **la fase M0 empieza integrando `esp32rv`**:
+  * `GdbRspBase` con sus *backends*;
+  * `herramienta_if`;
+  * `congela.h` y `--stopped-core-stops-sim`;
+  * `mcu_if::nodo_depuracion`;
+  * y las sondas con JTAG.
+* **El plan tiene trece fases (M0-M12, §11):**
+  * M0 prepara el terreno;
+  * M1 y M2 son el núcleo y su depuración en un laboratorio sin chip;
+  * de M3 a M8, los chips por familias, cada uno con su LaunchPad;
+  * M9 y M10, el BSL (ya sin bloqueo);
+  * M11, la eZ-FET;
+  * M12, la GUI.
+
+---
+
+## 1. La documentación
+
+### 1.1 Erratas: las diez están
+
+| MCU | Fe de erratas | Fecha de la revisión |
+| :--- | :--- | :--- |
+| MSP430G2553 | SLAZ440K | mayo de 2021 |
+| MSP430F5529 | SLAZ314AD | mayo de 2021 |
+| MSP430FR4133 | SLAZ550AA | mayo de 2021 |
+| MSP430FR2433 | SLAZ664S | mayo de 2021 |
+| MSP430FR2311 | SLAZ679R | agosto de 2021 |
+| MSP430FR2355 | SLAZ695J | septiembre de 2021 |
+| MSP430FR2476 | SLAZ726B | agosto de 2021 |
+| MSP430FR5969 | SLAZ473AG | agosto de 2021 |
+| MSP430FR6989 | SLAZ517AG | agosto de 2021 |
+| MSP430FR5994 | SLAZ681O | agosto de 2021 |
+
+Las erratas de CPU que afectan al modelo vienen, además, en dos fuentes
+legibles por programa:
+
+* la columna `CPU_Bugs` de `devices.csv`: el G2553 no tiene ninguna; el F5529,
+  CPU21, CPU22, CPU23, CPU27, CPU29, CPU30 y CPU40; las FR, CPU21, CPU22 y CPU40;
+* y la base de datos de la MSP Debug Stack, que dice qué trucos aplica la
+  herramienta para cada una.
+
+### 1.2 Lo que ha llegado y para qué sirve
+
+| Documento | Qué tiene | Para qué fase |
+| :--- | :--- | :--- |
+| **SLAU550AB** | El BSL de todas las FRAM:<br>• memoria y Z-Area (0x1000-0x100F, con la entrada en 0x1000 y la «BSL Action» en 0x1002, R13 = 0xDEAD y R14 = 0xBEEF);<br>• entrada por TEST/RST, por software y por chip en blanco;<br>• plazo de 10 s;<br>• configuración por TLV (etiqueta 0xB5) y de usuario (0xFF88, firma 0x695A);<br>• protocolo y versiones (§9) | M9, M10 |
+| **SLAU656D** | Guía de la API de `libmsp430`: inicialización, conexión a un chip en marcha, varias sondas, JTAG o SBW, EEM y actualización del firmware de la sonda | M11 |
+| **MSP Debug Stack, código abierto** | Ver §1.3 | M0, M2, M8, M11 |
+| **Paquete de desarrollo de la DLL** | `libmsp430_64.so` (Linux), `MSP430.dll`, `libmsp430.dylib`, las cabeceras de la API (`MSP430.h`, `MSP430_Debug.h`, `MSP430_EEM.h`, `MSP430_FET.h`) y la guía | M11 (la herramienta real) |
+| **MSPBSL 1.02.00.01** | Fuentes del BSL de 5xx/6xx (**ojo**: el manifiesto dice BSD-3, pero las cabeceras del intérprete, de las interfaces y de la API llevan la «Limited License» de TI, solo con dispositivos de TI: no entran en el simulador; la copia BSD-3 del BSL USB del F552x es la de la MSP Debug Stack, `ThirdParty/BSL430_Firmware`; el BSL de la G2xx sí es BSD-3 en su cabecera):<br>• intérprete de órdenes, API de Flash e interfaces UART por Timer_A, USCI y eUSCI, I2C y USB;<br>• proyectos para F552x por USB y por Timer_A, F543xA, F522x por I2C y CC430;<br>• un BSL para G2xx en la información (UART por software, 9600 8N1, con P1.3 de habilitación);<br>• **las imágenes publicadas** (licencia «TI Text File»): las del F552x son UART 00.07.05.04 y USB 00.07.88.38 / 00.08.88.39 | M9 |
+| **Replicator430** (SLAU320, v1.22) | Cuatro programadores de referencia en C, BSD-3, para un MSP430 anfitrión: `Replicator430` (CPU), `430X`, `430Xv2` y `430FR` (FR4xx y FR57xx-FR6xx). Cada uno trae sus funciones de JTAG y SBW (`JSBW.c`, `LowLevelFunc*.c`) y sus *funclets* de Flash y FRAM | M2, M3 |
+| **REP430F** (Elprotronic) | Manual del programador comercial basado en el Replicator. No aporta datos que no estén en SLAU320; queda como referencia | — |
+| **SLAA754** | SBW desde un MSP432P401R, un CC3220SF o un CC2640R2 a un G2553 y un FR2311, con los pines (P6.0 a RST y P6.1 a TEST en la MSP-EXP432P401R) y el formato de las imágenes. Su código (`slaa754.zip`), con los `.out` ya compilados, está en `doc/refs`: `make g2-slaa754` (M3) y `make fr2311-slaa754` (M7) | M3, M7 |
+| **`targetdb`** | Cada dispositivo (`devices/MSP430*.xml`): EEM, número de disparadores, control de relojes, SBW, base de los vectores, rango de la contraseña de JTAG y segmentos de la MPU. Cada módulo (`Modules/msp430/*.xml`): registros con dirección absoluta, campos con acceso y valores con nombre. **Sin valores de reset** | M0, M3-M8 |
+
+### 1.3 La MSP Debug Stack, por dentro
+
+El paquete de código abierto es **BSD-3 en todos sus fuentes**: 99 ficheros de
+`Bios/src/hal`, 34 de 38 de `Bios/src/hil`, 73 de 90 de `Bios/src/fw` y 265 de
+279 de `DLL430_v3/src`. Ninguno lleva la licencia «TI Text File». El manifiesto
+reserva esa licencia para las **imágenes** de firmware y para el módulo de
+EnergyTrace. Para `mcu-sim` importan cinco piezas:
+
+| Pieza | Dónde | Qué da |
+| :--- | :--- | :--- |
+| **Las macros HAL** | `Bios/src/hal/macros/` (94) | Lo que la eZ-FET ejecuta para cada operación: `GetJtagId`, `SyncJtag_AssertPor_SaveContextXv2`, `ReadMemWordsXv2`, `WriteFramQuickXv2`, `EemDataExchangeXv2`, `MagicPattern`, `UnlockDeviceXv2`, `BlowFuse*`, `SingleStepXv2`, `PollJStateReg`… En versiones CPU, X y Xv2 |
+| **Las definiciones de JTAG y del EEM** | `Bios/src/hal/JTAG_defs.h`, `EEM_defs.h` | Las instrucciones del TAP, **escritas con los bits invertidos** porque el firmware las desplaza con el MSB primero. El comentario de cada una da el código de [JTAG]: `IR_CNTRL_SIG_16BIT` 0xC8, «13». Añaden las que [JTAG] no cuenta: `IR_EMEX_DATA_EXCHANGE` (09), `IR_EMEX_READ_TRIGGER` (0A), `IR_EMEX_READ_CONTROL` (0B), `IR_EMEX_WRITE_CONTROL` (0C), `IR_JSTATE_ID` (62) y `IR_TDO_EVENT` (64). Y todos los registros del EEM |
+| **El HIL** | `Bios/src/hil/` | El nivel de pines: 4 hilos (`hil_4w.c`, `hil_4w_ezFET.c`) y SBW (`hil_2w.c`, `hil_2wDma.c`) con sus tiempos |
+| **La biblioteca** | `DLL430_v3/` | El otro lado: cómo se programa el EEM (`DebugManagerMSP430.cpp`: GENCLKCTRL por omisión 0x26), los puntos de ruptura por software (`0x4343`), el borrado y la escritura de Flash y FRAM, la actualización del firmware (`UpdateManagerFet.cpp`) y la enumeración de sondas (`UsbCdcIoChannel.cpp`) |
+| **La base de datos** | `DLL430_v3/src/TI/DLL430/DeviceDb/devicedb.h` | 36 XML comprimidos. Por familia (`F2xx.xml`, `F55xx.xml`, `FR2xx.xml`, `FR4xx.xml`, `FR69xx.xml`… y uno por chip para FR2355 y FR2476), da para cada dispositivo:<br>• el identificador;<br>• el mapa como lo ve la herramienta;<br>• `eem`, `clockInfo` y `eemTimers`;<br>• las *funclets* |
+
+Además, `Bios/include/eZ_Fet*.h` y `MSP_Fet*.h` son las **imágenes** del
+firmware: núcleo, HAL, HIL, canal de comunicación y DC-DC. El HIL de la eZ-FET
+es la versión 0x000D. Son las que `libmsp430` compara con la sonda: la versión
+está en 0x18F6 y el CRC en 0x18FA de la imagen HIL. Y
+`ThirdParty/BSL430_Firmware` es el BSL USB de la propia sonda, del mismo
+protocolo HID que el del F5529. Es una segunda fuente para M9.
+
+### 1.4 Lo que todavía conviene añadir
+
+| Documento | Para qué | ¿Bloquea? |
+| :--- | :--- | :--- |
+| ~~**`slaa754.zip`**~~ (llegó; M3 y M7 lo usan) y el SimpleLink MSP432P4 SDK con el que se compiló | La prueba con un MSP432P401R que programa un G2553 y un FR2311 por SBW (M3, M7) | No: los `.out` vienen compilados |
+| SLAA450 «Creating a Custom Flash-Based BSL» | Explica lo que MSPBSL trae en código | No |
+
+### 1.5 Herramientas
+
+* **`msp430-elf-gcc` 9.3.1.11** (`msp430-gcc-opensource/`). Trae `gcc`, `gdb` y
+  `msp430-elf-run`, el simulador de GDB con CPUX y multiplicador, que sirve de
+  oráculo para M1. El instalador completo (9.3.1.2) añade las cabeceras y los
+  guiones de enlazado y, según [GCC], el **agente de GDB de TI**
+  (`gdb_agent_console`, con `libmsp430`). Hay que comprobarlo al desempaquetarlo
+  en M11.
+* **`libmsp430_64.so` 3.15.1.1** ([MSPDS-DEV]), y la misma compilada de los
+  fuentes ([MSPDS], `make STATIC=1` con boost y hidapi). Es **la herramienta
+  real** de M11.
+* **`mspdebug`**. La versión de `apt` es la 0.22, y trae `sim`, `gdbc`, `tilib`,
+  `uif`, `uif-bsl`, `flash-bsl`, `goodfet`, `olimex*`, `rf2500` y `pif`. Le
+  falta `rom-bsl` y los controladores de *bit-bang* modernos. `tilib` es
+  `libmsp430` por debajo, así que llega con M11. El *bit-bang* pide compilarlo
+  de git.
+* **`python-msp430-tools`** (pip): `msp430.bsl.target` (1xx/2xx/4xx),
+  `msp430.bsl5.uart` (5xx/6xx/FR) y `msp430.bsl5.hid` (F5529). Es la herramienta
+  real del BSL para la integración continua.
+* **BSL-Scripter** de TI (instaladores en `doc/refs/`), para las prácticas.
+
+---
+
+## 2. Los diez chips, según sus hojas de datos
+
+### 2.1 Vista de conjunto
+
+Los datos de CPU, multiplicador, EEM y disparadores son de `devices.csv`,
+contrastados con la hoja de datos de cada chip. Los módulos salen de las
+cabeceras de [CCS] (`__MSP430_HAS_*`).
+
+| MCU | CPU | MPY | Reloj | Memoria | EEM (disparadores) | JTAG ID | BSL |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| G2553 | CPU (16 bits) | — | BCS+ (BC2), 16 MHz | Flash 16 KB, RAM 512 B | XS (2) | 0x89 | ROM 1xx/2xx (UART por P1.1/P1.5) |
+| F5529 | CPUXV2 | MPY32 | UCS + PMM, 25 MHz | Flash 128 KB, RAM 8 KB + 2 KB de USB | L (8) | 0x91 | Flash, USB HID |
+| FR2311 | CPUXV2 | — | CS con FLL, 16 MHz | FRAM 3,75 KB, RAM 1 KB | S (3) | 0x98 | ROM BSL1 + BSL2 |
+| FR2355 | CPUXV2 | MPY32 | CS con FLL, 24 MHz | FRAM 32 KB, RAM 4 KB, ROM de bibliotecas 20 KB | S (3) | 0x98 | ROM BSL1 + BSL2, configurable por TLV |
+| FR2433 | CPUXV2 | MPY32 | CS con FLL, 16 MHz | FRAM 15,5 KB, RAM 4 KB | S (3) | 0x98 | ROM BSL1 + BSL2 |
+| FR4133 | CPUXV2 | — | CS con FLL, 16 MHz | FRAM 15,5 KB, RAM 2 KB | S (3) | 0x98 | ROM de 1 KB, solo UART |
+| FR2476 | CPUXV2 | MPY32 | CS con FLL, 16 MHz | FRAM 64 KB, RAM 8 KB | S (3) | 0x98 | ROM BSL1 + BSL2, configurable por TLV |
+| FR5969 | CPUXV2 | MPY32 | CS, 16 MHz | FRAM 64 KB, RAM 2 KB | S (3) | 0x99 | ROM, UART (I2C solo en el FR59691) |
+| FR5994 | CPUXV2 | MPY32 | CS, 16 MHz | FRAM 256 KB, RAM 4 KB + 4 KB compartida con LEA | S (3) | 0x99 | ROM, UART |
+| FR6989 | CPUXV2 | MPY32 | CS, 16 MHz | FRAM 128 KB, RAM 2 KB | S (3) | 0x99 | ROM, UART |
+
+El JTAG ID de cada MCU sale de las tablas de dispositivos de [JTAG], cap. 3 y
+anexos: 0x89 para 1xx/2xx/4xx, 0x91 para 5xx/6xx, 0x98 para FR2xx/FR4xx y 0x99
+para FR5xx/FR6xx. Se confirma al cerrar cada fase contra la tabla del anexo. El
+identificador que lee después la herramienta (la palabra de `IR_DEVICE_ID` o
+0x0FF0 en 2xx) sale de `devicedb.h`: 0x5325 para el G2xx3 y 0x8169 para el
+FR5969, por ejemplo.
+
+### 2.2 Mapas de memoria
+
+| MCU | Memoria principal | RAM | Información | BSL | Otras regiones |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| G2553 | Flash C000-FFFF (vectores FFC0-FFFF) | 0200-03FF | 1000-10FF (A-D de 64 B; A, calibración) | ROM 0C00-0FFF | Periféricos de 16 bits 0100-01FF, de 8 bits 0010-00FF, SFR 0000-000F |
+| F5529 | Flash 004400-0243FF, bancos A-D (vectores FF80-FFFF) | 2400-43FF | 1800-19FF (A-D) | Flash 1000-17FF | RAM de USB 1C00-23FF; TLV 1A00-1AFF |
+| FR2311 | FRAM F100-FFFF | 2000-23FF | — | BSL1 1000-17FF, BSL2 FFC00-FFFFF | TLV 1A00 |
+| FR2355 | FRAM 8000-FFFF | 2000-2FFF | 1800-19FF | BSL1 1000-17FF, BSL2 FFC00-FFFFF | ROM FAC00-FFBFF (DriverLib y FFT); RAM diminuta 0006-001F |
+| FR2433 | FRAM C400-FFFF | 2000-2FFF | 1800-19FF | BSL1 1000-17FF, BSL2 FFC00-FFFFF | — |
+| FR4133 | FRAM C400-FFFF | 2000-27FF | 1800-19FF | 1000-13FF | Memoria de LCD |
+| FR2476 | FRAM 8000-FF7F + 10000-17FFF | 2000-3FFF | 1800-19FF | BSL1 1000-17FF, BSL2 FFC00-FFFFF | RAM diminuta 0006-001F |
+| FR5969 | FRAM 4400-FF7F + 10000-13FFF | 1C00-23FF | 1800-19FF (A-D) | 1000-17FF | TLV 1A00-1AFF |
+| FR5994 | FRAM 4000-FF7F + 10000-43FFF | 1C00-2BFF + 2C00-3BFF (LEA) | 1800-19FF | 1000-17FF | RAM diminuta 000A-001F |
+| FR6989 | FRAM 4400-FF7F + 10000-23FFF | 1C00-23FF | 1800-19FF | 1000-17FF | ROM de arranque 1B00-1BFF; RAM diminuta 0006-001F; RAM del ESI |
+
+Los vectores de todas las 5xx y FR están en FF80-FFFF (FF88 o FFA2 en
+algunas FR2xx/FR4xx, según `devices.csv`). La firma de JTAG y BSL está en
+FF80-FF8F.
+
+Cada fila sale de dos fuentes, la tabla «Memory Organization» de la hoja de datos
+y las columnas de `devices.csv`, y coinciden. **Por encima de 0xFFFF** solo hay
+memoria en el F5529, el FR2476, el FR5969, el FR5994 y el FR6989: son los que
+obligan a probar el modelo de código y datos grande (`-mlarge`) del compilador.
+
+### 2.3 Periféricos
+
+| Módulo | G2553 | F5529 | FR2311 | FR2355 | FR2433 | FR4133 | FR2476 | FR5969 | FR5994 | FR6989 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Puertos (con PxREN) | P1-P3 | P1-P8, PJ | P1-P2 | P1-P6 | P1-P3 | P1-P8 | P1-P6 | P1-P4, PJ | P1-P8, PJ | P1-P10, PJ |
+| Reasignación de pines | — | PMAP (P4) | SYSCFG | SYSCFG | SYSCFG | — | SYSCFG | — | — | — |
+| WDT | WDT+ | WDT_A | WDT_A | WDT_A | WDT_A | WDT_A | WDT_A | WDT_A | WDT_A | WDT_A |
+| Timer_A | 2 × TA3 | TA5, 2 × TA3 | — | — | 2 × TA3, 2 × TA2 | 2 × TA3 | 4 × TA3 | 2 × TA3, 2 × TA2 | 5 × TA | TA3, TA3, TA2, TA5 |
+| Timer_B | — | TB7 | 2 × TB3 | 3 × TB3 + TB7 | — | — | TB7 | TB7 | TB7 | TB7 |
+| Comunicaciones | USCI_A0/B0 | 2 × USCI_A, 2 × USCI_B | eUSCI_A0/B0 | 2 × eUSCI_A, 2 × eUSCI_B | 2 × eUSCI_A, eUSCI_B | eUSCI_A0/B0 | 2 × eUSCI_A, 2 × eUSCI_B | 2 × eUSCI_A, eUSCI_B | 4 × eUSCI_A, 4 × eUSCI_B | 2 × eUSCI_A, 2 × eUSCI_B |
+| ADC | ADC10 | ADC12_A | ADC 10 bits | ADC 12 bits | ADC 10 bits | ADC 10 bits | ADC 12 bits | ADC12_B | ADC12_B | ADC12_B |
+| Comparador | Comp_A+ | Comp_B | eCOMP | 2 × eCOMP | — | — | eCOMP | Comp_E | Comp_E | Comp_E |
+| Analógico propio | — | REF | SAC-L1, TIA | 4 × SAC-L3 | — | — | — | REF_A | REF_A | REF_A |
+| RTC | — | RTC_A | RTC contador | RTC contador | RTC contador | RTC contador | RTC contador | RTC_B | RTC_C | RTC_C |
+| CRC | — | CRC16 | CRC16 | CRC16 | CRC16 | CRC16 | CRC16 | CRC16 | CRC16 + CRC32 | CRC16 + CRC32 |
+| DMA | — | 3 canales | — | — | — | — | — | 3 canales | 6 canales | 3 canales |
+| Otros | — | **USB**, PMM con LDO | CapTIvate IO | ICC, MFM | Backup RAM | **LCD_E**, CapTIvate IO | — | AES256, MPU | AES256, MPU, **LEA** | AES256, MPU, **LCD_C**, **ESI** |
+
+El G2553 tiene además el BCS+ (BC2), el controlador de Flash de 2xx (FLASH2) y
+el CAPLUS. Las FR2xx/FR4xx tienen la protección de escritura de la FRAM en
+SYSCFG0 (PFWP/DFWP). Las FR5xx/FR6xx tienen el controlador de FRAM con estados
+de espera y caché, la MPU y la IPE. Todas las 5xx y FR tienen PMM, SFR, SYS y
+TLV.
+
+**Los nombres de las cabeceras cambian de generación en generación** para un
+mismo módulo: `T0A3` en el FR5969 y `TA0` en el FR5994, `FRAM` frente a `FRCTL`
+y `FRCTL_A`, `PMM_FRAM` frente a `PMM`, `CAP_TOUCH_IO_0` frente a `CAPTIO0`. El
+generador de §5 normaliza esos nombres con una tabla.
+
+### 2.4 Pines
+
+* **Los puertos son de 8 bits, agrupados en pares de 16 bits** (PA = P1/P2,
+  PB = P3/P4…), con un mismo bloque de registros. Los bits de un puerto son:
+  * IN, OUT, DIR y REN;
+  * DS, solo en 5xx;
+  * SEL, en 2xx, o SEL0/SEL1, en FR;
+  * IES, IE e IFG, en P1 y P2 en 2xx y 5xx, y en más puertos en las FR;
+  * e IV, en 5xx y FR.
+
+  Cada pin tiene hasta cuatro funciones, elegidas por SEL0/SEL1 (o por SEL y
+  SEL2 en el G2553), más la analógica, que suele ir por SYSCFG2 o por el propio
+  módulo. El `dio.h` del MSP432P4 ya modela exactamente esto.
+* **PMAP** (F5529, puerto 4): las funciones digitales se asignan por registro y
+  hay una clave de 0x02D52.
+* **El JTAG comparte pines.** En las FR van en P1.4-P1.7 o en PJ.0-PJ.3, según
+  el chip; en el G2553, en P1.4-P1.7 con TEST. TEST/SBWTCK y RST/NMI/SBWTDIO
+  son pines propios. **La entrada en JTAG** (la secuencia de TEST) es lo que
+  convierte esos pines GPIO en pines de JTAG, y eso es parte del modelo de pines
+  (§7.3).
+* Los pines analógicos (A0-A15, entradas de comparador, salidas del SAC y el
+  TIA, segmentos de LCD) son `AnalogNet` como en el resto de `mcu-sim`. Los
+  segmentos del LCD necesitan una pieza nueva de vidrio LCD (§10.3).
+
+---
+
+## 3. El núcleo reutilizable
+
+### 3.1 Qué es del núcleo y qué es del chip
+
+| Del núcleo (`src/m430/`) | Del chip |
+| :--- | :--- |
+| Registros R0-R15, SR y generador de constantes | Si es CPU, CPUX o CPUXV2: un `M430Caps` |
+| Las 27 instrucciones de formato I, II y saltos, y las de 20 bits de CPUX (palabra de extensión, MOVA, CALLA, PUSHM/POPM, RxxM, xxxX) | Las erratas de CPU que tiene (`CPU_Bugs`) |
+| Los siete modos de direccionamiento en 16 y 20 bits | — |
+| Interrupciones: prioridad por la posición del vector, apilado de PC y SR, RETI, el NMI y el reset | Cuántos vectores, dónde está la tabla y quién pide cada uno |
+| Bajo consumo: CPUOFF, OSCOFF, SCG0 y SCG1 en SR, y la salida por interrupción | **Qué** relojes apaga cada bit: eso es del sistema de reloj, no de la CPU |
+| Ciclos por instrucción: **tres tablas** | Los estados de espera de la FRAM o la Flash: los pone el controlador de memoria |
+| Control de la CPU por la depuración (parada, paso, TCLK) y la interfaz con el EEM | El tamaño del EEM (XS, S, M o L) |
+| *Backend* MSP430 de GDB | El programador de su memoria no volátil |
+| TAP JTAG y SBW (§7) | El JTAG ID y los pines |
+
+Como en `NucleoRv`, el núcleo es un `SC_MODULE` fino (`NucleoM430`). Tiene un solo
+*socket* TLM, porque MSP430 es von Neumann y el bus es uno; una entrada de
+interrupciones (vector y nivel) con su reconocimiento; el reloj MCLK; el reset
+(POR, BOR o PUC, que el SoC distingue); y la interfaz de depuración.
+
+### 3.2 Las tres CPU
+
+* **CPU (16 bits)** [UG2, cap. 3]:
+  * 16 registros de 16 bits y 64 KB de espacio de direcciones;
+  * 27 instrucciones básicas y 24 emuladas por el generador de constantes;
+  * ciclos según el modo de origen y de destino [UG2, tablas 3-14 a 3-16].
+* **CPUX** [CPUX; UG5 cap. 6 en su versión de 2xx grandes]:
+  * registros de 20 bits y 1 MB;
+  * palabra de extensión (con repetición y ZC);
+  * instrucciones de direcciones (MOVA, ADDA, SUBA, CMPA, CALLA, RETA, PUSHM y
+    POPM);
+  * las 27 básicas en 20 bits (xxxX).
+
+  En el modo de compatibilidad, una aplicación de CPU (16 bits) corre igual.
+* **CPUXV2** [UG5 cap. 6; UGFR2 cap. 4; UGFR5 cap. 4]: la misma ISA que la CPUX.
+  Cambian dos cosas:
+  * **las tablas de ciclos**, que en general bajan un ciclo en los modos indexados
+    y absolutos;
+  * el apilado en interrupción: SR y PC[19:16] en una palabra y PC[15:0] en otra,
+    igual que la CPUX, pero con otros tiempos.
+
+  Es la CPU de las 5xx, 6xx y FR.
+
+```cpp
+struct M430Caps {
+    enum class Arq { CPU, CPUX, CPUXV2 } arq;
+    const TablaCiclos *ciclos;        // tres tablas constexpr, con su fuente
+    uint32_t errata;                  // bits CPU21, CPU22, CPU40… (devices.csv)
+    bool tclk_por_jtag;               // siempre; aquí por si un día no
+};
+```
+
+### 3.3 Las erratas de CPU
+
+Las erratas de CPU que trae `devices.csv` son pocas y cambian lo que ve el
+programa. Por ejemplo:
+
+* **CPU40**: PC corrompido en ciertos accesos con el modo indexado al final de la
+  memoria;
+* **CPU21 y CPU22**: el uso de `POPM` y `RRxX` con algunos registros.
+
+Se modelan **encendidas por omisión**, como en el C3, se pueden apagar desde el
+descriptor y avisan una vez. Las que solo afectan al consumo o al analógico
+quedan documentadas y no se modelan.
+
+### 3.4 Interrupciones y bajo consumo
+
+Las interrupciones son vectorizadas con prioridad fija, que es la posición en la
+tabla. El SoC da al núcleo, en cada ciclo, el vector pendiente de más prioridad
+que no esté enmascarado. El enmascaramiento es de dos clases: GIE para las
+enmascarables, y los NMI de sistema y de usuario (SYSSNIV y SYSUNIV en 5xx y FR,
+y el NMI de 2xx). El núcleo entra a la interrupción con su tabla de ciclos y
+**borra los bits de bajo consumo del SR** que apila, de modo que el `RETI`
+vuelve al modo de bajo consumo salvo que la rutina haya cambiado el SR apilado
+(`__bic_SR_register_on_exit`).
+
+Los modos LPM0 a LPM4 son combinaciones de los bits del SR. **Qué** apaga cada
+bit lo decide el sistema de reloj de cada familia (BCS+, UCS o CS), no la CPU.
+Los modos **LPMx.5** (5xx y FR) apagan el regulador del núcleo, y al despertar
+pasan por un BOR con LOCKLPM5. Son del PMM (§4.2).
+
+### 3.5 Memoria, bus y tiempos
+
+* Un solo espacio de 20 bits. Los accesos son de byte o de palabra, y una palabra
+  en dirección impar pierde el bit 0. Los periféricos de 8 bits (0x10-0xFF en la
+  2xx) solo admiten byte, y los de 16 bits, solo palabra. Se modela como en el
+  `bus16.h` del P4.
+* **Estados de espera**:
+  * Flash de 2xx y 5xx: cero estados de espera, pero la CPU queda **parada
+    mientras se borra o se escribe**, salvo si el código corre en RAM;
+  * FRAM de FR5xx/FR6xx: NWAITS en FRCTL0, con **caché de dos vías** (4 líneas
+    de 64 bits) que esconde los estados de espera en los aciertos [UGFR5 §7];
+  * FRAM de FR2xx/FR4xx: NWAITS en FRCTL0 por encima de 8 MHz.
+
+  Todo esto es del controlador de memoria, que es del chip y retrasa la
+  transacción TLM.
+* **MPY32** es un periférico (0x4C0) y no una instrucción. El compilador lo usa
+  según `-mhwmult`. Es un bloque compartido por todas las FR que lo tienen.
+
+### 3.6 El laboratorio y la verificación
+
+Como `testrv`, el núcleo se valida sin chip, en un **`SocLabM430`** con:
+
+* RAM y «Flash» planas de 1 MB;
+* una UART de pega;
+* un registro de salida, al estilo HTIF, para cerrar la prueba;
+* y un controlador de interrupciones de laboratorio.
+
+La batería se llama `test430` (y `asan430`). Tiene tres partes:
+
+1. **Diferencial contra `msp430-elf-run`** (simulador de GDB, CPUX con
+   MPY32). Hay programas generados que recorren todos los modos de direccionamiento
+   y todas las instrucciones en 8, 16 y 20 bits. Se compara el estado de los
+   registros y la memoria tras cada programa. El de GDB no cuenta ciclos con
+   fidelidad, así que **solo** es oráculo de la semántica.
+2. **Diferencial contra `mspdebug sim`**. Solo cubre la CPU de 16 bits, pero
+   es un simulador independiente del anterior: son las dos fuentes de la ISA.
+3. **Ciclos**: una tabla de pruebas, una por fila de las tablas de ciclos de
+   [UG2], [UG5] y [UGFR5], con lo que mide un temporizador del laboratorio. Esto
+   no tiene segunda fuente simulada. La segunda es la propia guía de cada familia,
+   porque cada una publica su tabla, y las de [UG5] y [UGFR5] tienen que
+   coincidir donde las dos dicen CPUXV2.
+
+---
+
+## 4. La capa de familia
+
+### 4.1 `src/periph/ti/`: lo que comparten MSP430 y MSP432P4
+
+Los módulos de TI del MSP432P4 ya son, a nivel de registro, los de MSP430: el
+MSP432P4 los cuelga de un puente de 16 bits. En M0 se mueven a
+`src/periph/ti/`, sin cambiar lo que hacen, y se parametrizan con su `Caps`. Por
+ejemplo, `TimerACaps` lleva el número de CCR, y `EusciCaps`, si es A o B.
+
+| Ya existe (P4) | Uso en MSP430 |
+| :--- | :--- |
+| `eusci.h` | Todas las FR |
+| `timer_a.h` | Todos; Timer_B (§4.3) es un Timer_A con TBxCL0, longitud y grupos |
+| `wdt_a.h` | 5xx y FR |
+| `rtc_c.h` | FR5994, FR6989; RTC_B (FR5969) y RTC_A (F5529) son subconjuntos |
+| `comp_e.h` | FR5xx/FR6xx; Comp_B (F5529) es casi igual |
+| `ref_a.h` | FR5xx/FR6xx; REF (F5529) |
+| `aes256.h`, `crc32.h` | FR5969, FR5994, FR6989 |
+| `dio.h` | Puertos de 5xx y FR, con IV |
+| `adc14.h` | Base para ADC12_A y ADC12_B (mismo diseño de memorias de conversión) |
+
+**Cierre de este paso:** `testp4` y todas las demás suites con el mismo
+invariante al picosegundo.
+
+### 4.2 Lo propio de MSP430, por familia
+
+| Bloque | 2xx | 5xx/6xx | FR2xx/FR4xx | FR5xx/FR6xx |
+| :--- | :--- | :--- | :--- | :--- |
+| Reloj | BCS+ (DCO con RSEL/DCO/MOD, VLO, LFXT1; calibración en INFO A) | UCS (FLL, DCO, REFO, XT1, XT2) | CS con FLL (DCO a 16 o 24 MHz, REFO, VLO, XT1) | CS (DCO por pasos, VLO, LFXT, HFXT, MODOSC) |
+| Alimentación | — | PMM con VCORE (niveles 0-3), SVS/SVM | PMM con LPM3.5/LPM4.5, BOR | PMM con LPMx.5, LOCKLPM5 |
+| Memoria no volátil | FLASH2: generador de tiempos, segmentos, LOCKA | FLASH 5xx: bancos, borrado de banco y masivo | FRAM con SYSCFG0 PFWP/DFWP y FRWPPW | FRAM con NWAITS, caché, **MPU** y **IPE** |
+| Sistema | SFR (IE1/IFG1), calibración | SYS (SYSRSTIV, SYSSNIV, SYSUNIV, SYSBSLC, JMB), SFR, TLV | SYSCFG0-3, SYS, TLV | SYS, SFR, TLV, MPU, RAMCTL |
+| Perro guardián | WDT+ | WDT_A | WDT_A | WDT_A |
+
+* **El TLV** (5xx y FR): la tabla de calibración por chip (CRC, DCO, ADC, REF,
+  temperatura y el ID). Se genera con su CRC y valores de la hoja de datos; si
+  falta un dato, se marca `[de modelo]`. Ya existe la opción `--tlv`.
+* **La calibración del G2553**: el DCO calibrado a 1, 8, 12 y 16 MHz y la del
+  ADC10, en INFO A, con su *checksum*. El firmware de la LaunchPad la usa
+  (`BCSCTL1 = CALBC1_1MHZ`). Si INFO A llega en blanco, el modelo avisa, como
+  el chip real cuando se ha borrado.
+
+### 4.3 Módulos nuevos que pide esta lista
+
+Por número de chips que los usan:
+
+* **Timer_B**, en ocho de los diez.
+* **eCOMP**, SAC (L1 y L3), TIA, ICC y RTC contador, en las FR2xx/FR4xx.
+* **ADC10** y Comp_A+ (G2553); ADC12_A (F5529); el ADC de las FR2xx.
+* **USCI** A y B (G2553 y F5529). El A es UART, IrDA y SPI; el B, SPI e I2C.
+  Es un módulo distinto del eUSCI, no un subconjunto.
+* **DMA** de MSP430 (DMAX_3): canales, disparos por tabla del chip.
+* **USB** del F5529: un `usb_dev_if` como el OTG del F303 o el MUSB del E4.
+* **LCD_E** (FR4133) y **LCD_C** (FR6989), con su memoria de segmentos y el
+  pin de cada segmento.
+* **LEA** (FR5994), **ESI** (FR6989), **MFM** (FR2355) y **CapTIvate IO**: se
+  **declaran** en la primera pasada (contestan, no guardan y avisan una vez) y
+  se modelan después, si hay firmware de prácticas que los use.
+
+---
+
+## 5. Cómo entra un MSP430 nuevo
+
+La regla es que **un chip nuevo de una familia ya modelada no escribe C++**.
+Para eso hay tres capas, como en los RISC-V:
+
+1. **`src/m430/`**: núcleo, EEM, TAP, SBW y *backend* de GDB.
+2. **`src/soc/msp430/`**: lo común de los MSP430. Comprende:
+   * el `Msp430Soc` genérico, que monta lo que dice su descriptor;
+   * el sistema de reloj y el PMM de cada familia (`bcs_plus.h`, `ucs.h`,
+     `cs_fll.h` y `cs_fr5.h`);
+   * los controladores de memoria;
+   * el BSL y su entrada;
+   * y el programador para el `load` de GDB.
+3. **Descriptor del chip** (`src/soc/msp430/desc/msp430fr5969.h`), **generado**
+   por `herramientas/gen_msp430.py`. Es un `constexpr` que sale de cuatro
+   fuentes de TI, que se cruzan entre sí:
+
+   | Fuente | Qué da al descriptor |
+   | :--- | :--- |
+   | `include_gcc/devices.csv` | CPU, MPY, SBW, EEM y número de disparadores, erratas de CPU, y el mapa (RAM, RAM2, RAM diminuta, RAM de USB y de LEA, BSL, información A-D, memoria principal 1 y 2, firma y vectores) |
+   | `include/msp430*.h` | Cada módulo con su dirección base (`__MSP430_BASEADDRESS_*`), su instancia y su vector (`*_VECTOR`), con la tabla de normalización de nombres de §2.3 |
+   | `targetdb/devices/MSP430*.xml` y `Modules/msp430/*.xml` | Las mismas propiedades que `devices.csv` (`eem`, `breakpoints`, `clockcontrol`, `spybiwire`, `iv_base`), la lista de módulos y, por módulo, **los registros con su dirección absoluta y sus campos**. Sirve para dos cosas: generar la tabla de registros de cada módulo que el modelo comprueba (un acceso a una dirección sin registro avisa) y contrastar los nombres de los campos con el modelo |
+   | `devicedb.h` de la MSP Debug Stack | El identificador que lee la herramienta (por ejemplo, 0x5325 para el G2xx3 y 0x8169 para el FR5969), el `clockInfo` y los `eemTimers`: la lista de módulos cuyo reloj puede parar el depurador, con su valor por omisión (`defaultStop`: el WDT_A y los Timer_A sí, las USCI y los ADC no) |
+
+   **A mano, desde la hoja de datos**, quedan el encapsulado, las funciones de
+   cada pin (tabla «Signal Descriptions» y las de «Input/Output Diagrams»), los
+   disparos del DMA y del ADC, y el contenido del TLV.
+
+   El generador se comprueba contra la hoja de datos de los diez chips de este
+   plan. Es la prueba de que acierta con los demás. Cada discrepancia entre las
+   cuatro fuentes la imprime y la tiene que resolver una persona: el descriptor
+   no se genera si quedan sin resolver. Los pines se escriben con el mismo patrón
+   que los `gen_pines.py` del F3 y del E4.
+
+**Ninguna de las cuatro fuentes se versiona.** Son de la instalación de CCS y del
+paquete de TI. Se versiona lo que genera el generador, con la versión de cada
+fuente anotada en la cabecera: `devices.csv` 1.213, MSPDS 3.15.1.1.
+
+Un chip **de otra familia** (un F1xx, un F4xx o un i20xx) escribe además su
+sistema de reloj y los módulos que no existan. La CPU, la depuración, GDB y el
+BSL de 1xx/2xx/4xx le llegan hechos: la CPU 16 bits y la CPUX están desde M1, y
+el EEM de los cuatro tamaños desde M2. El `targetdb` y `devicedb.h` ya traen sus
+datos: 603 dispositivos en uno y 36 familias en el otro.
+
+El registro en `mcu_if` es el de siempre: `REGISTRA_MCU("msp430fr5969", …)`. El
+`<mcu tipo="msp430fr5969">` de la placa escoge el descriptor.
+
+---
+
+## 6. Descarga del firmware
+
+| Vía | Qué | Herramienta real | Fase |
+| :--- | :--- | :--- | :--- |
+| D1 | `--firmware` (ELF o TI-TXT), escrito directamente en la Flash o la FRAM | — | M3 |
+| D2 | `load` de GDB, por el stub (`--gdb-dap`) | `msp430-elf-gdb` | M2/M3 |
+| D3 | JTAG o SBW por los pines, con la sonda de bancada o `mspdebug` | `mspdebug` (git) | M2/M3 |
+| D4 | BSL por UART, I2C o USB | `python-msp430-tools`, BSL-Scripter | M9, M10 |
+| D5 | eZ-FET emulada | `libmsp430`, UniFlash, CCS, `mspdebug tilib` | M11 |
+
+El cargador ya lee ELF (`common/imagen_fw.h`). Para MSP430 se añaden dos cosas:
+
+* `ELF_MSP430` (máquina 105), con los segmentos por encima de 0x10000 del modelo
+  grande;
+* el formato **TI-TXT** (`@dirección`, bytes en hexadecimal, `q`), que es lo que
+  sacan CCS y BSL-Scripter, y lo que usa el `bsl_p4.h` del P4.
+
+**Las particularidades de la memoria no volátil** las resuelve el programador
+de cada familia:
+
+* **Flash** (2xx y 5xx): el borrado es por segmento; INFO A está bloqueado por
+  LOCKA, y la herramienta real tiene una opción para tocarlo.
+* **FRAM** (FR): no hay borrado, pero sí protección. En FR2xx/FR4xx es por
+  SYSCFG0; en FR5xx/FR6xx, por la MPU y la IPE, que el depurador real respeta o
+  desactiva según la opción de borrado.
+
+La persistencia entre simulaciones es la de `memoria_nv.h`.
+
+---
+
+## 7. Depuración por los pines (SLAU320AJ)
+
+### 7.1 Lo que define [JTAG], y lo que añade la MSP Debug Stack
+
+* **El TAP de MSP430**: la máquina de 16 estados de IEEE 1149.1, pero con una
+  **IR de 8 bits**. Al desplazar la IR, por TDO sale **el JTAG ID** [JTAG §1.3]:
+  0x89, 0x91, 0x98 o 0x99. Las instrucciones son las de la tabla.
+  * La columna «Código» es la de [JTAG].
+  * La MSP Debug Stack escribe las mismas instrucciones **con los bits
+    invertidos** (`IR_CNTRL_SIG_16BIT` 0xC8 = 0x13 invertido), porque su
+    firmware las desplaza con el MSB primero. El comentario de cada `#define`
+    da el código de [JTAG].
+  * Que las dos fuentes coincidan, bit a bit, es una comprobación de M2.
+
+  | Instrucción | Código | Qué hace | Fuente |
+  | :--- | :--- | :--- | :--- |
+  | `IR_ADDR_16BIT` | 0x83 | Escribe en el MAB (20 bits en CPUX/CPUXV2) | [JTAG], [MSPDS] |
+  | `IR_ADDR_CAPTURE` | 0x84 | Lee el MAB | ambas |
+  | `IR_DATA_TO_ADDR` | 0x85 | Dato en la dirección del MAB | ambas |
+  | `IR_CAPTURE_CPU_REG` | 0x86 | Lee un registro de la CPU | [MSPDS] |
+  | `IR_DEVICE_ID` | 0x87 | Puntero al identificador (5xx y FR) | ambas |
+  | `IR_DATA_16BIT` | 0x41 | Escribe o lee el MDB | ambas |
+  | `IR_DATA_CAPTURE` | 0x42 | Lee el MDB sin escribir | ambas |
+  | `IR_DATA_QUICK` | 0x43 | Accesos rápidos con autoincremento del PC | ambas |
+  | `IR_DATA_PSA` | 0x44 | Firma (PSA) de un bloque de memoria | ambas |
+  | `IR_SHIFT_OUT_PSA` | 0x46 | Lee la firma | ambas |
+  | `IR_EMEX_DATA_EXCHANGE` | 0x09 | Lee o escribe un registro del EEM | [MSPDS] |
+  | `IR_EMEX_READ_TRIGGER`, `IR_EMEX_READ_CONTROL`, `IR_EMEX_WRITE_CONTROL` | 0x0A-0x0C | Estado del EEM y su control | [MSPDS] |
+  | `IR_CNTRL_SIG_16BIT` | 0x13 | Registro de señales de control: R/W, HALT_JTAG, BYTE, TCE1, PUC, RELEASE_LBYTE… | ambas |
+  | `IR_CNTRL_SIG_CAPTURE` | 0x14 | Lo lee | ambas |
+  | `IR_CNTRL_SIG_RELEASE` | 0x15 | Devuelve la CPU a su reloj | ambas |
+  | `IR_COREIP_ID` | 0x17 | Identificador del núcleo (5xx y FR) | ambas |
+  | `IR_PREPARE_BLOW`, `IR_EX_BLOW` | 0x22, 0x24 | Fusible (1xx/2xx/4xx) | ambas |
+  | `IR_JMB_EXCHANGE` | 0x61 | El buzón JTAG (5xx y FR) | ambas |
+  | `IR_JSTATE_ID` | 0x62 | El registro JSTATE de las FR: el estado de la CPU y del LPMx.5 sin pararla | [MSPDS] |
+  | `IR_TDO_EVENT`, `IR_TDO_EVENT_CTL` | 0x64, 0x65 | Aviso de parada por TDO | [MSPDS] |
+  | `IR_BYPASS` | 0xFF | Bypass | ambas |
+
+* **La CPU se controla «a mano» desde el JTAG.** No es como un DAP de ARM o un DM
+  de RISC-V, que piden la parada y esperan. Aquí la herramienta toma el reloj de
+  la CPU: **TCLK es TDI** cuando la CPU está bajo control JTAG, y cada flanco
+  avanza un ciclo. Para leer memoria, la herramienta pone la dirección en el MAB,
+  el sentido en el registro de control y da flancos de TCLK [JTAG §2.3]. **Esto
+  marca el modelo**: hay que modelar el núcleo ciclo a ciclo **cuando está bajo
+  JTAG**, y por instrucciones cuando corre libre. El núcleo tiene los dos modos y
+  el registro de control decide cuál.
+* **Spy-Bi-Wire** [JTAG §1.5; `hil_2w.c`]: dos hilos, SBWTCK (en TEST) y
+  SBWTDIO (en RST). Cada ciclo de TCK de JTAG son tres franjas de SBWTCK:
+  **TMS**, **TDI** y **TDO**. En la franja de TDO, el chip gobierna SBWTDIO. La
+  temporización tiene un tope: SBWTCK en bajo más de 7 µs saca al chip de SBW.
+  El modelo tiene que tenerlo en cuenta, porque un SBWTCK quieto devuelve el pin
+  RST a su función. [SBW-SL] da el mismo procedimiento visto desde un anfitrión
+  que no es MSP430.
+* **Entrada en JTAG** [JTAG §2.3.1; `StartJtag.c`]. La secuencia de TEST y RST
+  elige entre SBW y JTAG de 4 hilos. En las 5xx y las FR hay además una
+  **«magic pattern»** (`MagicPattern.c`, por el JMB) que **para la CPU antes de
+  la primera instrucción del usuario**. Sin ella no se puede recuperar un chip
+  cuyo programa desactiva el JTAG o duerme en LPMx.5.
+* **JSTATE** (FR): un registro de 64 bits que se lee por `IR_JSTATE_ID` sin parar
+  la CPU. Lo usa `libmsp430` para saber si la CPU está parada, en qué LPM está o
+  si ha entrado en LPMx.5 (`PollJStateReg.c`, `PollJStateRegFR57xx.c`). Es lo
+  que permite depurar con LPMx.5, y hay que modelarlo en las FR.
+* **Buzón JTAG (JMB)** (5xx y FR): dos registros de 16 bits en cada sentido,
+  entre el JTAG y la CPU (`SYSJMBC`, `SYSJMBI0/1` y `SYSJMBO0/1`). Lo usan la
+  «magic pattern», la contraseña de JTAG (`DR_JMB_PASSWORD_EXCHANGE_REQUEST`
+  0x1E1E) y los programas que hablan con el host.
+* **Protección**:
+  * en 1xx/2xx/4xx, el **fusible** (`IR_PREPARE_BLOW`/`IR_EX_BLOW`;
+    `BlowFuse.c`), que en el chip real necesita 6,5 V en TEST. En el modelo es
+    un bit persistente en la memoria no volátil, que **nunca se fija por
+    omisión** y que una opción restaura (como `--restore-rdp`);
+  * en 5xx/6xx, la **firma de bloqueo** en 0x17FC-0x17FF (zona del BSL);
+  * en FR, la **firma en 0xFF80**: 0x5555 bloquea; con contraseña, 0xAAAA y la
+    longitud. Se desbloquea con el «User Code Erase» por JMB o con la contraseña
+    [JTAG §2.3.4; `UnlockDeviceXv2.c`]. El `targetdb` da el rango de la
+    contraseña de cada chip (`Password` = «0-120» en el FR5969).
+* **El EEM** [UG2 cap. 28; `EEM_defs.h`; `DebugManagerMSP430.cpp`]. Ya tiene
+  mapa de registros. Se lee y se escribe por `IR_EMEX_DATA_EXCHANGE` (en Xv2,
+  `EemDataExchangeXv2.c`), con estas direcciones:
+
+  | Registro | Dirección | Qué hace |
+  | :--- | :--- | :--- |
+  | Bloques de disparo TB0-TB9 | 0x00 + 8·n | `MBTRIGxVAL`, `MBTRIGxCTL` (MAB o MDB, tipo de acceso TRIG_0-TRIG_F, comparación =/>/</≠), `MBTRIGxMSK` y `MBTRIGxCMB` (a qué combinación va) |
+  | `BREAKREACT` | 0x80 | Qué combinaciones paran la CPU |
+  | `GENCTRL` | 0x82 | EEM_EN, CLEAR_STOP, EMU_CLK_EN, EMU_FEAT_EN, DEB_TRIG_LATCH, EEM_RST y E_STOPPED |
+  | `EEMVER` | 0x86 | Versión y tamaño del EEM |
+  | `GENCLKCTRL` | 0x88 | Qué relojes se paran con la CPU parada: STOP_ACLK, STOP_SMCLK, STOP_MCLK, y la selección de cada uno |
+  | `MODCLKCTRL0` | 0x8A | Qué **módulos** se paran (control de relojes «extendido», 5xx y FR) |
+  | `TRIGFLAG` | 0x8E | Qué disparadores han saltado |
+  | `EVENT_REACT`, `EVENT_CTRL` | 0x94, 0x96 | Reacciones por evento |
+  | `STOR_CTL` | 0x9E | Almacenamiento de estado (EEM L) |
+
+  Los tamaños son estos [UG2, tabla 28-1]:
+
+  | | XS | S | M | L |
+  | :--- | :---: | :---: | :---: | :---: |
+  | Disparadores de bus | 2 (= y ≠) | 3 | 5 | 8 |
+  | Disparadores de registro | 0 | 1 | 1 | 2 |
+  | Combinaciones | 2 | 4 | 6 | 8 |
+  | Secuenciador | — | — | sí | sí |
+  | Almacenamiento de estado | — | — | — | sí |
+
+  En `devices.csv`, el `targetdb` y `devicedb.h` se llaman `EMEX_LOW` (el
+  G2553), `EMEX_SMALL_5XX` (las FR) y `EMEX_LARGE_5XX` (el F5529).
+
+### 7.2 Dónde va cada cosa
+
+* `src/m430/debug/tap_m430.h`: el TAP, la IR, los registros de datos y el
+  registro de control, sobre el núcleo. Funciona en JTAG de 4 hilos.
+* `src/m430/debug/sbw.h`: la máquina de franjas de SBW **delante** del TAP.
+  Convierte SBWTCK y SBWTDIO en TCK, TMS, TDI y TDO del TAP. Lleva su tope de
+  7 µs.
+* `src/m430/debug/eem.h`: el EEM parametrizado por su tamaño, con el mapa de
+  §7.1 y la misma interfaz `debug_if` del núcleo que usan el FPB y los
+  *triggers* de RISC-V. Incluye el control de relojes, que el SoC consulta para
+  parar los módulos.
+* `src/m430/debug/jmb.h` y `jstate.h`: el buzón y el JSTATE.
+* `src/m430/debug/proteccion.h`: el fusible y las firmas.
+* `src/m430/sonda/`: la **sonda de bancada** (§7.3), compartida por `--gdb` y
+  por la eZ-FET de alto nivel (M11).
+* La entrada en JTAG y la selección de pines es del chip: el descriptor dice
+  qué pines son TCK, TMS, TDI y TDO, y la placa dice si están conectados.
+
+### 7.3 Cómo se llega desde fuera
+
+**La sonda de bancada** es un *port* a C++ de las macros HAL de la MSP Debug
+Stack (BSD-3; la atribución va en la cabecera de cada fichero):
+
+* por arriba, las operaciones de alto nivel que pide GDB;
+* por abajo, el HIL de 4 hilos o de SBW sobre los `AnalogNet` de los pines.
+
+Al ser el código de la eZ-FET real, lo que haga la sonda de bancada es lo que
+hará la sonda de verdad. Su segunda fuente es el **Replicator430**: otra
+implementación de TI de las mismas secuencias, escrita por otra gente y con
+otra estructura. Las dos tienen que dar las mismas transacciones de JTAG para
+cada operación, y eso se comprueba con una traza.
+
+| Camino | Qué | Coste | Fase |
+| :--- | :--- | :--- | :--- |
+| **Sonda de bancada** (`--gdb`) | Stub de GDB sobre las macros HAL portadas, por los pines, en JTAG o SBW | Cientos de flancos por acceso | M2 |
+| **Replicator430 en un MSP430 simulado** | El código de SLAU320 compilado con `msp430-elf-gcc` para un anfitrión que `mcu-sim` ya simula (el F5529 de M4; el original es para un F5437), y cableado al objetivo en una placa de dos MCUs | Firmware real de TI programando por los pines | M4 (para el G2553 y el F5529) y M8 (430FR) |
+| **SLAA754 en una MSP-EXP432P401R** | El ejemplo de TI: el MSP432 programa un G2553 o un FR2311 por SBW (P6.0 → RST, P6.1 → TEST) e informa por el *backchannel* | Firmware real de TI en un anfitrión ARM ya modelado | M3 y M7 (hechos: `g2-slaa754`, `fr2311-slaa754`) |
+| **`mspdebug` de git** por *bit-bang* | Su `jtaglib` es una tercera implementación de [JTAG]; se sirve por un pty, como `remote_bitbang` | Igual | Opcional, tras M2 |
+| **eZ-FET emulada** | La sonda de la LaunchPad (M11), para `libmsp430` | Órdenes HAL por USB | M11 |
+
+### 7.4 Lo que no está
+
+* **EnergyTrace** (la medida de corriente de la eZ-FET): el código está bajo la
+  licencia «TI Text File» y, como en el XDS110 del P4, queda fuera.
+* La programación del fusible con tensión real: solo como bit de modelo.
+* El **almacenamiento de estado** del EEM L (F5529): se declara (`STOR_CTL`
+  contesta y avisa).
+
+---
+
+## 8. Depuración por stub (`--gdb-dap`)
+
+### 8.1 El *backend* MSP430 de GDB
+
+Va sobre `GdbRspBase` (rama `esp32rv`), como el de RISC-V, en
+`src/m430/gdb/gdb_m430.h`.
+
+* **Registros**: 16, de R0 (PC) a R15. Con `msp430-elf-gdb`, el tamaño en el
+  paquete `g` depende de la arquitectura que anuncie el `qXfer:features`. El de
+  MSP430X usa 4 bytes por registro, con 20 bits útiles. Se contrasta con dos
+  fuentes: el `msp430-tdep.c` de GDB y lo que contesta el agente de GDB de TI
+  (M11).
+* **Memoria**: `m` y `M`, con los accesos de palabra y de byte en su sitio
+  (periféricos de 8 y de 16 bits) y la Flash o la FRAM por el programador.
+* **Puntos de ruptura**:
+  * `Z0`: por software. MSP430 no tiene una instrucción de ruptura propia, así
+    que la herramienta real escribe en la RAM o la FRAM `0x4343` (`CLR.B R3`)
+    y un disparador del EEM detecta su búsqueda (§8.2); en la Flash usa un
+    disparador de hardware;
+  * `Z1`: por hardware, un disparador de bus;
+  * `Z2`-`Z4`: puntos de vigilancia, disparadores de MDB y MAB.
+
+  El número sale del tamaño del EEM.
+* `vCont` con paso; Ctrl-C; `monitor reset`, `monitor reset halt` y
+  `monitor erase`. Son las órdenes que entiende el agente de GDB de TI. Los
+  nombres se comprueban en M11 contra el agente y contra `mspdebug gdb`.
+
+### 8.2 Se comporta como la herramienta real
+
+Con la parada del depurador, el modelo hace lo que hace la sonda real con
+`libmsp430` en su configuración por omisión. Es la regla de `herramienta_if`
+que se cumplió en todos los ARM y en el C3, y ahora tiene los valores exactos:
+
+* **El control de relojes del EEM** [`DebugManagerMSP430.cpp`, `IDebugManager.h`
+  y `devicedb.h`]:
+  * **GENCLKCTRL = 0x26** por omisión (`DefaultClkCntrl`): STOP_ACLK (0x02),
+    STOP_SMCLK (0x04) y el bit 0x20. En los chips de control «estándar»
+    (`GCC_STANDARD`, el G2553), además el bit 0, para que SMCLK no salga de
+    TCLK durante la depuración. MCLK es el de la CPU, que está parada;
+  * **MODCLKCTRL0**, en los de control «extendido» (`GCC_EXTENDED`: el F5529
+    y todas las FR), se forma con los `eemTimers` del chip que tienen
+    `defaultStop`. El **WDT_A** y los Timer_A se paran; las USCI/eUSCI, el
+    ADC12 y el resto siguen. Así una UART no pierde el carácter que estaba
+    recibiendo cuando el depurador para la CPU, y el WDT no muerde.
+
+  Los `eemTimers` de cada chip salen de `devicedb.h` al descriptor (§5).
+* **Los puntos de ruptura por software** escriben `0x4343` (`CLR.B R3`, una
+  instrucción sin efecto) en la RAM o la FRAM, y un disparador del EEM detecta
+  su búsqueda [`SoftwareBreakpoints430.cpp`]. En la Flash no se puede, y van por
+  hardware. GDB los pide con `Z0` y el stub los traduce igual.
+* **`monitor reset halt`**: con la «magic pattern» en 5xx y FR, la parada es antes
+  de la primera instrucción; en 2xx, con el PUC por JTAG
+  (`SyncJtag_AssertPor_SaveContext*`).
+* **El `load`**: borra la memoria principal y deja la información salvo que se
+  pida. Guarda y restaura el TLV, como hace la 3.15.1 [`revisions.txt`: «backup
+  of TLV data during erase»]. Respeta la MPU y la IPE como la herramienta con
+  sus opciones por omisión, y avisa si hay que desactivarlas.
+* **LPMx.5**: con la CPU en LPMx.5, la herramienta real lo ve por JSTATE y
+  espera a que despierte (`D_LPMX5_MODE` y `D_LPMX5_WAKEUP`). El stub hace lo
+  mismo: GDB ve la CPU «en marcha» y no se pierde la conexión.
+
+Con `--stopped-core-stops-sim` el tiempo se congela entero, como en los demás
+MCUs.
+
+### 8.3 Opciones
+
+| Opción | En un MSP430 |
+| :--- | :--- |
+| `--gdb-dap` | Stub interno, directamente sobre el control de la CPU y el EEM |
+| `--gdb` | Stub con la sonda de bancada por los pines (JTAG o SBW, según la placa) |
+| `--jtag=sbw` o `--jtag=4hilos` | Elige el protocolo de la sonda de bancada. Por omisión, el que conecte la placa |
+| `--ezfet` y `--ezfet-imagenes DIR` | Exponen la eZ-FET emulada (M11); el segundo da la carpeta de la copia de [MSPDS] de la que salen sus versiones o su firmware |
+| `--bsl FICHERO` o `--bsl ninguno` | Como en el P4 (§9) |
+
+---
+
+## 9. El cargador de arranque (BSL)
+
+### 9.1 Tres protocolos, cuatro implementaciones
+
+| | 1xx/2xx/4xx (G2553) | 5xx/6xx (F5529) | FR5xx/FR6xx (FR5969, FR5994, FR6989) | FR2xx/FR4xx (FR2311, FR2355, FR2433, FR2476, FR4133) |
+| :--- | :--- | :--- | :--- | :--- |
+| Fuente | [BSL] cap. 2 | [BSL] cap. 3; [MSPBSL] (fuentes) | [BSLFR], [BSLFRAM] | [BSLFRAM] |
+| Dónde | ROM 0C00-0FFF | Flash 1000-17FF (borrable y sustituible) | ROM 1000-17FF (2 KB) | FR4133: ROM 1000-13FF (1 KB). FR23xx-FR26xx: 1000-17FF + **FFC00-FFFFF** (3 KB) |
+| Interfaz | UART 9600 8E1 semidúplex, por pines fijos (TX P1.1, RX P1.5 en el G2553) | **USB HID** (VID 0x2047, PID 0x0200) | UART por eUSCI_A0 (9600 8E1, puede subir). I2C (0x48) por eUSCI_B0 **solo en las variantes «1»** (FR59691…): el FR5969, el FR5994 y el FR6989 de las LaunchPad son de UART | UART (9600 8E1) e I2C (0x48). En el FR4133, solo UART y solo a 9600 |
+| Entrada | Secuencia de TEST y RST | PUR en alto en el reset, o vector de reset en blanco | Secuencia de TEST y RST; desde la aplicación (Z-Area) | Secuencia; desde la aplicación; **chip en blanco** (vector de reset = 0xFFFF) en FR23xx-FR26xx |
+| Trama | SYNC 0x80 → ACK 0x90; HDR, CMD, L1, L2, AL, AH, LL, LH, datos y *checksum* XOR | 0x80, longitud, núcleo (CMD + datos) y CRC-CCITT | La de 5xx | La de 5xx |
+| Órdenes | RX data block, RX password, borrar segmento, borrado masivo, borrado de comprobación, cambiar baudios, cargar PC, TX data block, versión | RX data block (y *fast*), RX password, borrar segmento, bloquear o desbloquear INFO, borrado masivo, CRC, cargar PC, TX data block, versión, tamaño del búfer, cambiar baudios | Las de 5xx sin las de Flash | Las de 5xx |
+| Seguridad | Contraseña: los 32 bytes de vectores; si falla, **borrado masivo**, salvo que la palabra de 0xFFDE (BSLSKEY) lo impida | Contraseña de vectores; si falla, borrado masivo | Igual; la firma de 0xFF84 desactiva el BSL | Igual |
+| Versión (de [BSLFRAM] §7) | — | 00.07.88.38 o 00.08.88.39 (USB) | 00.07.34.B2 (FR5969, FR6989); 00.08.35.B3 (FR5994) | 00.08.35.B3 (FR2311, FR2433); 00.09.36.B4 (FR2355); 00.09.36.B5 (FR2476); 00.87.45.74 (FR4133) |
+| Particularidades | — | — | Máximo 8 MHz si se llama desde la aplicación; borra RAM 0x1C00-0x1FFF | Plazo de **10 s** sin comunicación → LPM4 (Timer_B en FR23xx, Timer_A en FR26xx). FR2355 y FR2476: configuración por el **TLV** (etiqueta 0xB5: temporizador, eUSCI, puertos y máscaras, dirección I2C, RAM diminuta) y **de usuario** en 0xFF88 (firma 0x695A: interfaz y borrado de RAM). Unos 300 ms de arranque. Borra RAM 0x2000-0x21FF (o 0x23FF) |
+
+**La Z-Area de las FRAM** [BSLFRAM §3.2.2, §3.3.1]: 0x1000-0x100F es la única
+parte del BSL que la aplicación puede leer y a la que puede saltar. En 0x1000
+está la entrada. En 0x1002 está la «BSL Action» (R12 = función, R13 = 0xDEAD,
+R14 = 0xBEEF), que en las FR5xx/FR6xx es siempre «volver al BSL». El modelo
+protege el resto del BSL igual: una lectura desde fuera da lo que da el chip, y
+un salto desde fuera da el reset que da el chip.
+
+**La secuencia de entrada** [BSLFRAM §3.3.2]:
+
+1. con RST/NMI en bajo, TEST da al menos dos flancos de subida;
+2. el primer nivel alto de TEST dura al menos tSBW,En;
+3. RST/NMI sube con TEST en alto;
+4. y el BSL arranca cuando TEST baja.
+
+No arranca si el JTAG tiene el control, si hay un POR o si RST está configurado
+como NMI. El modelo vigila esos casos, porque son los errores de laboratorio
+más comunes.
+
+### 9.2 Cómo se modela
+
+`bsl_p4.h` resolvió el problema de licencia del BSL de TI con tres contenidos.
+Aquí se repiten, pero el B1 cambia según el chip:
+
+| | B1, por omisión | B2, `--bsl FICHERO` | B3, `--bsl ninguno` |
+| :--- | :--- | :--- | :--- |
+| **F5529** | **El BSL USB de TI compilado de sus fuentes BSD-3** (hecho con la copia de [MSPDS] `ThirdParty/BSL430_Firmware`, que es la BSD-3; la de [MSPBSL] `IAR_v6_MSP430F552x_USB` no lo es: intérprete de órdenes, API de Flash e interfaz USB con la pila USB de TI). Hay que portarlo de IAR a `msp430-elf-gcc`: el C es C, y el `BSL430_Low_Level_Init.s43` y el enlazado se reescriben. Se versiona con su huella (T-22) | La imagen publicada (00.07.88.38 o 00.08.88.39), de la licencia «TI Text File»: la trae quien la tenga | La Flash del BSL en blanco |
+| **FR5xx/FR6xx y FR2xx/FR4xx** | Un BSL propio (AGPLv3), escrito entero desde [BSLFR] (en M9 se vio que el intérprete y la interfaz `eUSCI_UART_I2C` de [MSPBSL] no son BSD-3: no lleva nada de ellos). Contesta la versión del chip de la tabla. En FR2355 y FR2476 lee su configuración del TLV y de 0xFF88, como el de TI | El volcado de la ROM de un chip real | Sin BSL: la entrada no hace nada |
+| **G2553** | Un BSL propio (AGPLv3) del protocolo de 1xx/2xx, en la ROM | El volcado de la ROM de un chip real | Sin BSL |
+
+Todos corren **en la CPU simulada**, así que los tiempos son los de una CPU, la
+entrada por pines es la del chip y la UART o el USB son los periféricos
+modelados. El B1 de las FRAM y el del G2553 usan el protocolo y las órdenes de
+TI, así que las herramientas reales no notan la diferencia. La versión que
+contestan es la del chip, con el byte de fabricante a 0x00, como el de TI.
+
+**La entrada.** Lo que en el chip hace el código de arranque de la ROM va en
+cada SoC (`soc_fr2.h`, `soc_g2553.h`, `soc_f5529.h`; M9), de alto nivel, como el `arranque_fab` del P4:
+
+* la secuencia de TEST y RST (§9.1);
+* PUR en el F5529;
+* el chip en blanco en FR23xx-FR26xx;
+* la firma de 0xFF84;
+* y la protección de la Z-Area.
+
+**Desde el PC.** Los programas reales gobiernan TEST y RST con las líneas de
+módem de un adaptador USB-serie: RTS a TEST y DTR a RST. El puente serie de
+`mcu-sim` ya lleva DTR y RTS por RFC 2217: es lo que usa el auto-reset de
+esptool en E5. Pieza nueva:
+
+* **`bsl_adaptador.xml`**: un adaptador USB-serie con DTR y RTS cableados a RST
+  y TEST, como la MSP-BSL «BSL Rocket» o un FTDI con dos hilos. En las LaunchPad
+  de FRAM, el BSL de UART va por los pines del *backchannel*, pero la eZ-FET no
+  mueve TEST y RST para el BSL. Por eso la placa con BSL es LaunchPad +
+  adaptador, como en el laboratorio real.
+
+**El USB BSL del F5529** necesita el USB del chip (M5) y que el host vea un
+dispositivo HID. Hay dos vías:
+
+* la del servidor USB/IP (U4 de `doc/analisis_puente_usb.md`), que da un HID de
+  verdad a `python-msp430-tools` y a BSL-Scripter;
+* o, mientras no exista, un cliente propio en el banco que habla HID con el
+  controlador de anfitrión del puente (U2).
+
+### 9.3 El BSL «de usuario» del G2xx
+
+[MSPBSL] trae un BSL pequeño para la G2xx (`MSP430G2xxxBSL_CCS.asm`, BSD-3).
+Vive en la memoria de información y no en la ROM, usa una UART por software a
+9600 8N1 en P1.1/P1.2 y se habilita con P1.3, que es S2 en la LaunchPad. No
+tiene órdenes: tras el SYNC (0xBA) borra la Flash de la aplicación, recibe
+todos sus bytes hasta 0xFFFD y su XOR, contesta con un pulso bajo en P1.2
+(4 bits ACK, 2 NACK) y se reinicia por el perro. **Es
+justo lo que la MSP-EXP430G2ET permite sin adaptador**, porque va por el
+*backchannel*. Es un firmware de usuario más: no pide nada al modelo. Entra en
+M9 como prueba de laboratorio realista.
+
+### 9.4 Cómo se prueba
+
+* `python-msp430-tools`:
+  * `msp430.bsl.target` para el G2553;
+  * `msp430.bsl5.uart` para todas las FRAM, y por I2C con un anfitrión I2C
+    simulado en las FR2xx;
+  * `msp430.bsl5.hid` para el F5529.
+
+  Se programa, se verifica, se lee y se arranca blink.
+* BSL-Scripter: los mismos guiones que en el laboratorio real, contra el puerto
+  RFC 2217 del puente.
+* Los casos de error, cada uno con su comprobación:
+  * contraseña incorrecta → borrado masivo;
+  * firma de BSL desactivado → no contesta;
+  * FR2xx sin comunicación → LPM4 a los 10 s;
+  * chip en blanco → BSL sin secuencia;
+  * llamada a 0x1000 desde la aplicación → BSL con la RAM borrada en el rango de
+    la tabla.
+* **El F5529, contra la imagen de TI**: con B2, la misma batería tiene que dar
+  las mismas respuestas byte a byte que con B1. Es la comprobación de que el
+  *port* de MSPBSL es fiel.
+
+---
+
+## 10. Placas, dos fuentes y erratas
+
+### 10.1 Las diez LaunchPad
+
+Todas son el mismo diseño de TI, con dos lados. A la izquierda está la sonda,
+una eZ-FET o eZ-FET lite: un MSP430 propio con USB, que da el depurador, el
+*backchannel* UART y la alimentación de 3,3 V. Ese MSP430 es un **MSP430F5528**
+en los esquemáticos que lo nombran en texto: la F5529LP, la FR2433, la FR4133,
+la FR5969 y la LP-FR2476. En las demás se comprueba en su esquemático. Es lo que
+hace posible la eZ-FET de bajo nivel (M11b) con el modelo del F5529. Entre la sonda y el objetivo hay
+un **bloque de puentes**. A la derecha está el objetivo, con sus conectores de
+BoosterPack. Así se modela, como la MSP-EXP432P401R con su J101. Los puentes
+son elementos de la placa: quitar RXD o TXD corta el *backchannel*; quitar
+SBWTDIO o SBWTCK corta la depuración; quitar 3V3 deja el chip sin alimentación.
+
+| Placa | Conectores | LED | Pulsadores | *Backchannel* | Extra |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `msp_exp430g2et.xml` | 2 × 10 (20 pines) | LED1 P1.0, LED2 P1.6 | S1 RST, S2 P1.3 | P1.1/P1.2 (USCI_A0), con puentes SW/HW UART | Cristal de 32 kHz, opcional |
+| `msp_exp430f5529lp.xml` | 40 pines | LED1 P1.0, LED2 P4.7 | S1 P2.1, S2 P1.1 | P4.4/P4.5 (USCI_A1) | **USB del objetivo**; XT1 y XT2 |
+| `msp_exp430fr2311.xml` | 20 pines | LED1 P1.0, LED2 P2.0 | S1 P1.1 | P1.6/P1.7 (eUSCI_A0) | Fotodiodo en el TIA |
+| `msp_exp430fr2355.xml` | 40 pines | LED1 P1.0, LED2 P6.6 | S1 P4.1, S2 P2.3 | P4.2/P4.3 (eUSCI_A1) | Sensor de luz en el SAC |
+| `msp_exp430fr2433.xml` | 20 pines | LED1 P1.0, LED2 P1.1 | S1 P2.3, S2 P2.7 | P1.4/P1.5 (eUSCI_A0) | — |
+| `msp_exp430fr4133.xml` | 20 pines | LED1 P4.0, LED2 P1.0 | S1 P1.2, S2 P2.6 | P1.0/P1.1 (eUSCI_A0, compartido con LED2) | **LCD de segmentos FH-1138P** |
+| `lp_msp430fr2476.xml` | 40 pines | LED1 P1.0, LED2 RGB (P5.0 verde y otros dos) | S1, S2 | P1.4/P1.5 (eUSCI_A0) | — |
+| `msp_exp430fr5969.xml` | 20 pines | LED1 P4.6, LED2 P1.0 | S1 P4.5, S2 P1.1 | P2.0/P2.1 (eUSCI_A0) | Supercondensador |
+| `msp_exp430fr5994.xml` | 40 pines | LED1 P1.0, LED2 P1.1 | S1 P5.6, S2 P5.5 | P2.0/P2.1 (eUSCI_A0) | **microSD** por SPI; supercondensador |
+| `msp_exp430fr6989.xml` | 40 pines | LED1 P1.0, LED2 P9.7 | S1 P1.1, S2 P1.2 | P3.4/P3.5 (eUSCI_A1) | **LCD de segmentos FH-1138P** |
+
+**Estos pines son de una primera lectura de las guías y tienen que salir del
+esquemático antes de cerrar cada placa**, como se hizo con la MB1035 y la
+MSP-EXP432P401R. Hay que contrastar las resistencias de los LED, los
+pulsadores, el condensador de RST y las orientaciones de los puentes de UART.
+Lo que no salga del esquemático se marca `[de modelo]`.
+
+Los dibujos se hacen con `placas/dibuja_ti.py`, que ya dibuja las LaunchPad de
+MSP432, con la plantilla de 20 o 40 pines. Las BoosterPack ya existentes (la
+`boostxl_edumkii`) valen en las LaunchPad de 40 pines: así se tienen
+combinaciones como `msp_exp430fr5994_edumkii.xml`.
+
+### 10.2 Dos fuentes de cada dato
+
+| Papel | Fuente 1 | Fuente 2 (y más) |
+| :--- | :--- | :--- |
+| ISA y ciclos | [UG2] cap. 3, [CPUX], [UG5] cap. 6, [UGFR5] cap. 4 | `msp430-elf-run` y `mspdebug sim` (semántica); las tablas de cada familia entre sí (ciclos) |
+| Mapa, CPU, MPY, EEM y erratas de CPU | Hojas de datos y erratas | `devices.csv`; `targetdb`; `devicedb.h` de [MSPDS] |
+| Módulos, direcciones base y vectores | Hojas de datos | Cabeceras de CCS; `targetdb` |
+| Registros y campos | Guía de cada familia | Cabeceras de CCS; `targetdb` (direcciones, campos y valores con nombre) |
+| Valores de reset | Guía de cada familia | DriverLib y las cabeceras, donde den algo; si no, se marcan con una sola fuente en la sección D de `todo.md`. **El `targetdb` no los trae** |
+| Pines y funciones | Hoja de datos («Signal Descriptions» y diagramas de E/S) | Los `.h` de pines de DriverLib y las tablas de pines de Energia, cuando las haya; si no, dos tablas de la misma hoja de datos |
+| JTAG y SBW | [JTAG] | Macros HAL de [MSPDS]; [REP]; [SBW-SL] |
+| EEM | [UG2] cap. 28, [JTAG] | `EEM_defs.h` y `DebugManagerMSP430.cpp` de [MSPDS] |
+| Comportamiento de la herramienta con la CPU parada | [MSPDS-DG] | [MSPDS] (`DebugManagerMSP430.cpp`, `devicedb.h`) |
+| BSL | [BSL], [BSLFR], [BSLFRAM] | [MSPBSL] (fuentes); `python-msp430-tools`, BSL-Scripter |
+| Placas | Esquemático de cada LaunchPad | Guía de usuario de la LaunchPad |
+
+La regla de siempre: un registro tiene dos fuentes, o se declara (contesta, no
+guarda y avisa una vez), y nunca se deja seguir al firmware sin decirlo.
+
+**Licencias.** Todo lo que se toma de [MSPDS], [MSPBSL] y [REP] es BSD-3: se
+puede portar y versionar con su aviso de copyright. Lo que es «TI Text File»
+**no se versiona ni se lleva dentro**. Eso incluye las imágenes de firmware de
+la eZ-FET, las imágenes de BSL publicadas y el código de EnergyTrace. Lo carga
+quien lo tenga, desde su copia del paquete de TI, como el BSL de TI en el P4.
+
+### 10.3 Piezas nuevas
+
+* **Vidrio LCD de segmentos** (FH-1138P de las LaunchPad FR4133 y FR6989). Tiene
+  `COM0-COM3`, sus segmentos y un dibujo SVG que enciende cada segmento con su
+  valor RMS. Sirve para LCD_E y para LCD_C.
+* **Adaptador BSL** (§9.2).
+* **microSD** por SPI (FR5994): si `parts/` no tiene ya una tarjeta SD por SPI,
+  se declara la ranura y se modela después.
+
+### 10.4 Erratas
+
+Cada fase de chip recorre su hoja de erratas y clasifica cada entrada:
+
+* **se modela**: cambia lo que ve el programa. Va encendida, se puede apagar y
+  avisa;
+* **se documenta**: consumo, analógico fino o encapsulado;
+* **no aplica**: revisiones de silicio que no se simulan. Se fija una revisión
+  de silicio por chip en el descriptor.
+
+El resultado va en un apartado de `doc/todo.md` por chip, como se hizo con el
+F303 y el C3.
+
+---
+
+## 11. Plan por fases
+
+Es el método de siempre. Las fases son pequeñas, y cada una tiene sus entregas
+y su criterio de cierre. Cada banco tiene su invariante y su `asan*`:
+
+* `test430` para el laboratorio;
+* `testg2` para el G2553;
+* `testf5` para el F5529;
+* `testfr2` para las cinco FR2xx/FR4xx;
+* `testfr5` para las tres FR5xx/FR6xx.
+
+**Ninguna fase mueve el invariante de las diez suites que ya hay.** Los
+firmwares de prueba se versionan con su huella (T-22). Compilarlos pide
+`msp430-elf-gcc`; ejecutar las suites, no.
+
+**Estado (21-11-2026): M0-M9 hechas** (M9 con los huecos que dice su
+«Hecho»), en la rama `msp430` (`test430` 776 comprobaciones, `testg2` 51,
+`testf5` 62, `testfr5` 99; las suites de antes, al picosegundo). Antes
+(17-11-2026): M0-M5, y cerrado lo que quedaba de M2 y M3 que no depende de fases
+posteriores (P-20). Cada fase lleva debajo su «Hecho», con lo
+que entró y lo que no; lo pendiente está también en P-20 de `doc/todo.md`.
+
+### Vista de conjunto
+
+| Fase | Qué | Banco | Depende de | Tamaño |
+| :--- | :--- | :--- | :--- | :--- |
+| **M0** | Integrar `esp32rv`; `periph/ti/`; generador de descriptores con las cuatro fuentes | Las diez | — | Medio |
+| **M1** | Núcleo CPU/CPUX/CPUXV2 + laboratorio | `test430` | M0 | Grande |
+| **M2** | TAP, SBW, JMB, JSTATE, EEM, protección; sonda de bancada (las macros HAL); *backend* de GDB, `--gdb-dap` y `--gdb`, en el laboratorio | `test430` | M1 | Grande |
+| **M3** | G2553 + MSP-EXP430G2ET (+ SLAA754 con la MSP-EXP432P401R, si llega su código) | `testg2` | M2 | Medio |
+| **M4** | F5529 sin USB + MSP-EXP430F5529LP; el Replicator430 en un F5529 programa un G2553 | `testf5` | M2, M3 | Grande |
+| **M5** | F5529: USB | `testf5` | M4 | Medio |
+| **M6** | FR2xx/FR4xx común: FR2433 + su LaunchPad | `testfr2` | M2 | Grande |
+| **M7** | FR2311, FR2355, FR4133 y FR2476, con sus LaunchPad | `testfr4`, `testfr2311`, `testfr2355`, `testfr2476` | M6 | Grande, divisible por chip |
+| **M8** | FR5xx/FR6xx: FR5969, después FR5994 y FR6989, con sus LaunchPad; Replicator430FR | `testfr5` | M2, M4 | Grande, divisible |
+| **M9** | BSL de 2xx, de 5xx (USB de TI desde MSPBSL) y de FR5xx/FR6xx | `testg2`, `testf5`, `testfr5` + Python | M3, M5, M8 | Medio |
+| **M10** | BSL de FR2xx/FR4xx (SLAU550AB) | `testfr2` + Python | M7, M9 | Pequeño |
+| **M11** | eZ-FET emulada: alto nivel (M11a) y bajo nivel (M11b) | Python | M2, M3; U4 del puente USB (o `libmsp430` recompilada); M5 para M11b | Grande |
+| **M12** | `mcu-sim-gui`: placas, dibujos y LCD | — | M3 | Pequeño |
+
+```
+M0 ──► M1 ──► M2 ──┬──► M3 ──► M4 ──► M5 ──┬──► M9 ──► M10
+                   │           │           │      ▲
+                   ├──► M6 ──► M7 ─────────┼──────┘
+                   ├──► M8 ◄──(Replicator)─┘
+                   └──► M11a (con M3) ──► M11b (con M5)
+M12 en paralelo desde M3
+```
+
+### M0 · El terreno
+
+**Objetivo:** que el resto del plan no toque nada de ARM ni de RISC-V.
+
+**Entregas:**
+1. **Integrar `esp32rv` en `main`** (o, si todavía no se ha fusionado, rebasar
+   `msp430` sobre `esp32rv`). Trae `GdbRspBase`, `herramienta_if`,
+   `congela.h`, `nodo_depuracion` y las sondas con JTAG.
+2. **`src/periph/ti/`**: mover los módulos de TI del P4 sin cambiarlos. Primero
+   se mueven y después se parametrizan, en dos commits.
+3. **El bus de 16 bits como componente común** (`bus16.h`), con los periféricos
+   de 8 bits y la regla de los accesos de palabra impares.
+4. **`herramientas/gen_msp430.py`** con las cuatro fuentes de §5:
+   * `devices.csv`;
+   * las cabeceras;
+   * el `targetdb`;
+   * y `devicedb.h`, del que se extraen los XML del ZIP que lleva dentro.
+
+   Tiene la tabla de normalización de nombres y el informe de discrepancias. Su
+   salida se versiona; sus entradas no.
+5. `ELF_MSP430` y TI-TXT en el cargador.
+
+**Cierre:**
+* las diez suites con el mismo invariante al picosegundo;
+* el generador saca los diez descriptores sin discrepancias por resolver, y su
+  mapa de memoria coincide con la tabla de §2.2.
+
+**Hecho (16-11-2026), en tres commits:**
+* los módulos de TI del P4 movidos a `src/periph/ti/` sin cambiarlos, y
+  parametrizados después (`TimerACaps`: número de CCR, posición de TAIFG en el
+  IV, base y tamaño); `bus16.h` con `Bus16` (el `Bus16P4` de antes es un alias)
+  y la regla de bytes de 2xx (`ModoByte::Palabra2xx`), y `Bus8`;
+* `herramientas/gen_msp430.py` y los diez descriptores en
+  `src/soc/msp430/desc/` con su `INFORME.txt`; `ELF_MSP430` (105) en
+  `common/imagen_fw.h`;
+* la rama ya tenía `esp32rv` dentro (el *merge* a `main` de los dos
+  repositorios se hizo el mismo día). `testp4` y las demás, sin moverse.
+
+### M1 · El núcleo y el laboratorio
+
+**Entregas:**
+1. `src/m430/cpu/`:
+   * `m430_caps.h`;
+   * `m430_estado.h`;
+   * `m430_decod.h`, con la palabra de extensión;
+   * `m430_exec.h`, con CPU, CPUX y CPUXV2;
+   * `m430_ciclos.h`, con las tres tablas y su fuente fila a fila;
+   * `m430_irq.h`, con la interfaz de vector y nivel y los NMI;
+   * `m430_errata.h`.
+2. `NucleoM430` (`SC_MODULE`): quantum LT; bajo consumo con el reloj parado;
+   **dos modos de avance**, por instrucciones o por ciclos de TCLK, este último
+   preparado para M2.
+3. `src/m430/lab/`: `SocLabM430` y `top/sc_main_430.cpp` → `make test430`,
+   `asan430`.
+4. `verif/m430/`:
+   * el generador de programas diferenciales;
+   * los guiones contra `msp430-elf-run` y `mspdebug sim`;
+   * las pruebas de ciclos.
+
+**Cierre:**
+* la batería diferencial sin una diferencia en CPU, CPUX y CPUXV2;
+* las tablas de ciclos fila a fila;
+* el `printf` de newlib por la UART de pega, compilado con `-mlarge` y sin él.
+
+**Tamaño:** grande. Es el corazón de todo lo demás.
+
+**Hecho (16-11-2026):** `src/m430/cpu/` completo (caps, estado,
+decodificador con palabra de extensión, ejecución de CPU/CPUX/CPUXV2, las
+tres tablas de ciclos, interrupciones y erratas), `NucleoM430`, el SoC de
+laboratorio y `make test430` / `asan430`. `verif/m430/` tiene el generador de
+diferenciales (`gen_dif.py`, contra `mspdebug sim` para CPU y contra
+`msp430-elf-run` para CPUX y `-mlarge`), el de ciclos (`gen_ciclos.py`) y el
+de decodificación contra binutils (`gen_dec.py`). Los fallos del simulador de
+GDB que salen al compararlo (V en el bit 7, `@Rn+` de formato II, `MOV.B
+@SP+`, SXT, SWPBX.A, DADDX.A, JL/JGE, el V de SUB/SUBA, CALLA X(Rn)) quedan
+escritos en `gen_dif.py` y no se copian; donde mspdebug y la guía coinciden,
+manda la guía. `printf` de newlib con y sin `-mlarge`, y TI-TXT.
+
+### M2 · La depuración, en el laboratorio
+
+**Entregas:**
+1. El TAP con su IR de 8 bits, los cuatro JTAG ID y el registro de control, en
+   `tap_m430.h`, con todas las instrucciones de la tabla de §7.1. Incluye el
+   avance por TCLK.
+2. SBW, con su tope de tiempo, y la entrada en JTAG de 4 hilos y de 2 hilos.
+3. El JMB, la «magic pattern» y el JSTATE.
+4. El EEM con el mapa de `EEM_defs.h`: los tamaños XS, S, M y L, la reacción de
+   parada y el control de relojes general (GENCLKCTRL) y por módulo
+   (MODCLKCTRL0).
+5. El fusible y las dos clases de firma, con el desbloqueo por JMB y por
+   contraseña.
+6. **La sonda de bancada** (`src/m430/sonda/`): el *port* de las macros HAL de
+   [MSPDS] que usa la eZ-FET con CPU, X y Xv2, sobre un HIL de 4 hilos y otro
+   de SBW en los pines. Con la atribución BSD-3 en cada fichero.
+7. **El Replicator430 como oráculo** (`verif/m430/replicator/`): las funciones de
+   [REP] compiladas **para el anfitrión**, en C para el PC, con su capa
+   `LowLevelFunc` sobre los mismos pines simulados. Para cada operación (leer
+   el ID, parar, leer y escribir memoria, borrar, desbloquear) se compara la
+   traza de JTAG con la de la sonda de bancada.
+8. `gdb_m430.h` sobre `GdbRspBase`; `--gdb-dap`; `herramienta_if` para MSP430
+   con los valores de §8.2.
+
+**Cierre:**
+* el guion de depuración de siempre por `--gdb-dap` y por `--gdb`, en JTAG y en
+  SBW: `load`, ruptura en `main` (por software con 0x4343 en RAM y por
+  hardware), vigilancia, paso, Ctrl-C y `monitor reset halt`;
+* el WDT no muerde con la CPU parada, y una UART sigue recibiendo (los
+  `eemTimers` por omisión); con MODCLKCTRL0 a cero, el WDT sí muerde;
+* el chip con la firma de bloqueo no deja entrar, y se recupera con el borrado
+  por JMB;
+* las trazas de la sonda de bancada y del Replicator coinciden en todas las
+  operaciones comunes;
+* los códigos de IR de [JTAG] y los invertidos de `JTAG_defs.h` coinciden bit a
+  bit (una prueba de la tabla, sin simulación).
+
+**Tamaño:** grande. Lo delicado es el avance por TCLK. Lo que antes era
+escribir la sonda desde [JTAG] ahora es portar código probado, y eso lo hace
+más corto y menos arriesgado que en la primera versión.
+
+**Hecho (16-11-2026):** el TAP (`tap_m430.h`: IR de 8 bits con la
+captura invertida, el registro de control y el avance por TCLK), SBW con su
+tope de 7 µs (`pines_m430.h`), el EEM (`eem.h`: disparadores, CMB,
+BREAKREACT, GENCTRL, GENCLKCTRL, MODCLKCTRL0 y TRIGFLAG, tamaños XS-L), la
+sonda de bancada (`src/m430/sonda/sonda_m430.h`, *port* de `edt.h` de la MSP
+Debug Stack con la atribución BSD-3) y `gdb_m430.h` (`--gdb-dap` y `--gdb`).
+`test430` gana N7-N12: los códigos de IR contra los invertidos de
+`JTAG_defs.h`, la sonda por 4 hilos y por SBW, el EEM y GDB por los dos
+caminos; el invariante pasa a «resto».
+
+**Después (P-20, 16-11-2026):** DATA_QUICK, PSA y el fusible (VPP por TEST
+en 4 hilos y por SBW, con la secuencia de BlowFuse); el tope de SBW, de 7 a
+100 µs (la hoja de datos: 15-100); el **Replicator430 como oráculo**
+(`verif/m430/replicator`, el código de TI compilado para el anfitrión sobre
+los pines: G5 de `testg2`); el `load` por GDB con el programador de la Flash
+de 2xx; y el **guion con `msp430-elf-gdb` de verdad**, por `--gdb-dap` y por
+`--gdb` (`make gdb-g2`). De paso: `monitor reset halt` para la CPU, la espera
+de la Flash no es una parada de depuración, y GENCLKCTRL para los relojes con
+la CPU en manos del depurador.
+
+**Queda:** el JMB, la «magic pattern» y el JSTATE, que son de Xv2: van con el
+F5529 (M4); la firma de bloqueo de 5xx, también M4.
+
+### M3 · G2553 y MSP-EXP430G2ET
+
+**Entregas:**
+* el SoC con:
+  * el BCS+ (DCO, VLO y LFXT1, con la calibración en INFO A);
+  * FLASH2 con su generador de tiempos y LOCKA;
+  * WDT+, 2 × Timer_A3, USCI_A0/B0, ADC10 y Comp_A+;
+  * P1-P3 con SEL/SEL2;
+* `msp_exp430g2et.xml` y su SVG, contrastados con el esquemático;
+* los ejemplos de TI del G2553 (blink, UART por USCI y por el Timer_A, ADC10
+  y temperatura) y la demo de fábrica de la placa;
+* el `programador_nv_if` de la Flash de 2xx, para el `load`;
+* erratas de SLAZ440K clasificadas;
+* **si está `slaa754.zip`**: `msp_exp432p401r_sbw_g2et.xml`, la LaunchPad del
+  MSP432 cableada a la G2ET (P6.0 → RST, P6.1 → TEST y masa), con el ejemplo de
+  SLAA754 compilado tal cual.
+
+**Cierre:**
+* la demo de fábrica (temperatura por el *backchannel* y pulsador P1.3);
+* `--gdb-dap` y `--gdb` por SBW sobre la placa;
+* con SLAA754: el MSP432 programa el G2553 simulado, el G2553 arranca el
+  programa nuevo y el *backchannel* del MSP432 da el mensaje de éxito de TI;
+* las comprobaciones de `testg2` y su invariante.
+
+**Tamaño:** medio. Es el chip de prácticas más extendido y el primero que entra.
+
+**Hecho (16-11-2026):** `src/soc/msp430/g2553/soc_g2553.h` con el BCS+
+(el DCO como 1,4 MHz · 1,35^(RSEL−7) · 1,08^(DCO−3) con la mezcla de MOD, y
+la calibración de fábrica buscada y escrita en INFO A, que da 1, 8, 12 y
+16 MHz al 1 %), el WDT+ con su PUC, FLASH2 (el depurador escribe por debajo
+del controlador), los dos Timer_A3 de `periph/ti/` con sus IV, P1-P3 con
+SEL/SEL2 y REN, USCI_A0 en UART (el bit en el pin P1.2), el ADC10 con el
+sensor de temperatura, y la sonda por SBW en TEST/RST. `make testg2`
+(`top/sc_main_g2.cpp`): G1 el SoC contra el descriptor y las constantes de
+fábrica; G2 `g2_basico.c` (DCO, UART a 9600 medida en el pin, Flash INFO D,
+ADC10, Timer0_A3 cada 1 ms, LPM0, S2 y eco de RX); G3 `g2_wdt.c` (el PUC del
+perro y WDTIFG); G4 la sonda por SBW. Invariante: 17 comprobaciones,
+188894000000 ps, total. Los programas se compilan con
+`verif/g2553/Makefile.g2553`.
+
+**Después (P-20, 16-11-2026):** `msp_exp430g2et.xml` y su SVG (C23 de
+`gui-sistema`) y el G2553 en el binario `mcu-sim` (`g2553_mcu.h`); USCI_B0
+(SPI e I2C: `periph/ti/usci.h`, la eUSCI con la cara de la USCI), Comp_A+,
+la DTC y las secuencias del ADC10, y todas las funciones de los pines (G6);
+los ejemplos y la demo de fábrica (G7; escritos aquí a partir de SLAU772A,
+porque los de TI no están en `doc/refs`); SLAA754 (`make g2-slaa754`: el
+ejemplo de TI tal cual, en la P401R, programa la G2ET por SBW y acaba en
+«MSP430 Programmed Successfully»); y SLAZ440K, clasificada en P-20. Para que
+SLAA754 funcione hicieron falta tres cosas del chip: con el vector de reset
+borrado, LPM4 [UG2 §2.1.2]; el POR por JTAG reinicia los periféricos; y solo
+PC y SR tienen reset. `testg2`: 40 comprobaciones.
+
+**Cierre de M3:** la demo de fábrica (G7), `--gdb-dap` y `--gdb` por SBW
+sobre la placa (`make gdb-g2`), SLAA754, y `testg2` con su invariante.
+**Queda para M9 y M12:** el BSL de ROM y el de `slaa450g`, y la GUI.
+
+### M4 · F5529 sin USB
+
+**Entregas:**
+* el SoC con:
+  * UCS, PMM con VCORE y SVS, y el controlador de Flash de 5xx con sus bancos;
+  * SYS, SFR, TLV y PMAP;
+  * WDT_A, TA5, 2 × TA3, TB7, 2 × USCI_A y 2 × USCI_B;
+  * ADC12_A, Comp_B, REF, MPY32, DMA, RTC_A y CRC16;
+* `msp_exp430f5529lp.xml` y su SVG;
+* el `load` sobre la Flash de 5xx, el EEM L y la protección por firma;
+* erratas de SLAZ314AD clasificadas;
+* **el Replicator430 en el F5529**: `Replicator430` y `Replicator430Xv2`
+  compilados con `msp430-elf-gcc` para un F5529, en lugar del F5437 del
+  original. Es un cambio de la configuración de pines y del reloj en
+  `LowLevelFunc*.h`. Una placa `replicator_f5529_g2553.xml` cablea el F5529 a
+  un G2553 por JTAG de 4 hilos y por SBW.
+
+**Cierre:**
+* los ejemplos de DriverLib del F5529 (reloj a 25 MHz con VCORE 3, UART, ADC,
+  DMA) y, por GDB, una ruptura por encima de 0x10000 (modelo grande);
+* **un MSP430 simulado programa a otro con el código de referencia de TI**: el
+  Replicator del F5529 borra, programa y verifica el G2553 (con la PSA) y lo
+  arranca.
+
+**Hecho (16/17-11-2026), en cuatro commits:** `soc/msp430/f5529/soc_f5529.h`
+(SFR, SYS con el JMB, PMM con VCORE, UCS con su FLL y los fallos de los
+cristales solo si se piden, la Flash de 5xx con sus bancos, CRC16, WDT_A,
+REF, P1-P8 y PJ con el PMAP de P4, TA0/TA1/TA2/TB0, cuatro USCI, ADC12_A,
+DMA, MPY32, la TLV, el RTC_A en calendario y el Comp_B), `f5529_mcu.h` (el
+F5529 en `mcu-sim`, con `--gdb-dap` y el programador de 5xx), la
+`msp_exp430f5529lp.xml` con su SVG, y `testf5`:
+
+* F1 el SoC contra el descriptor y la TLV; F2 `f5_basico.c` con la
+  DriverLib (25 MHz con VCORE 3, UART, Flash, ADC12_A, DMA, MPY32, CRC16,
+  Timer_A); F5 `f5_rtc_cb.c` (el RTC_A con el cambio de año, el evento y la
+  alarma por RTCIV, en LPM3; el Comp_B con CBIFG y CBIIFG). Con F5 entró la
+  petición de SMCLK de las USCI en LPM3 (SMCLKREQEN);
+* **un MSP430 simulado programa a otro con el código de TI**: F3 y F4, el
+  Replicator430 compilado para el F5529 (`verif/f5529/replicator`) programa
+  un G2553 por SBW y por JTAG de 4 hilos; F6 y F7, el **Replicator430Xv2**
+  (`verif/f5529/replicator_xv2`) programa OTRO F5529 por SBW y por el JTAG
+  de PJ: borra la principal y la información B-D, escribe, verifica con la
+  PSA y lo suelta. Las placas `replicator_f5529_g2553_{sbw,jtag}.xml`;
+* el JTAG de Xv2 (`tap_m430.h` y `nucleo_m430.h`): CPUSUSP, la CPU que
+  avanza en las subidas de TCLK y se suspende en la búsqueda, el «retardo
+  del POR», DATA_QUICK sin desfase, el JMB (JMB_EXCHANGE, con las rutinas de
+  Flash de TI corriendo en la RAM del objetivo), COREIP_ID, DEVICE_ID y el
+  BOR de TEST_REG;
+* F8: el **patrón mágico** (el arranque espera con TEST arriba y se para si
+  llega 0xA55A al JMB) y la **firma de JTAG** de 0x17FC (con SYSBSLPE): los
+  dos bloques de TI del Replicator430Xv2, activados; bloqueado, el
+  Replicator se para en GetDevice;
+* por GDB, una ruptura por encima de 0x10000 (`make gdb-g2`, `una_f5`);
+* SLAZ314AD, clasificada en P-20.
+
+Arreglos del núcleo que salieron aquí: una lectura de periférico sincroniza
+antes el tiempo local (el SBW del Replicator), la espera del núcleo ya no
+pierde el aviso que llega mientras se sincroniza, y R3 como origen de
+ADDA/SUBA/CMPA es #2 (el DECDA/INCDA de 2 bytes de CCS).
+
+**Lo que quedaba, hecho (17-11-2026):**
+* `--gdb` por los pines en el F5529: `m430/sonda/sonda_xv2.h` (`SondaXv2`)
+  habla Xv2 sobre el HIL de la sonda de bancada, con las secuencias del
+  Replicator430Xv2 (SyncJtag_AssertPor, ExecutePOR, SetPC, ReadMem,
+  WriteMem, ReleaseDevice; la Flash con FlashErase_o/FlashWrite_o en la RAM
+  del objetivo y el JMB) y las de la MSPDS para los registros (MOVA por
+  JTAG) y el EEM de 32 bits (EMEX_DATA_EXCHANGE32, que el TAP ya entiende,
+  con EMEX_READ_CONTROL/WRITE_CONTROL). `DbgSondaXv2` (en `gdb_m430.h`) es
+  el camino de GDB y `stub_pines()` lo cuelga del F5529 por SBW en
+  TEST/RST. F13 de `testf5` la prueba sin GDB (la CPU dormida en LPM0, los
+  registros de 20 bits, el paso, una ruptura del EEM en 0x10000, la Flash
+  baja y la de encima de 0x10000, el POR) y `make gdb-g2` con el GDB de
+  verdad (load, ruptura en 0x10000, finish, stepi, Ctrl-C). Dos arreglos de
+  Xv2 en el núcleo: suspendida en la búsqueda ya no debe ciclos de la
+  instrucción anterior, y bajo JTAG CPUOFF no la duerme [de modelo: TCLK es
+  MCLK]. [de modelo] Sin la cola de búsqueda de la CPUXv2, el PC es el MAB
+  (la MSPDS le resta 4) y la sonda devuelve el PC con SetPC tras cada MOVA;
+* el RTC_A en modo contador (RT0PS y RT1PS encadenados desde ACLK o SMCLK,
+  RTCNT de 8 a 32 bits con RTCTEV, RTCHOLD, RT0PSIFG y RT1PSIFG): F10;
+* CBOUT del Comp_B en P1.6 (con SEL y DIR) y en CCI1B del Timer1_A3, y las
+  entradas de reloj de los Timer_A (TA0CLK en P1.0, TA1CLK en P1.6, TA2CLK en
+  P2.2): F11.
+
+El JSTATE es de FRAM: está, con M6.
+
+### M5 · F5529: USB
+
+**Entregas:** el módulo USB (endpoints, búferes en la RAM de USB, PLL y
+alimentación de USB) detrás de `usb_dev_if`; la pila USB de TI con CDC;
+el puente USB enumera el F5529 como enumera el F303.
+
+**Cierre:** el ejemplo CDC de la MSP430 USB Developers Package se ve como puerto
+serie en el PC; el *backchannel* sigue funcionando a la vez.
+
+**Hecho (17-11-2026):** `periph/ti/usb_ti.h`: los registros de 0x900, la PLL
+de 48 MHz desde XT2 (o XT1) con sus banderas, VBUS y el LDO, y la UBM sobre
+la RAM de USB del SoC (el SETUP en USBSUBLK, el EP0 de 8 bytes, los EP1-7
+con X/Y según TOGGLE, NAK, STALL, USBIIE) detrás de `usb_dev_if`; el reset
+del bus, la suspensión y la reanudación por las tensiones de D+/D-; el
+1,5 kOhm de PUR a D+; USBVECINT con su prioridad. En `mcu-sim`, `usb=` o
+`--usb` en la F5529LP. **Cierre:** F9 de `testf5` carga el binario TI-TXT
+del simpleUsbBackchannel de TI tal cual (`verif/fw/f5529`): el puente lo
+enumera (2047:0403, «F5529LP simpleUsbBackchannel»), lo que manda el PC por
+el CDC sale por la UART del backchannel, y lo que entra por la UART llega al
+PC por el IN de bulk, a la vez. Para ello, el SoC avisa al puente de cada IN
+listo (un PC pide IN sin parar), y dos arreglos de fuera del USB: un canal
+de DMA desarmado ya no deja la CPU esperando, y el núcleo no pierde el fin
+de una espera.
+
+**Lo que quedaba, hecho (17-11-2026):** F12 de `testf5` (`f5_usb_hw.c`):
+Port U como GPIO (PUOPE, PUIPE, PUOUT, PUIN, con el carril de VUSB); el
+temporizador de USB a 16 MHz con UTSEL y UTIFG, puesto a cero por SOF; la
+marca de tiempo (USBTSREG) con TSE3 y con el disparo del DMA; la suspensión
+sin SOF y la reanudación remota (RWUP, que el anfitrión ve y contesta con
+RESRIFG); y la sobrecarga del LDO (VUOVLIFG y, con OVLAOFF, VUSBEN a 0).
+Los isócronos no son del MSP430: el módulo USB del F5529 solo tiene control,
+bulk e interrupción [UG5 cap. 42]. **Queda [de modelo]:** la reanudación
+remota la contesta el anfitrión al momento.
+
+**Además**, M5 es la base de dos cosas:
+* el BSL USB (M9);
+* y la eZ-FET de bajo nivel (M11b), que es un MSP430F5528 con su USB.
+
+### M6 · FR2xx/FR4xx: lo común, con el FR2433
+
+**Entregas:**
+* lo común de la familia:
+  * CS con FLL;
+  * PMM con LPM3.5 y LPM4.5;
+  * FRAM con SYSCFG0 y SYSCFG1-3;
+  * RTC contador, CRC16 y Backup RAM;
+  * el ADC de 10 bits;
+* eUSCI y Timer_A desde `periph/ti/`;
+* FR2433 y `msp_exp430fr2433.xml`;
+* erratas de SLAZ664S.
+
+**Cierre:** la demo de fábrica del FR2433; LPM3.5 con el RTC y salida por BOR
+con LOCKLPM5, con la depuración siguiéndolo por JSTATE; la protección de
+escritura de la FRAM.
+
+**Hecho (17-11-2026):** `soc/msp430/fr2433/soc_fr2433.h` y, para la familia,
+cuatro módulos nuevos de `periph/ti/`:
+
+* `cs_fr.h`, el CS de las FR2xx/FR4xx: el FLL (FLLN, FLLD, FLLREFDIV, SELREF
+  con REFO si no hay XT1), el DCO de 512 grifos en ocho márgenes con
+  DCOFTRIM [de modelo: el grifo 256 es la frecuencia nominal con el recorte
+  de fábrica], FLLUNLOCK y su historia durante el enganche, DCOFFG en los
+  extremos, XT1OFFG, las peticiones de reloj en LPM (SMCLKREQEN y
+  ACLKREQEN). El recorte por programa de DriverLib
+  (`CS_initFLLCalculateTrim`) converge como en el chip;
+* `rtc_fr.h`, el RTC contador (RTCSS, RTCPS, RTCMOD con su sombra, RTCSR,
+  RTCIV y el disparo hacia el ADC), que sigue en LPM3.5;
+* `adc_fr.h`, el ADC de 10 bits (los cuatro modos de ADCCONSEQ, ADCSHP,
+  ADCDF, la ventana, ADCIV y los disparos de fuera);
+* `eusci_fr.h`, la eUSCI del MSP432P4 tal cual con la cara que espera el SoC
+  de MSP430.
+
+En el SoC: SYS con SYSCFG0 (PFWP y DFWP, con la contraseña FRWPPW en una
+palabra), SYSCFG2 (ADCPCTL) y los vectores de SYSRSTIV/SYSSNIV/SYSUNIV de la
+hoja de datos; el PMM de las FRAM (PMMREGOFF, los reset por programa,
+PMMCTL2 con la referencia de 1,5 V y el sensor, PMMIFG, PM5CTL0); el
+controlador de la FRAM (FRCTL0 con su contraseña, GCCTL0/1); CRC16; WDT_A;
+P1-P3 con SEL0/SEL1; TA0-TA3 con sus conexiones internas; MPY32; la BAKMEM.
+**LPMx.5:** PMMREGOFF con LPM3/LPM4 apaga el núcleo (LPM3.5 si el RTC
+corre); la RAM se pierde, los pines se quedan como estaban; despiertan el
+RTC, un flanco de P1/P2 (o una bandera que ya estaba puesta) y RST, con un
+BOR: SYSRSTIV = 0x08, PMMLPM5IFG, la bandera del despertar puesta y los
+pines quietos hasta borrar LOCKLPM5; en LPM4.5 la BAKMEM se pierde. El TAP
+de las FRAM (JTAG ID 0x98) da el **JSTATE** (64 bits: LPMx.5, LPM, la parada
+del EEM). La firma de JTAG de 0xFF80. `fr2433_mcu.h` (desde M7,
+`fr2/fr2_mcu.h`) lo pone en `mcu-sim`
+con `--gdb-dap` y `--gdb` por los pines (la sonda de bancada con las
+secuencias de Xv2; si la CPU está en LPMx.5, un BOR por JTAG, como la
+herramienta), con el `load` en la FRAM abriendo SYSCFG0 (`ProgramadorFram`).
+`msp_exp430fr2433.xml` y su SVG, del esquema de SLAU739. El generador de
+descriptores corrige el vector TIMER0_A0 (las cabeceras de TI dicen 0xFFE8,
+el del RTC; su número da 0xFFF8, como la hoja de datos).
+
+**Cierre:** `testfr2` (25 comprobaciones): R1 el SoC contra el descriptor y
+la TLV; R2 `fr2_basico.c` con la DriverLib (16 MHz con el recorte de
+DCOFTRIM, el sensor, MPY32, CRC16, la protección de la FRAM, Timer_A); R3
+LPM3.5 con el RTC y LOCKLPM5; R4 LPM4.5 y el despertar por P2.3; R5 el
+JSTATE por SBW en LPM0 y en LPM3.5; y **R6 la demo de fábrica de TI, su
+binario tal cual**: registra la temperatura en la FRAM despertando de
+LPM3.5 cada ~5 s (la CTPL guarda y devuelve el contexto), S1 la manda en
+JSON por el backchannel y S1+S2 pasan al modo en vivo. Y `make gdb-g2` con
+la FR2433 por los dos caminos. SLAZ664S, clasificada en P-20.
+
+Lo que salió por el camino: la demo pone el FLL a 16 MHz sin el estado de
+espera de la FRAM que pide la hoja de datos por encima de 8 MHz; el modelo
+lo avisa (y lo comprueba R6).
+
+**Queda [de modelo]:** el tiempo de la FRAM (los estados de espera y la
+caché: NWAITS solo avisa) y su ECC (GCCTL1 nunca se pone); la modulación de
+infrarrojos de SYSCFG1; el JTAG de 4 hilos de P1.4-P1.7 está cableado pero
+sin prueba propia; el BSL de ROM (M10).
+
+### M7 · FR2311, FR2355, FR4133 y FR2476
+
+Un chip por subfase, en este orden, porque así cada uno añade poco:
+
+1. **FR4133**: LCD_E y el vidrio FH-1138P (la demo de fábrica pinta en el LCD).
+2. **FR2311**: Timer_B3, eCOMP con su DAC, SAC-L1 y TIA. Si está
+   `slaa754.zip`, la segunda mitad de SLAA754: el MSP432 programa el FR2311 por
+   SBW.
+3. **FR2355**: SAC-L3 × 4, 2 × eCOMP, ICC, el ADC de 12 bits, MPY32 y MFM
+   declarado. La ROM de DriverLib y FFT se declara; si hay firmware que la llame,
+   se carga el binario de TI desde fichero, como B2.
+4. **FR2476**: FRAM por encima de 0x10000, 4 × TA3 + TB7 y ADC de 12 bits.
+
+**Cierre:** la demo de fábrica de cada LaunchPad y las erratas de cada chip.
+**Hecho** (véase «Cierre de M7» al final de esta sección).
+
+**Hecho, el FR4133 (17-11-2026).** Primero, la familia: el SoC del FR2433 se
+hizo **`soc/msp430/fr2/soc_fr2.h`**, uno para todas, con el chip como una
+tabla (`ChipFr2`): los puertos (cuántos, qué bits, cuáles con interrupción),
+los Timer_A (base, CCR, el NOMBRE de sus vectores, que el SoC busca en el
+descriptor generado), las eUSCI, el MPY32 si lo hay, la base del RTC, la
+función de cada pin con cada PxSEL, las conexiones internas de los Timer y
+los disparos del ADC, los canales del ADC y el sensor, XT1, el JTAG de 4
+hilos, el backchannel, el ID y la CRC de la TLV, el LCD_E y sus pines, y
+rasgos sueltos (SYSCFG0 sin contraseña en las FR413x; la errata SYS23).
+`soc_fr2433.h` es ya solo su tabla, y `testfr2` no se mueve. El adaptador
+pasó a `fr2/fr2_mcu.h`, con un `McuCapsFr2` por chip (su tabla, su
+encapsulado y si su LaunchPad lleva cristal). Por el camino, tres cosas de
+la familia que el FR2433 no pedía: **los Timer piden su reloj** en LPM (UG
+FR2 §3.2.12: el antirrebote de la demo del FR4133 cuenta con SMCLK en
+LPM3), **PxIFG no se borra con LOCKLPM5** (§8.3.4: la demo la borra antes
+de soltar los pines y el despertar se atiende igual) y P2IV se lee (daba 0).
+
+El chip, **`fr4133/soc_fr4133.h`** [DS SLAS865F]: P1-P8 con un solo PxSEL0,
+TA0/TA1 en 0x300/0x340, eUSCI_A0 y B0, sin MPY, el ADC con A8/A9 en P8, el
+RTC en 0x3C0 y **el LCD_E** (`periph/ti/lcd_e.h`, UG FR2 cap. 17): LCDCTL0/1,
+el parpadeo (los cuatro LCDBLKMOD con LCDBLKPRE), LCDMEMCTL (LCDDISP,
+LCDCLRM y LCDCLRBM en el borde de la trama), LCDVCTL (VLCD de la bomba de
+carga), LCDPCTL, LCDCSSEL con el COM de cada pin en su LCDMx, LCDIV y las
+tres IFG, la memoria y la de parpadeo; fLCD = fSOURCE / ((LCDDIV + 1) ×
+MUXDIVIDER) y **las ondas en los pines**, con sus cuatro niveles (VLCD, 2/3,
+1/3 y 0). Sigue en LPM3.5 (cuenta como el RTC para el dominio de LPM3.5),
+sus pines no se quedan quietos con LOCKLPM5 y sus registros pasan el
+despertar. **El vidrio FH-1138P** (`parts/lcd_fh1138p.h`) no lee memoria:
+mira las tensiones de sus 38 patillas, decide en cada fase qué COM está en
+un extremo y qué segmentos van al contrario, y lee los seis caracteres con
+las tablas de `hal_LCD.c` de la demo (la S y el 5 son el mismo glifo). Lo que
+se ve es lo que se queda dos tramas. `msp_exp430fr4133.xml` (con el vidrio,
+JP1, los LED, S1-S3, Y1 y el backchannel en el 3361) y su SVG, en
+`dibuja_ti.py`, del esquema de SLAU595B.
+
+**Cierre del FR4133:** `testfr4` (27 comprobaciones): F1 el SoC contra el
+descriptor y la TLV; F2 `fr4_basico.c` con la DriverLib y el vidrio colgado
+de los pines («HOLA43» y el corazón, «FR4133» con LCDDISP, 9 tramas en 100
+ms por LCDIV, el parpadeo a 1,33 Hz, 2,96 V de VLCD, el sensor, el PWM de
+TA1.1); F3 LPM3.5 con el LCD encendido (el vidrio sigue viendo «LPM35» sin
+núcleo; el RTC desde XT1 lo despierta y el LCD sigue sin volver a
+configurarlo) y SYS23; y **F4 la demo de fábrica de TI, su binario tal
+cual**: pasan «WELCOME TO THE FR4133 LAUNCHPAD», el recorrido de los
+segmentos y «HOLD S1 AND S2 TO SWITCH MODES»; S1+S2, el cronómetro (parado
+en LPM3.5, S1 cuenta en LPM3 con el RTC cada 10 ms: 2,04 s); S1+S2 otra vez,
+el termómetro (el ADC disparado por TA1.1: «25.2C», y «77.3F» con S2). Y `make
+gdb-g2` con la FR4133 por los dos caminos. SLAZ550AA, clasificada en P-20.
+
+Lo que salió por el camino: [error de TI] la tabla 3 de SLAU595B pone «A3R» y
+«A4R» donde va la E.
+
+**Queda del FR4133 [de modelo]:** el CapTIvate IO (CAPTIO0) y el RTC a CCI1B
+de TA0, declarados; en 8-mux, 1/3 de polarización como en los demás. (La
+modulación IR de SYSCFG1, después: véase el FR2355.)
+
+**Hecho, el FR2311 (17-11-2026).** Lo de la familia que pedía: **el Timer_B**
+(en `timer_a.h`, `TimerACaps::es_b`): los latches TBxCLn con los cuatro
+CLLD, CNTL (8, 10, 12 o 16 bits en continuo) y sin SCCI; y **lo analógico**,
+`periph/ti/analog_fr.h`: el **eCOMP** (las entradas de cada CPPSEL/CPNSEL que
+da el chip, la histéresis, CPINV, CPIFG/CPIIFG con CPIES y CPxIV, y su DAC de
+6 bits con los dos búferes, por CPDACSW o por la salida), el **SAC** (el OA;
+en el SAC-L3, la PGA de la tabla 20-2 y el DAC de 12 bits con DACIFG/SACxIV)
+y el **TIA**. El operacional de los tres, sin lazo dentro (el modo GP, el
+TIA), mueve su salida cada 0,1 o 0,5 µs la mitad del error hasta que V- =
+V+ por las resistencias de la placa, o hasta un raíl; con lazo dentro (el
+seguidor, la PGA), la cuenta. El SoC lleva sus salidas a los pines (OAxO,
+TRIxO, COUT), sus entradas desde los pines o desde los otros módulos, el
+eCOMP a la captura B de un Timer y al ADC, y sus vectores. Y en la tabla del
+chip: ADC por PxSEL = 11 (los «Smart Analog Combo» no tienen ADCPCTL), XIN
+con PxSEL = 10, la reasignación de la UCB0 (USCIBRMP) y RTCCKSEL.
+
+El chip, **`fr2311/soc_fr2311.h`** [DS SLASE58E]: P1-P2, TB0/TB1 de 3 CCR,
+eUSCI_A0 y B0, sin MPY ni memoria de información, eCOMP0 (C0, C1, C4 = OA0O
+o TRI0O, el DAC), SAC0 (SAC-L1: OA0+ P1.4, OA0- P1.2, OA0O P1.3) y TIA0 (TRI0+
+P1.7, TRI0- P1.6, TRI0O P1.5). **El fotodiodo** (`parts/fotodiodo.h`), una
+corriente que entra por el cátodo, proporcional a la luz (el mando `luz`).
+`msp_exp430fr2311.xml` (D1, R3 y sus puentes J7-J9, LED1/LED2 tras J10/J11,
+S1, el backchannel en el 3362) y su SVG. Y **la segunda mitad de SLAA754**:
+`msp432_programa_fr2311.xml`, la MSP-EXP432P401R con
+`MSP432Host_SBW_MSP430FR.out` de TI tal cual, cableada a RST y TEST de la
+FR2311 por J101: el Replicator430FR borra la FRAM, escribe el «blinky» y lo
+verifica, «MSP430 Programmed Successfully», y el LED1 del FR2311 parpadea
+(`make fr2311-slaa754`).
+
+**Cierre del FR2311:** `testfr2311`: H1 el descriptor y la TLV; H2
+`fr23_basico.c` con la DriverLib y una red en el banco (Timer_B con CNTL de 8
+bits y el PWM con CLLD; TB25; el eCOMP0 contra los dos búferes de su DAC y
+su interrupción; el SAC0 en GP con ganancia 3 por 20k/10k; el TIA0 con 1
+Mohm y 1 µA); y **H3 la demo de fábrica de TI, su binario**, con D1 y R3 como
+en la placa: a oscuras LED2 apagado, a 50 lx al 35,6 % (0,59 V en OA0O), a
+300 lx al 99,6 % (el OA en el raíl). `make gdb-g2` con la FR2311 por los dos
+caminos. SLAZ679R clasificada; **TB25** (en ascendente, CLLD = 01/10 cargan
+el latch en el acto), modelada.
+
+**Queda del FR2311 [de modelo]:** el RTC a CCI0A de TB0, el retraso del
+filtro del eCOMP y el ancho de banda del OA; TBCLGRP. (TBxOUTH y la
+modulación IR, después: véase el FR2355.)
+
+Lo que salió por el camino: `make gdb-g2` con la FR2311 dio con un error de
+`common/gdb_rsp.h`, el de todos los stubs: el final del sector de un trozo
+de `vFlashWrite` se calculaba alineando la dirección a su tamaño, y la FRAM
+de la FR2311 empieza en 0xF100, con sectores de 512 B que no están
+alineados; el trozo pasaba al sector siguiente sin borrarlo, y el borrado de
+ese sector, después, se llevaba lo escrito. Ahora el final se busca con
+`sector_de`; con sectores alineados (todos los demás) sale lo mismo.
+
+**Hecho, el FR2355 (17-11-2026).** Lo de la familia que pedía, en la tabla
+del chip y en `soc_fr2.h`: **el ICC** (UG FR2 cap. 5): ICCSC, ICCMVS y los
+ICCILSR0-7; con ICCEN, la petición que pasa a la CPU es la de nivel más bajo
+(a igualdad, la de vector más alto), y solo si la pila virtual está vacía o
+su nivel es menor que ICMC; al aceptarla entra en la pila, y la RETI la saca
+(un gancho nuevo del núcleo, `al_reti`). **El ADC de 12 bits** (ADCRES = 10,
+14 ciclos de conversión). **La referencia compartida mejorada**: REFVSEL da
+1,5, 2,0 o 2,5 V al ADC (canal 13 y VREF+), a los DAC de los SAC y al del
+eCOMP. **La de 1,2 V** como entrada de los eCOMP. **Los disparos del DAC**
+(DACLSEL = 10/11, TB2.1/TB2.2). **Las salidas de los SAC al ADC por dentro**
+(«connected internally to the ADC», SLAU680 §3.1.3: la demo deja P1.1 como
+salida digital y lee la salida del SAC0 por A1). **FRWPOA** (SYSCFG0 7-2): el
+primer FRWPOA KB de la FRAM principal sin proteger por PFWP; el arranque de
+CCS lo abre para las variables PERSISTENT de la demo, que sin él no
+guardaban la luz medida.
+
+El chip, **`fr2355/soc_fr2355.h`** [DS SLASEC4D]: P1-P6 (P1-P4 con
+interrupción), TB0-TB2 de 3 CCR y TB3 de 7, eUSCI_A0/A1/B0/B1, MPY32, el
+ADC con A8-A11 en P5, eCOMP0 y eCOMP1 (con la de 1,2 V y las salidas de los
+SAC), los cuatro SAC-L3 por parejas (SAC0-SAC2, SAC1-SAC3), el ICC en 0x6C0
+(ILSR0 el vector 0xFFCE, el P4) y XT1 en P2.7/P2.6. La ROM de DriverLib y
+FFT, declarada: la demo de fábrica no la llama. `msp_exp430fr2355.xml` (D1 y
+R3 en el SAC2 tras J7-J9, LED1/LED2 tras J10/J11, S1, S2, S3, Y1, el
+backchannel en el 3363 y los cuatro conectores BoosterPack) y su SVG.
+
+**Cierre del FR2355:** `testfr2355` (23): J1 el descriptor, la TLV y el ICC
+tras el reset; J2 `fr235_basico.c` (registros, sin DriverLib): XT1 y el FLL
+a 24 MHz, el ADC de 12 bits con DVCC y la referencia a 2,0 V, **el ICC**
+(el P1 de nivel 0 anida dentro de TB0 de nivel 3, con ICCSC 0x0083 e
+ICCMVS 0x02F3 dentro; TB0 espera a la RETI del P1 aunque haya GIE; sin
+ICCEN anida cualquiera), el DAC del SAC3 que carga TB2.1 en seguidor y el
+SAC1 en PGA inversor en cascada leído por A5 por dentro (4093, luego 1022),
+DACIFG, el eCOMP1 contra la de 1,2 V, TB3.6 al 30 % y el MPY32; y **J3 la
+demo de fábrica de TI, su binario**, con D1 y R3 como en la placa: a
+oscuras LED1 encendido; a 40 lx (ADC 588) LED2 al 13,9 % (la media entera de
+la demo se para 9 cuentas por debajo); S1 recalibra y se apagan los dos; S2
+pasa al generador de funciones: su configuración en JSON, la tabla del seno
+calculada con `sinf` (1,09 s), y 614 muestras en 1,2 s entre 1024 y 3070, el
+seno del DAC del SAC3 invertido por el SAC1. `make gdb-g2` con la FR2355 por
+los dos caminos. SLAZ695J clasificada (13, todas de la FR2311; TB25
+modelada también aquí).
+
+**Después, lo que quedaba del FR2355 (17-11-2026).**
+* **El MFM** (UG FR2 cap. 25): con MFM.RX/MFM.TX elegidos (P5.0/P5.1, PxSEL
+  = 10), la eUSCI_B1 queda de esclava de un maestro SPI de dentro
+  (`EusciP4::pon_externo`, `esclavo_toma`, `esclavo_recibe`). Un bit son 8
+  ciclos de SMCLK en Manchester; un paquete, 32 bytes. La salida de TB2 CCR0
+  arranca la transmisión (cada byte, el TXBUF de la esclava); la recepción
+  arranca con el primer flanco de subida, muestrea cada mitad en su centro y
+  se resincroniza en la transición del medio; el fin de los dos va a TB2
+  CCI0B.
+* **TBxOUTH**: las salidas de un Timer_B a sus pines, en alta impedancia
+  mientras su disparo esté a 1: el eCOMP de la tabla o, con TBxTRGSEL, su pin
+  TBxTRG. También en la FR2311 (TB0, TB1) y la FR2476 (TB0).
+* **La modulación IR** de SYSCFG1 (UG FR2 figura 1-6), en todas las de la
+  familia: el dato (UCA0TXD o IRDATA); en ASK la portadora (TA0.2 o TB0.2)
+  por la envolvente (TA1.2 o TB1.2), invertida si el dato es 1; en FSK una u
+  otra; IRPSEL invierte; sale por el pin de UCA0TXD.
+* **La ROM de bibliotecas, hecha aquí**: la DriverLib de TI (BSD, la del
+  paquete de la LaunchPad) compilada en 0xFAC00 con las tablas en el orden de
+  `rom_driverlib_fr235x.h`, que es la única interfaz pública de la ROM de TI
+  (`verif/fr2355/rom/`: `genera_rom.py`, `rom.ld`, `Makefile.rom`; sale
+  `verif/fw/fr2355/rom_driverlib_fr235x.txt`, que el SoC carga al
+  construirse). Las funciones están en otras direcciones que en la ROM de
+  TI, y la FFT no está (su entrada en la raíz es 0): un programa que llame
+  por las tablas, como hacen las macros `ROM_` y `MAP_` de TI, funciona.
+  `rom_gcc.h` es la cabecera de TI para msp430-elf-gcc `-mlarge`.
+
+**Lo que salió por el camino:** el SoC miraba la petición de CCR0 de los
+Timer por su señal `irq0`, que el Timer publica un delta después, y una
+rutina corta volvía a entrar con la petición ya borrada (la del MFM contaba
+dos fines por uno; la de `fr2_basico.c` contaba 10 ms en 5). Ahora la mira
+en el Timer (`TimerAP4::pide0`/`piden`); `testfr2` se mueve 10 ms, con las
+mismas comprobaciones (nota en `verif/invariantes.txt`).
+
+`testfr2355` J4 (13): la ROM (la versión 2.90.1.7, GPIO, CRC y MPY32 por sus
+tablas), la IR (ASK con el dato a 1 y a 0, IRPSEL, FSK con los dos datos, y
+sin IREN), TB0OUTH (por el eCOMP0 y por TB0TRG) y el MFM (un paquete por
+P5.1 decodificado por el banco y otro del banco por P5.0, byte a byte en la
+UCB1). Ahora son 36 comprobaciones.
+
+**Queda del FR2355 [de modelo]:** la eUSCI_A1 invertida para IR, el eCOMP1
+como entrada del MFM, TB3 CCR0B a TB1 y el RTC a TB0 CCI0A, declarados. Con la
+pila virtual del ICC llena no pasa ninguna petición (el UG no dice qué hace),
+y la RETI de una NMI también saca de la pila.
+
+**Hecho, el FR2476 (17-11-2026).** Lo de la familia que pedía: **la FRAM de
+arriba de 0x10000** (la `principal2` del descriptor: el SoC ya la llevaba; el
+programador de GDB la cubre ahora hasta su final, `fram_fin()`), y **una
+reasignación por función** (`Fr2Fn::rmp`): la FR2476 tiene cinco bits
+(USCIB0RMP en SYSCFG2; USCIA0RMP, TA2RMP, TA3RMP y USCIB1RMP en SYSCFG3), y
+cada función reasignable lleva el suyo.
+
+El chip, **`fr2476/soc_fr2476.h`** [DS SLASEO7C]: P1-P6 (P6.0-P6.2), todos
+con interrupción; Timer0_A3 a Timer3_A3 y Timer0_B7; eUSCI_A0/A1/B0/B1;
+MPY32; el ADC de 12 bits con A8-A11 en P4 y P5 (sin ADCPCTL: PxSEL = 11); la
+referencia mejorada; el eCOMP0 con la de 1,2 V y COUT en P3.4; las
+conexiones TA0→TA1, TA2→TA3 y TA3→TB0 por las capturas B; XT1 en P2.1/P2.0
+con PxSEL = 01. Sin ICC, sin SAC y sin FRWPOA. **El TMP235**
+(`parts/tmp235.h`): con VDD, 500 mV + 10 mV/°C (el mando `temperatura`).
+`lp_msp430fr2476.xml` (U1 tras J9, LED1 tras J7, el RGB tras J8, S1 y S2
+con sus 47 kohm, S3, el cristal sin conectar, el backchannel en el 3364 y
+los cuatro conectores BoosterPack) y su SVG.
+
+**Cierre del FR2476:** `testfr2476` (19): K1 el descriptor (la FRAM hasta
+0x17FFF) y la TLV; K2 `fr247_basico.c` con `-mlarge`: código en 0x1000A y
+una tabla en 0x10000 (CALLA y lecturas de 20 bits), PFWP también allí
+(0x17F00 no se escribe con él y sí sin él), el ADC de 12 bits con REFVSEL =
+2,5 V, TA2.1 en P3.3 y con TA2RMP en P5.7 (el otro pin quieto), TB0.6 en
+P4.4, el eCOMP0 contra la de 1,2 V y la interrupción de P6; y **K3 la demo
+de fábrica de TI, su binario**, con el TMP235: a 25 °C verde (la calibración
+del arranque); a 25,5 °C rojo 16 y verde 239 de 256 (la media entera de la
+demo se para 9 cuentas por debajo); S2 manda «Ambient Temperature: 25.48 C»
+a 9600; S1 recalibra y vuelve el verde; a 24,5 °C, azul 72 de 256. `make
+gdb-g2` con la FR2476 por los dos caminos, con la ruptura en una función de
+por encima de 0x10000. SLAZ726B clasificada (9: TB25 y **COMP12**, el eCOMP0
+que no llega a TB0.CCI1B, modeladas).
+
+**Queda del FR2476 [de modelo]:** el RTC a TA0/TA2 CCI1B y el VLO a CCI0B.
+
+**Cierre de M7 (17-11-2026).** Los cuatro chips, cada uno con su SoC como
+tabla de `soc_fr2.h`, su LaunchPad (XML y SVG), su suite (`testfr4`,
+`testfr2311`, `testfr2355`, `testfr2476`), la demo de fábrica de TI tal cual
+en ella, sus erratas clasificadas en `doc/todo.md` (SLAZ550AA, SLAZ679R,
+SLAZ695J, SLAZ726B; SYS23, TB25 y COMP12 modeladas) y `make gdb-g2` por
+`--gdb-dap` y por los pines. Y la segunda mitad de SLAA754 (`make
+fr2311-slaa754`). `testfr2`, `test430`, `testg2` y `testf5` no se movieron.
+
+### M8 · FR5xx/FR6xx: FR5969, FR5994 y FR6989
+
+1. **FR5969**: lo común de la familia (CS, PMM con LPMx.5, FRAM con NWAITS y
+   caché, MPU, IPE, REF_A, ADC12_B, Comp_E, RTC_B, AES256, DMA y MPY32) y
+   `msp_exp430fr5969.xml`.
+2. **FR5994**: 4 × eUSCI_A/B, CRC32, RTC_C y RAMCTL; LEA declarado; la
+   microSD; FRAM hasta 0x43FFF.
+3. **FR6989**: LCD_C con el FH-1138P y ESI declarado.
+
+Y el **Replicator430FR** en el F5529 de M4, contra el FR5969.
+
+**Cierre:**
+* las demos de fábrica (la del FR6989 usa el LCD);
+* la MPU con una violación que da su NMI;
+* la IPE que no deja leer por JTAG ni por el depurador;
+* un `load` en una FRAM con la MPU puesta;
+* el Replicator430FR programa y desbloquea el FR5969 (con la contraseña de
+  JTAG de 0xFF80).
+
+**Hecho (noviembre de 2026).** Las FR5xx/FR6xx no tienen SoC propio: son
+el de las FR2 (`soc/msp430/fr2/soc_fr2.h`) con `ChipFr2::fr5`. Lo que
+cambia:
+
+* **El mapa del sistema.** FRCTL en 0x140, CRC16 en 0x150, WDT en 0x15C, CS
+  en 0x160 y SYS en 0x180 se traducen a sus direcciones de FR2 y los lleva
+  el mismo código (`traduce5`); SYSCFG0-3 y PMMCTL2 no existen. PJ (0x320)
+  es el 11.º puerto (índice `FR5_PJ`, registros como los de 0x2A0); `NPIN`
+  pasa a 88.
+* **El CS** (`cs_fr.h` con `fr5`): el DCO de frecuencias fijas (DCORSEL,
+  DCOFSEL; 1 MHz de MCLK tras el reset, DCO/8), SELA/SELS/SELM, DIVx, CSKEY,
+  LFXTOFFG puesta tras el POR y la caída a LFMODCLK/MODCLK de un cristal que
+  falta. [De modelo] HFXTOFFG no se pone en el POR: los ejemplos de TI solo
+  borran LFXTOFFG. SMCLK a petición (SMCLKREQEN) para la eUSCI en LPM3: un
+  arranque en RXD con SMCLK parado se recibe (la demo del FR5969 duerme en
+  LPM3 esperando al PC).
+* **Módulos.** El ADC12_B (`adc12_b.h`, nuevo: 32 memorias, las cuatro
+  secuencias, SHT0/SHT1, la ventana, el diferencial, el sensor por TCMAP y
+  AVCC/2 por BATMAP, la petición de referencia); REF_A (el del MSP432 con las
+  tensiones de las FR5: 1,2, 2,0 y 2,5 V); el Comp_E, el AES256 y el CRC32
+  del MSP432 (el CRC32 con el mapa de las FR5994: DIRB y RESR con las
+  palabras al revés); el RTC_B (el RTC_A en calendario, con su propio
+  dominio de reset para que LPM3.5 no lo borre) y el RTC_C; el DMA de 5xx
+  con los disparos de los Timer, las eUSCI y el ADC; la TLV de las FR5 (la
+  calibración del ADC12 y de REF, el aleatorio, el BSL).
+* **La MPU y la IPE** (UG FR5 cap. 9): los tres segmentos de la principal y
+  el de información, con lectura, escritura y ejecución; la violación no se
+  hace (se lee 0x3FFF, JMP $) y da la NMI (MPUSEGIE, SYSSNIV 0x08-0x10) o el
+  PUC (MPUSEGxVS, SYSRSTIV 0x26-0x2E); MPUPW con PUC por palabra; MPULOCK y
+  MPUIPLOCK. La IPE: solo la lee código que se ejecuta dentro (pasados sus
+  ocho primeros bytes); ni el DMA, ni JTAG, ni el depurador; el arranque con
+  las firmas de 0xFF88/0xFF8A y la estructura con su paridad (una mala lo
+  borra todo). El depurador (`--gdb-dap`) se salta la MPU (la herramienta la
+  abre) y el programador de FRAM de GDB, por los pines, la apaga cada vez
+  que la encuentra encendida (MSPDS).
+* **JTAG.** La contraseña de 0xFF80 (0xAAAA y la longitud; la contraseña en
+  0xFF88): la TAP deja el buzón abierto con la firma; con 0xA55A y 0x1E1E en
+  el buzón al arrancar, lo que entra por JMBIN0 se compara palabra a palabra.
+  El borrado por el buzón (0x1A1A, sin la IPE; 0x1B1B, con ella). [De
+  modelo] La herramienta escribe esas órdenes con el chip retenido en la
+  entrada con RST bajo, que aquí no se modela por SBW: al bajar TEST con una
+  orden puesta, un BOR como el del pin RST.
+* **Una SNMI aceptada tapa las demás hasta su RETI** (UG FR5 y FR2 §1.3.4.1).
+  Antes, una NMI pendiente volvía a entrar antes de que la rutina leyera
+  SYSSNIV; las suites de las FR2 no se mueven.
+* **El monitor del backchannel** descarta los errores de trama (la demo del
+  FR5969 deja TXD en GPIO a 0 entre envíos).
+* **El LCD_C** (FR6989) va sobre el LcdE de M7: LCDCCTL0 con LCDSSEL de un
+  bit y LCDPRE (`div_fijo`), los COM fijos en P6.3-P6.6 (L60-L63, `com_c`) y
+  la memoria en el mismo sitio (LCDM1 en +0x20).
+
+Los chips: `soc_fr5969.h`, `soc_fr5994.h` (6 Timer, 8 eUSCI, RTC_C, CRC32,
+la RAM del LEA como RAM; el LEA declarado) y `soc_fr6989.h` (LCD_C, RTC_C, 4
+eUSCI; el ESI declarado). Las placas: `msp_exp430fr5969.xml`,
+`msp_exp430fr5994.xml` (con la microSD: la pieza nueva **SdSpi**, una tarjeta
+SDHC en modo SPI a nivel de pin) y `msp_exp430fr6989.xml` (con el vidrio
+FH-1138P de M7).
+
+**`testfr5`:**
+* L1 el FR5969 contra su descriptor y la TLV.
+* L2 `fr59_basico.c`: DCO, LFXT, ADC12_B (el sensor con la calibración de la
+  TLV da 25,0 °C), Comp_E, AES-128 (FIPS-197), DMA, RTC_B, TB0.3, la IPE
+  (0x3FFF desde fuera y para el depurador; el dato desde dentro), la MPU con
+  su NMI y con su PUC, LPM3.5 con el RTC_B.
+* L3 la demo de fábrica del FR5969 (su binario): el parpadeo, el ping, la
+  temperatura en vivo, el registro en FRAM con LPM3.5 y S2 que lo despierta.
+* L4 `fr5994_basico.c`: la RAM del LEA, la FRAM hasta 0x43FFF, CRC32 y
+  CRC16 de «123456789», el RTC_C con RTCKEY y la microSD por la UCB0.
+* L5 la demo de fábrica del FR6989 con el LCD_C y el vidrio: el texto que se
+  desplaza; S1 y S2, el cronómetro.
+* L6 el Replicator430FR de TI en el F5529 de M4 programa el FR5969 por SBW
+  (apaga la MPU, borra por el buzón, carga y suelta); y con la contraseña de
+  JTAG puesta, la da por el buzón antes.
+
+Y en `gdb_g2.py`, la FR5969 por `--gdb-dap` y por `--gdb`: la MPU puesta
+por el programa, el secreto de la IPE que se lee 0x3FFF, y el `load` de otro
+programa con la MPU puesta, con `compare-sections`.
+
+**[Error de TI] en el Replicator430FR (SLAU320AJ):** el bucle de
+`UnlockDevice_430Xv2` no incrementa `i` y manda la primera palabra de la
+contraseña para siempre; en `verif/f5529/replicator_fr` va con su `i++`
+marcado.
+
+**Lo que quedaba de M8 (hecho):**
+* **El HFXT** (`cs_fr.h`): las condiciones de encendido, el margen de HFFREQ,
+  el arranque de la tabla 5-5 del DS con el contador de 1024 ciclos
+  (ENSTFCNT2), el bypass por un reloj en HFXIN (un ExtClock o `f_hfxt_ext`) y
+  el del LFXT; el atributo `hfxt` del `<mcu>` da la frecuencia del cristal.
+* **RAMCTL** (RCCTL0, clave 0x5A): los sectores de cada chip, que se pierden
+  en LPM3/LPM4 con RCRSxOFF = 01 y siguen apagados (0x3FFF, sin escribir) con
+  10.
+* **Las funciones de todos los pines** de FR5969, FR5994 y FR6989 (las tablas
+  6-20 a 6-60 de sus DS): las CCIxB, DMAE0, RTCCLK, los bits del SR, las
+  salidas del ESI, el cristal y lo analógico (CEPD, los canales del ADC y del
+  Comp_E).
+* **El cronómetro del FR6989**: el RTC_C de las FR5 con la clave de sus
+  registros, RTCPS de 16 bits y los preescaladores a cero al escribir la
+  hora; la demo cuenta al centisegundo.
+* **Las erratas** de SLAZ473AG, SLAZ517AG y SLAZ681O, clasificadas en
+  `doc/todo.md`: se modelan ADC41/42/43/66/69/71, AES1, COMP10, REF9, WDG5,
+  RTC12, TA22 y TB25.
+* **El LEA del FR5994** (`periph/ti/lea.h`): sus registros (0x0A80), la pila
+  de parámetros, la memoria de código con la suma de la revisión B y las
+  órdenes cargadas (por su huella), la interrupción y el disparo 27 del DMA;
+  las órdenes, con la aritmética de la DSPLib sin LEA (vectores, MAC,
+  máximos, matrices, FIR, biquads, FFT de 16 y 32 bits, partir, intercalar).
+  TI no publica el LEA a nivel de registro: la DSPLib es la fuente.
+* **El ESI del FR6989** (`periph/ti/esi.h`, UG cap. 37): la TSM con sus tres
+  disparos y la secuencia de prueba, los dos AFE (DAC con histéresis,
+  muestra, excitación, entradas directas), la PSM con su RAM y sus
+  contadores, las nueve banderas con ESIIV, el oscilador con ESICNT3, ESIO0-2
+  a TA3 (que tiene cinco CCR, no dos) y las salidas a los pines.
+* Y el MPY32: MPYSAT ya no satura un MPYS negativo que no desborda.
+
+**`testfr5`** suma L7 (el HFXT y RAMCTL), L8 (los pines), L9 (las erratas),
+L10 (la DSPLib con el LEA da bit a bit lo mismo que con la CPU, en 39
+funciones, unas 15 veces más deprisa) y L11 (el ESI: el oscilador, la RAM,
+las entradas contra el DAC, la histéresis, la muestra, una cuadratura de 12
+pasos adelante y 5 atrás por la PSM, la secuencia de prueba, ESIIV y la
+excitación).
+
+**Queda [de modelo]:** el tiempo de las órdenes del LEA; el ESI sin la
+sincronización de la tabla 37-5, sin la subida de VMID ni las oscilaciones de
+un sensor LC.
+
+### M9 · BSL de 2xx, 5xx y FR5xx/FR6xx
+
+**Entregas:**
+* **F5529**: el BSL USB de [MSPBSL] portado a `msp430-elf-gcc` (B1) y la carga
+  de la imagen de TI (B2);
+* **FR5xx/FR6xx**: el BSL propio con el intérprete y la interfaz
+  `eUSCI_UART_I2C` de [MSPBSL] y una API de FRAM; la Z-Area; la versión de cada
+  chip;
+* **G2553**: el BSL propio de 1xx/2xx;
+* B2 y B3 en todos;
+* la entrada por TEST y RST, y por PUR;
+* `bsl_adaptador.xml`;
+* el BSL de usuario de la G2xx ([MSPBSL], §9.3) como firmware de prueba.
+
+**Cierre:**
+* `python-msp430-tools` programa, verifica y arranca blink:
+  * en el G2553, con `bsl.target`;
+  * en el FR5969, con `bsl5.uart`;
+  * en el F5529, con `bsl5.hid` (por USB/IP si existe U4; si no, con el
+    cliente del banco);
+* el BSL de TI del F5529 (B1) y su imagen publicada (B2) dan las mismas
+  respuestas a la misma batería;
+* contraseña incorrecta → borrado masivo;
+* BSL-Scripter con un guion de prácticas;
+* el BSL de usuario de la G2xx carga un programa por el *backchannel* de la G2ET
+  con S2 pulsado.
+
+**Hecho (21-11-2026), salvo lo que se dice al final:**
+* **Las licencias, antes que nada.** El manifiesto de [MSPBSL] dice BSD-3,
+  pero las cabeceras de su intérprete, de sus interfaces (`eUSCI_UART_I2C`,
+  `USCIA_UART`…) y de su API llevan la «Limited License» de TI (solo con
+  dispositivos de TI). No entra nada de eso. El BSL USB del F552x tiene una
+  copia BSD-3 de verdad en [MSPDS] (`ThirdParty/BSL430_Firmware`), y el BSL de
+  la G2xx lleva BSD-3 en su propia cabecera.
+* **F5529, B1**: ese BSL USB portado de IAR a `msp430-elf-gcc`
+  (`verif/fw/f5529/bsl_b1`: `portar.py` cambia lo de IAR y lo marca, con un
+  arranque y un enlazado nuevos; `-msmall -Os -flto` para que quepa en los
+  2 KB de 0x1000-0x17FF), con las firmas de 0x17F0. Es el de Flash, de solo
+  RAM (`RAM_WRITE_ONLY`: 0x11, 0x1B y 0x17). Va dentro del simulador
+  (`bsl_f5529.inc`, con su huella en `verif/fw/huellas.txt`). **La entrada**:
+  firmas buenas y PUR alto, o el vector de reset en blanco con VBUS. El de
+  TI mide XT2 con TB0 CCR6 por CCI6B = ACLK, que ahora está. **B2**
+  (`--bsl FICHERO`): la imagen de TI de [MSPBSL] `Released_BSL_Images`, que
+  no se versiona; **B3** (`--bsl ninguno`).
+* **FR5969, FR5994 y FR6989, B1**: uno propio (`verif/fw/fr5/bsl_b1`,
+  AGPLv3) con el protocolo y las órdenes de [BSLFR]: 0x10, 0x11, 0x15, 0x16,
+  0x17, 0x18, 0x19, 0x1B y 0x52, 9600 8E1 por la eUSCI_A0 (P2.0/P2.1; el
+  FR6989 con la otra selección), la contraseña mala borra la FRAM principal y
+  vuelve a empezar sin contestar (como dice [BSLFR] §4.3.2.2), la firma de
+  0xFF84/0xFF86, la versión de cada chip por el ID de la TLV (00.07.34.B2 y
+  00.08.35.B3), la Z-Area (0x1000 entra, 0x1002 es la «BSL Action»), y la
+  protección: desde fuera del BSL, lo que no es la Z-Area se lee 0x3FFF.
+* **G2553, B1**: uno propio (`verif/fw/g2553/bsl_b1`, AGPLv3, 1 KB en
+  0x0C00) con el protocolo de 1xx/2xx: UART por software con el Timer0_A,
+  9600 8E1, TX en P1.1 y RX en P1.5; la versión son los 16 bytes de 0x0FF0
+  (ID 0x2553); BSLSKEY (0xFFDE) a 0xAA55 no borra y a 0x0000 no arranca.
+* **La entrada por TEST y RST** (FR5 y G2553: dos flancos de TEST con RST
+  bajo y RST que sube con TEST alto) y por PUR (F5529). `--bsl b1`,
+  `ninguno` o un fichero en los tres.
+* **El BSL de usuario de la G2xx**, pasado a GNU as
+  (`verif/g2553/g2_bsl_usuario.S`, BSD-3), como firmware de prueba. Dos
+  cosas que el original no dice: el borrado de sus cuatro segmentos dura
+  58 ms (4819 tFTG cada uno con MCLK/3), no 16; y con un solo bit de parada
+  no llega: la escritura de cada byte (30 tFTG, 90 µs con la CPU parada)
+  acaba después del flanco del siguiente, y lee el bit 0 en su borde. Hay
+  que mandar 8N2 (o con un hueco).
+* **`placas/bsl_adaptador.xml`**: un FT232 con DTR a RST y RTS a TEST, sin
+  inversor: con el puerto cerrado RST queda alto y el chip corre. Y dos
+  sistemas: `msp_exp430fr5969_bsl.xml` y `msp_exp430g2et_bsl.xml`, la
+  LaunchPad sin los puentes de la eZ-FET y el adaptador en su lugar.
+* **Dos fallos del modelo que salieron por el camino**: (1) en las FR2/FR5 y
+  en el F5529, la entrada de un módulo no se actualizaba al darle el pin
+  (PxSEL), solo en el siguiente flanco: un UCAxRXD que ya estaba alto se
+  quedaba en 0 y el primer byte se perdía (el 0x80 del BSL); (2) el
+  PuenteSerie dejaba DTR y RTS como los dejó el terminal al cerrar el
+  puerto; ahora vuelven a reposo, como hace el sistema operativo.
+
+**Pruebas:** `testg2` G8 (el B1: 7 comprobaciones) y G9 (el BSL de usuario,
+4); `testfr5` L12 (13: la secuencia, la versión, la contraseña mala y el
+borrado, RX, CRC, TX, Load PC con blink, la Z-Area, B3, el FR5994 y el
+FR6989); `testf5` F14 (3: entra con el chip en blanco y VBUS, enumera como
+2047:0200 y la batería; con `BSL_TI=<imagen de TI>`, la misma batería da lo
+mismo con B2, byte a byte). Y con la herramienta de verdad:
+* `make -f Makefile.mcu-sim fr5-bsl-python`: `msp430.bsl5.uart` por RFC 2217
+  entra por TEST y RST, borra (contraseña mala), escribe y verifica blink y
+  lo arranca. La 0.10 de PyPI no va con Python 3:
+  `herramientas/bsl5_uart_py3.py` le pone lo que le falta (y espera la falta
+  de respuesta del borrado, que la herramienta toma por error);
+* `make -f Makefile.mcu-sim g2-bsl-python`: `msp430.bsl.target`, tal cual,
+  hace lo mismo en el G2553 y arranca con `-x 0xC000` (con `-r`, su reset
+  escribe en WDTCTL por el BSL con RST a masa y acaba en error).
+
+**Lo que no está:**
+* **`msp430.bsl5.hid` en el F5529**: no hay `/dev/hidraw` ni el servidor
+  USB/IP (U4), y su `hid.py` sigue en Python 2. El cliente HID del banco (F14)
+  hace el protocolo. Además, el BSL de RAM que cargan las herramientas
+  (`RAM_BSL.00.06.05.34` de `python-msp430-tools`, o el 00.08.09.39 de TI)
+  no vuelve a enumerar tras el Load PC 0x2504 en el modelo: el USB del
+  modelo no lo deja en la dirección 0 tras su reset de bus (`RAM_BSL=` en
+  F14 lo reproduce). Queda en P-20.
+* **BSL-Scripter**: no está en `doc/refs`; con él, un guion de prácticas
+  contra `msp_exp430fr5969_bsl.xml` es una línea más en
+  `fr5-bsl-python`.
+* Las variantes I2C del BSL de las FR5 («1»: FR59691…) y el BSL por UART del
+  F5529 (las LaunchPad no los usan).
+
+### M10 · BSL de FR2xx/FR4xx
+
+**Entregas** (todo de [BSLFRAM]):
+* BSL1 en 0x1000 y BSL2 en 0xFFC00 en FR2311, FR2433, FR2355 y FR2476; el BSL
+  de 1 KB y solo UART a 9600 en el FR4133;
+* la entrada por chip en blanco en FR23xx-FR26xx;
+* el plazo de 10 s a LPM4 con el temporizador de cada chip;
+* la configuración por TLV (etiqueta 0xB5) y de usuario (0xFF88, firma 0x695A)
+  en FR2355 y FR2476, con su arranque de unos 300 ms;
+* la interfaz I2C (0x48) y la automática.
+
+**Cierre:**
+* el de M9 en el FR2433 (UART), el FR2476 (I2C, con la configuración de
+  usuario que deja solo I2C) y el FR4133 (UART a 9600; el cambio de baudios se
+  rechaza);
+* un FR2433 en blanco entra en el BSL sin secuencia;
+* el BSL se duerme a los 10 s.
+
+**Tamaño:** pequeño. El intérprete, la interfaz y la API son los de M9.
+
+**Hecho (21-11-2026):**
+* **El B1 de las FR2xx/FR4xx** (`verif/fw/fr2/bsl_b1`, AGPLv3, sin código de
+  TI; SLAU550AB, que no estaba en `doc/refs`, llegó en esta fase): una fuente
+  y dos imágenes, dentro del simulador (`soc/msp430/fr2/bsl_fr2.inc` y
+  `bsl_fr4.inc`, con su huella en `verif/fw/huellas.txt`).
+  * **FR23xx-FR26xx** (FR2311, FR2433, FR2355, FR2476): 3 KB, el BSL1 en
+    0x1000-0x17FF y el BSL2 en 0xFFC00-0xFFFFF (la interfaz I2C, la
+    configuración de cada chip y la espera); MCLK = 8 MHz del FLL; UART
+    (eUSCI_A0, 9600 8E1, sube hasta 115200) e I2C (eUSCI_B0 de esclava en
+    P1.2/P1.3, 0x48) con detección automática: la que hable primero; sin
+    nadie en 10 s, LPM4 (el temporizador de la tabla 7-1: Timer0_B o, en la
+    FR2433, Timer0_A); borra la RAM de la tabla 7-1; las órdenes de las FR5
+    más Mass Erase con respuesta; la contraseña mala contesta 0x3B 0x05 y
+    borra también la información; TX BSL Version es protegida; la versión de
+    cada chip (00.08.35.B3, 00.09.36.B4, 00.09.36.B5). En FR2355 y FR2476 la
+    configuración sale de la TLV (la etiqueta 0xB5 de la tabla 3-1, que el
+    modelo pone en la TLV de esos dos chips [de modelo: en 0x1A24]) y de la
+    del usuario (0xFF88: la interfaz, no borrar la RAM ni la diminuta, la
+    dirección I2C), con ~300 ms de arranque.
+  * **FR4xx** (FR4133): 1 KB, solo UART y solo a 9600; RX Data Block, RX
+    Password, Load PC y TX Data Block; lo demás, 0x3B 0x07.
+* **El chip en blanco** (vector de reset 0xFFFF) entra en el BSL sin la
+  secuencia en las FR23xx-FR26xx; la secuencia de TEST y RST, en todas; la
+  firma de 0xFF84/0xFF86 a 0x5555 lo apaga, y a 0xAAAA quita el borrado.
+* La protección de lectura del BSL (0x3FFF desde fuera de él, salvo la
+  Z-Area) cubre también el BSL2. `--bsl` en todas las FR.
+* `placas/msp_exp430fr2433_bsl.xml` y `make -f Makefile.mcu-sim
+  fr2-bsl-python`: `msp430.bsl5.uart` borra, escribe, verifica y arranca
+  `fr2_blink` en la FR2433.
+* **Lo que salió por el camino:** (1) el perro corre desde el reset y, si la
+  herramienta deja TEST arriba un rato antes de bajarlo (decenas de ms, como
+  `python-msp430-tools`), muerde mientras el arranque del BSL borra su RAM:
+  el BSL lo para ya en su primera instrucción, también el de las FR5 (que
+  cambia su imagen y el tiempo de L12); (2) UCBUSY de la eUSCI también es
+  «recibiendo»: esperar a que acabe lo enviado con él cuelga el BSL si el
+  anfitrión manda enseguida; (3) `I2cExtMaster` admite ya hasta 300 bytes por
+  transacción.
+
+**Pruebas:** `testfr2` R7 (10: la secuencia y la RAM borrada, TX BSL
+Version protegida, la contraseña mala con el borrado de la información, la
+versión, 115200, blink escrito con su CRC y arrancado, Mass Erase, el chip
+en blanco y LPM4 a los 10 s); `testfr4` F5 (4: las órdenes que no tiene el
+de 1 KB, la contraseña mala y blink); `testfr2476` K4 (6: por I2C en la 0x60
+de la configuración del usuario, solo I2C, sin borrar la RAM, los ~300 ms,
+la versión, la FRAM de arriba de 0x10000 con su CRC y Load PC); `testfr2355`
+J5 (1: el chip en blanco, la UART de la TLV y la versión) y `testfr2311` H4
+(1: el chip en blanco y la versión).
+
+### M11 · La eZ-FET emulada
+
+**Objetivo:** que las herramientas de TI vean la LaunchPad como la ven en el
+laboratorio. Son:
+
+* `libmsp430` (y con ella `mspdebug tilib`);
+* el agente de GDB de TI;
+* UniFlash y CCS.
+
+**Lo que ya se sabe**, de [MSPDS]:
+
+* **El transporte.** La eZ-FET es un CDC-ACM con VID 0x2047 y PID 0x0013 (la
+  MSP-FET es 0x0014). En Linux, `libmsp430` la busca recorriendo
+  `/sys/class/tty/ttyACM*` y leyendo su `modalias` y `bInterfaceNumber`
+  (`UsbCdcIoChannel.cpp`). Un pty no le vale: el sistema tiene que ver un
+  dispositivo USB.
+* **El protocolo.** El V3 del firmware (`Bios/src/fw/fet/v3_0p.c`): mensajes que
+  llaman a las macros HAL por su número, con sus parámetros, y respuestas y
+  sondeos (`HalExecCommand`, `HalResponse`, `PollingManager`).
+* **La comprobación de versiones.** Al conectar, `libmsp430` compara la versión y
+  el CRC del núcleo, la HAL, el HIL, el canal y el DC-DC de la sonda con los de
+  las imágenes que lleva compiladas. Por ejemplo, el HIL lleva la versión en
+  0x18F6 y el CRC en 0x18FA. Si no coinciden, actualiza el firmware
+  (`UpdateManagerFet::isUpdateRequired`). Las imágenes de la misma versión están
+  en `Bios/include/eZ_Fet*.h`: de ahí salen los valores que hay que contestar.
+
+**Entregas, en dos subfases:**
+
+* **M11a, alto nivel.**
+  * Un `EzFetV3` en C++ que habla el protocolo V3 por un CDC del puente USB, con
+    el identificador de herramienta de la eZ-FET.
+  * Contesta las versiones y los CRC leídos **de las imágenes de la copia de
+    [MSPDS] del usuario**, sin versionarlas, con `--ezfet-imagenes DIR`.
+  * Ejecuta cada macro HAL con la **sonda de bancada de M2**, que ya es el
+    *port* de esas mismas macros.
+  * Tiene el *backchannel* UART de la eZ-FET como segundo CDC del mismo
+    dispositivo compuesto.
+  * Rechaza limpiamente una actualización de firmware.
+* **M11b, bajo nivel (opcional y de más fidelidad).**
+  * La eZ-FET de la LaunchPad **como un MSP430F5528 simulado** (de la familia
+    F552x de M4 y M5) que ejecuta **las imágenes de firmware de la eZ-FET**
+    (núcleo, HAL, HIL y canal de comunicación), cargadas de la copia de [MSPDS]
+    del usuario.
+  * Va cableado al objetivo por SBW con los pines de la LaunchPad.
+  * Es el equivalente de lo que el XDS110 es para la MSP-EXP432P401R
+    (`doc/analisis_xds110.md`).
+  * Ventaja: lo que haga es lo que hace la sonda, actualización de firmware
+    incluida. Coste: dos MCUs en la simulación y un USB.
+
+**El acceso desde el PC**, en este orden:
+
+1. **Servidor USB/IP** (U4 de `doc/analisis_puente_usb.md`). Con `vhci-hcd`, el
+   sistema ve un `ttyACM` de verdad con el `modalias` que busca `libmsp430`.
+   Vale para Linux y, con usbip-win2, para Windows y CCS.
+2. **Mientras U4 no exista**: `libmsp430` compilada de [MSPDS] (`make
+   STATIC=1`) con un cambio pequeño en `UsbCdcIoChannel::createCdcPortList`.
+   Acepta un puerto dado por una variable de entorno, un pty que el puente
+   conecta al CDC. Solo para el CI. El cambio se versiona como parche, no como
+   copia de [MSPDS].
+
+**Cierre:**
+* `libmsp430` (la de [MSPDS-DEV] por USB/IP, o la recompilada) abre la eZ-FET
+  emulada sin pedir actualización;
+* identifica el G2553 y el FR5969, los programa y los verifica;
+* `mspdebug tilib` hace lo mismo;
+* el agente de GDB de TI con `msp430-elf-gdb` hace `load`, ruptura y paso;
+* con M11b, lo mismo con el firmware de TI ejecutándose en el F5528 simulado.
+
+**Tamaño:** grande, pero ya sin incógnitas de fondo.
+
+**Hecho (22-11-2026): M11b entera; M11a, sustituida por M11b (abajo).**
+* **La eZ-FET lite de bajo nivel** (`soc/msp430/ezfet/ezfet.h`, `EzFet`): el
+  modelo del F5529 hace de F5528 (la misma familia F552x, la misma Flash de
+  128 KB hasta 0x243FF y el mismo USB) y ejecuta **las cinco imágenes de TI**
+  (núcleo, HAL, HIL, canal de comunicación y la capa del DC-DC), leídas de la
+  copia de [MSPDS] del usuario (`common/imagen_ezfet.h`: las cabeceras de
+  srecord de `Bios/include`, con sus longitudes en palabras). El
+  identificador de herramienta, 0xAAAB (eZ-FET lite sin DC-DC) en 0x100E;
+  P4.2/P4.3 son RST/SBWTDIO y TST/SBWTCK del objetivo (los del `_Jtag_Target`
+  de `hil/ez_fet`); en P6.0-P6.2, VBUS y las dos VCC con sus divisores
+  [de modelo: 5 V y 3,3 V fijos]. El núcleo pone el F5528 a 25 MHz y se
+  enumera como 2047:0013 «MSP Tools Driver» con dos CDC; el de depuración va
+  a un **pty** (`parts/canal_pty.h`): `mcu-sim PLACA --ezfet-imagenes DIR
+  [--ezfet-pty /tmp/ttyEZFET]` cuelga la eZ-FET del primer MSP430 de la
+  placa. `PuenteUsbCdc` acepta un canal propio y elige el CDC de un
+  dispositivo compuesto (`cdc`, el primero por omisión).
+* **`libmsp430` con un parche pequeño** (`herramientas/libmsp430`:
+  `mcu-sim.patch`, `compila.sh` y el cliente `prueba_ezfet.cpp`), por
+  variables de entorno y sin cambiar nada si no se dan: `MSP430_PUERTO_CDC`
+  (el pty en la lista de eZ-FET), `MSP430_ESCALA_TIEMPO` (los plazos de las
+  órdenes, de reloj de pared, por N: la simulación va unas 4 veces más
+  despacio que la placa) y `MSP430_VERSION_LONG` (mspdebug declara la versión
+  `long`, y en 64 bits la mitad alta sin escribir la hacía negativa: «FET
+  firmware update is required»). Más `-std=c++14` y la hidapi del sistema.
+* **Lo que hacen:** `libmsp430` abre la eZ-FET **sin pedir actualizarla** (las
+  versiones y los CRC son los de las mismas imágenes), identifica el
+  **MSP430G2xx3** y la **MSP430FR5969**, borra, programa, verifica y lee; y
+  **`mspdebug tilib`** programa y verifica las dos (`make ezfet-tilib`, unos
+  90 s).
+* **Lo que salió en el modelo, con la HAL de TI como segundo oráculo** (las
+  macros de producción, que no hacen lo mismo que el Replicator):
+  1. R3 como origen de CMPA es #0 (el TSTA de IAR, `cmpa r3,r6 ; jz`); con #2
+     el montón del núcleo recorría su lista sin fin. ADDA y SUBA siguen con #2
+     (el INCDA/DECDA de CCS).
+  2. DATA_QUICK de 1xx cargado con TCLK arriba (ReadMemQuick de la HAL:
+     `SetPc(Start-2)` y `halt_cpu()` acaban con TCLK alto) empieza en el MAB,
+     y el DR leído con TCLK abajo trae la palabra de la dirección rápida; con
+     TCLK abajo, como el Replicator, sigue en MAB+4 [de modelo los dos].
+  3. DATA_QUICK de Xv2: el acceso en la **bajada** y luego el incremento (los
+     dos de TI cargan con TCLK arriba y leen tras SetTCLK, ClrTCLK).
+  4. Xv2: una lectura con ADDR_16BIT y un pulso de TCLK (el ReadMemWordXv2 de
+     la HAL, que lee el DR con DATA_CAPTURE).
+  5. La revisión de HW de la TLV de la FR5969 y la FR6989, 0x21: con 0x10,
+     `libmsp430` las daba por «Legacy» (`legacy.xml` de su base de datos).
+* **M11a** (el V3 en C++ sobre la sonda de bancada) no se hace: M11b ya
+  ejecuta las macros HAL de TI, de verdad, y M11a también necesitaría las
+  imágenes (las versiones y los CRC que se contestan). Queda como idea si
+  algún día hace falta una eZ-FET sin la copia de [MSPDS].
+* **Lo que queda:** (1) el backchannel (el segundo CDC) no se conecta; (2) por
+  GDB: el agente de TI no está en [MSPDS] y el `msp430-elf-gdb` de esta
+  máquina no arranca; el servidor de `mspdebug tilib` para la CPU y lee los
+  registros, pero el `continue` hasta una ruptura y el paso no vuelven (el
+  EEM por la HAL, a investigar; el PC de después de SyncJtag sale 0xC004 en
+  la G2553); (3) la actualización de firmware no se ha probado; (4) USB/IP
+  (U4) sigue sin existir: el pty es solo para Linux y macOS.
+
+**Pruebas:** `make testezfet` (Z1-Z3, 9: la enumeración, la versión con
+0xAAAB, el arranque de SBW respuesta a respuesta como en una sesión grabada
+de `libmsp430`, y los JTAG ID 0x89 y 0x99; se omite sin las imágenes,
+`MSPDS=CARPETA`) y `make ezfet-tilib` (`prueba_ezfet` con las dos LaunchPad
+y `mspdebug tilib`).
+
+### M12 · `mcu-sim-gui`
+
+Las diez placas con sus dibujos; el vidrio LCD como elemento animado; los
+puentes de la eZ-FET como interruptores de la placa; y el estado de la CPU en
+LPMx, que no es lo mismo que una CPU parada por el depurador.
+
+**Hecho (22-11-2026):**
+* **Los dibujos que faltaban**: `msp_exp430fr5969.svg`, `msp_exp430fr5994.svg`
+  y `msp_exp430fr6989.svg` (`placas/dibuja_ti.py`, `lp_fr5`): con estas, las
+  diez placas de MSP430 tienen el suyo.
+* **El vidrio LCD animado**: `LcdFh1138p` enseña una imagen, `vidrio` (192 x
+  60), con los segmentos que se ven -los catorce de cada carácter por su
+  nombre de la tabla 3, los puntos, los dos puntos y los símbolos-. La
+  ventana la pone encima del LCD1 del dibujo como la pantalla de un TFT, sin
+  saber que es un LCD (FR4133 y FR6989).
+* **Los puentes de la eZ-FET, interruptores**: `Jumper` con `quitable="si"`
+  (`parts/jumper_quitable.h`): cada puente es un contacto entre sus dos nodos
+  con un mando `A-B`, una casilla en la ventana. Lo llevan los bloques de
+  aislamiento (J101, J10, J13) de las diez LaunchPad. El dibujo sigue
+  enseñando la placa como sale de fábrica. La comprobación de la placa no
+  da por flotante el lado de la eZ-FET (en un sistema: el de SLAA754).
+* **La CPU en LPMx no es una CPU parada**: cada MSP430 lleva la pieza
+  `ID.CPU` (`parts/estado_cpu.h`) con `lpm` y `depurador` (● / ○ en la
+  ventana) y `modo` (0 activa, 1-5 LPM0-LPM4, 6 LPMx.5, 7 parada, 8 en
+  reset).
+* En `mcu-sim-gui` no hace falta código: todo va por el protocolo de
+  siempre. Su `prueba_cruzada` gana **G11** (rama `msp430`): la FR4133 con la
+  demo de TI (el vidrio llega como imagen y cambia con el texto; J101 con sus
+  siete interruptores, y uno que se quita en marcha), la G2ET durmiendo en
+  LPM0 (lpm a 1 y depurador a 0) y los tres dibujos nuevos.
+
+---
+
+## 12. Riesgos y preguntas abiertas
+
+1. **El avance por TCLK (M2).** El JTAG de MSP430 no pide la parada a la CPU, le
+   quita el reloj. Si el núcleo solo supiera avanzar por instrucciones, ninguna
+   herramienta real podría leer la memoria con la CPU «en marcha a mano». Hay que
+   diseñarlo así desde M1.
+2. **Los valores de reset.** El `targetdb` da registros y campos, pero no los
+   valores de reset. Siguen saliendo de las guías y, como segunda fuente, de
+   DriverLib y de las cabeceras. Los que queden con una sola fuente van a la
+   sección D de `todo.md`.
+3. **El acceso de `libmsp430` a la sonda (M11).** Necesita un dispositivo USB
+   visible para el sistema: USB/IP o una `libmsp430` recompilada. En macOS no
+   hay USB/IP maduro, así que la eZ-FET emulada no estará en macOS hasta que lo
+   haya.
+4. **Las imágenes de firmware y de BSL** son de la licencia «TI Text File»: se
+   usan desde la copia del usuario y no se versionan. En el CI solo se pueden
+   usar si el paquete de TI se puede descargar allí. Si no, las pruebas de M11
+   y de B2 quedan para hacerlas a mano.
+5. **El *port* de IAR a `msp430-elf-gcc`** del BSL USB del F5529 y del
+   Replicator. Lo que no es C (`.s43`, enlazado e intrínsecos de IAR) se reescribe.
+   El riesgo es pequeño y está acotado a pocos ficheros.
+6. **Las tablas de ciclos.** Cada guía publica la suya, pero hay casos límite
+   (las instrucciones de 20 bits con repetición, la entrada a una interrupción
+   con la CPU en LPM o los estados de espera de la FRAM con caché) que no están
+   claros. Lo que no tenga dos fuentes va a la sección D de `todo.md`.
+7. **El código de arranque de la ROM.** En las FR, la ROM de arranque comprueba
+   firmas, entra en el BSL o no, y aplica la protección. Se modela de alto nivel
+   con lo que dicen [BSLFRAM] y [JTAG]. Lo que haga y no esté documentado no
+   está.
+8. **Coste de simulación.** Por los pines y en SBW, cada acceso son cientos de
+   flancos. Con M11b, son además dos MCUs y un USB. La sonda `remote_bitbang` ya
+   lo resolvió con el ritmo real (`RitmoReal`) y la congelación; aquí se mide en
+   M2 y en M11b.
+9. **Lo que no está y hay que decirlo desde el primer día:**
+   * EnergyTrace;
+   * el analógico fino: el ruido del ADC, el *offset* de los SAC y la ganancia
+     del TIA, más allá de lo que dé la hoja de datos;
+   * LEA, ESI, MFM y CapTIvate: declarados;
+   * el almacenamiento de estado del EEM L;
+   * y el fusible con alta tensión real.
+
+---
+
+## 13. Fuentes
+
+* Repositorio `mcu-sim`, ramas `msp430` y `esp32rv` (`9dba504`):
+  * `soc/mcu_if.h`, `common/gdb_rsp.h`, `common/congela.h`,
+    `soc/herramientas.h` y `common/imagen_fw.h`;
+  * `periph/msp432p4/*` (en especial `bus16.h`, `eusci.h`, `timer_a.h` y
+    `dio.h`), `soc/msp432p4/bsl_p4.h` y `placas/msp_exp432p401r.xml`;
+  * `placas/dibuja_ti.py`, `src/verif/invariantes.txt`;
+  * `doc/analisis_msp432.md`, `doc/analisis_esp32_riscv.md`,
+    `doc/analisis_xds110.md` y `doc/analisis_puente_usb.md`.
+* `doc/refs/msp430/` (tabla de referencias al principio).
+* CCS 11.2:
+  * `ccs_base/msp430`: `include/msp430*.h`, `include_gcc/devices.csv` (v1.213,
+    15-10-2021) y los `.ld` y `.cmd` de cada chip;
+  * `ccs_base/common/targetdb`: `devices/MSP430*.xml` (versión 1.213) y
+    `Modules/msp430/*.xml`.
+* MSP Debug Stack Open Source Package 3.15.1.1:
+  * `Bios/src/hal/JTAG_defs.h`, `EEM_defs.h` y `macros/*`;
+  * `Bios/src/hil/*`, `Bios/src/fw/fet/v3_0p.*` y `FetVersion.h`;
+  * `Bios/include/eZ_Fet*.h`;
+  * `DLL430_v3/src/TI/DLL430/`: `DebugManagerMSP430.cpp`, `IDebugManager.h`,
+    `EM/SoftwareBreakpoints/SoftwareBreakpoints430.cpp`,
+    `UpdateManagerFet.cpp`, `UsbCdcIoChannel.cpp` y `DeviceDb/devicedb.h` (sus
+    XML: `defaults.xml`, `F2xx.xml`, `FR69xx.xml` y otros);
+  * el manifiesto y `revisions.txt`.
+* MSP430 BSL 1.02.00.01: `readme.txt`, el manifiesto, `CCS_BSL_Source/*` e
+  `IAR_BSL_Source/*`.
+* Replicator430 (SLAU320, paquete 1.22): `Readme.txt` y los fuentes de
+  `Replicator430`, `430X`, `430Xv2` y `430FR`.
+* `mspdebug` 0.22 (Debian), `mspdebug --help`: lista de controladores.
+  Consultado el 09-11-2026.

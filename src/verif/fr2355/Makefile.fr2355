@@ -1,0 +1,20 @@
+# Los programas de testfr2355 (M7). Los ELF se versionan en elf/: regenerarlos pide
+# msp430-elf-gcc y las cabeceras de TI, en doc/refs.
+#   make -f Makefile.fr2355 [MSPGCC=<bin>]
+MSPGCC ?= msp430-elf-
+REFS   ?= ../../../doc/refs/msp430
+TI     ?= $(REFS)/ti/msp430/include_gcc
+CFLAGS := -mmcu=msp430fr2355 -I$(TI) -Ishim -L$(TI) -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
+PROGS  := fr235_basico
+GRANDES := fr235_extra
+
+all: $(PROGS:%=elf/%.elf) $(GRANDES:%=elf/%.elf)
+
+elf/%.elf: %.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -o $@ $<
+
+# Los de -mlarge (la ROM vive por encima de 64 KB): fr235_extra
+$(GRANDES:%=elf/%.elf): elf/%.elf: %.c rom/rom_gcc.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -mlarge -Wno-int-to-pointer-cast -o $@ $<

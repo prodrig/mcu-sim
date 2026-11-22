@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MSP-EXP430F5529LP, dibujada a mano: una aproximacion, no una foto ni una
+  ilustracion del fabricante. Es el dibujo de placas/msp_exp430f5529lp.xml. La
+  disposicion, la de la figura 8 de SLAU533D: el eZ-FET y su USB arriba, el
+  bloque de aislamiento J101, el F5529 en medio con las cuatro tiras
+  BoosterPack (J1 y J3 a la izquierda, J4 y J2 a la derecha), los LED y los
+  pulsadores abajo, y el USB del F5529 al pie.
+
+  Perfil de autor (mcu-sim-gui, doc/analisis-uso-ilustraciones.md §11): SVG
+  1.2 Tiny, una unidad es 0,1 mm. Cada pieza viva con el id de su pieza en
+  el XML (LED1, LED2, S1, S2, S3, USB, BCL, J101, J1-J4, cada pin con su id).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 1060" width="110mm" height="106mm">
+  <rect x="232.0" y="30.0" width="636.0" height="980.0" rx="18" fill="#c8161d" stroke="#7d0a0e" stroke-width="5"/>
+  <circle cx="262.0" cy="60.0" r="16.0" fill="#ffffff" stroke="#7d0a0e" stroke-width="2"/>
+  <circle cx="838.0" cy="60.0" r="16.0" fill="#ffffff" stroke="#7d0a0e" stroke-width="2"/>
+  <circle cx="262.0" cy="980.0" r="16.0" fill="#ffffff" stroke="#7d0a0e" stroke-width="2"/>
+  <circle cx="838.0" cy="980.0" r="16.0" fill="#ffffff" stroke="#7d0a0e" stroke-width="2"/>
+  <g id="USB">
+  <rect x="385.0" y="8.0" width="90.0" height="55.0" rx="5" fill="#95a5a6" stroke="#7f8c8d" stroke-width="2"/>
+  <rect x="397.0" y="18.0" width="66.0" height="12.0" rx="2" fill="#5d6d7e"/>
+  </g>
+  <text x="430.0" y="82.0" font-family="Arial" font-size="12" fill="#ffffff" text-anchor="middle">USB (eZ-FET)</text>
+  <g id="EZFET">
+  <rect x="375.0" y="110.0" width="100.0" height="100.0" rx="3" fill="#2c2c2c" stroke="#000000" stroke-width="1.5"/>
+  <circle cx="387.0" cy="122.0" r="4.0" fill="#7f8c8d"/>
+  </g>
+  <text x="425.0" y="160.0" font-family="Arial" font-size="14" fill="#ffffff" text-anchor="middle">eZ-FET</text>
+  <text x="425.0" y="178.0" font-family="Arial" font-size="11" fill="#bdc3c7" text-anchor="middle">lite</text>
+  <g id="BCL">
+  <rect x="570.0" y="115.0" width="240.0" height="72.0" rx="5" fill="#fef9e7" stroke="#d68910" stroke-width="2"/>
+  </g>
+  <text x="690.0" y="135.0" font-family="Arial" font-size="12" font-weight="bold" fill="#7e5109" text-anchor="middle">Backchannel UART</text>
+  <text x="690.0" y="153.0" font-family="Arial" font-size="11" fill="#7e5109" text-anchor="middle">UCA1 (P4.4, P4.5)</text>
+  <text id="BCL#destino" x="690.0" y="175.0" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">RFC 2217 en localhost:3357</text>
+  <g id="S3">
+  <rect x="783.0" y="215.0" width="50.0" height="50.0" rx="5" fill="#bdc3c7" stroke="#7f8c8d" stroke-width="2"/>
+  <circle cx="808.0" cy="240.0" r="16.5" fill="#2c3e50" stroke="#000000" stroke-width="1.5"/>
+  </g>
+  <text x="808.0" y="282.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">RESET (S3)</text>
+  <g id="J101">
+  <rect x="461.1" y="277.3" width="177.8" height="50.8" fill="#1a1a1a" stroke="#000000" stroke-width="1"/>
+  <rect id="J101.2" x="466.8" y="283.0" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.1" x="466.8" y="308.4" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.4" x="492.2" y="283.0" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.3" x="492.2" y="308.4" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.6" x="517.6" y="283.0" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.5" x="517.6" y="308.4" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.8" x="543.0" y="283.0" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.7" x="543.0" y="308.4" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.10" x="568.4" y="283.0" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.9" x="568.4" y="308.4" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.12" x="593.8" y="283.0" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.11" x="593.8" y="308.4" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.14" x="619.2" y="283.0" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J101.13" x="619.2" y="308.4" width="14.0" height="14.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <g id="J101@1-2+3-4+5-6+7-8+9-10+11-12+13-14">
+  <rect x="463.8" y="280.0" width="20.0" height="45.4" rx="4" fill="#2b2b2b" stroke="#000000" stroke-width="1.5"/>
+  <rect x="468.8" y="285.0" width="10.0" height="35.4" rx="2" fill="#4a4a4a"/>
+  <rect x="489.2" y="280.0" width="20.0" height="45.4" rx="4" fill="#2b2b2b" stroke="#000000" stroke-width="1.5"/>
+  <rect x="494.2" y="285.0" width="10.0" height="35.4" rx="2" fill="#4a4a4a"/>
+  <rect x="514.6" y="280.0" width="20.0" height="45.4" rx="4" fill="#2b2b2b" stroke="#000000" stroke-width="1.5"/>
+  <rect x="519.6" y="285.0" width="10.0" height="35.4" rx="2" fill="#4a4a4a"/>
+  <rect x="540.0" y="280.0" width="20.0" height="45.4" rx="4" fill="#2b2b2b" stroke="#000000" stroke-width="1.5"/>
+  <rect x="545.0" y="285.0" width="10.0" height="35.4" rx="2" fill="#4a4a4a"/>
+  <rect x="565.4" y="280.0" width="20.0" height="45.4" rx="4" fill="#2b2b2b" stroke="#000000" stroke-width="1.5"/>
+  <rect x="570.4" y="285.0" width="10.0" height="35.4" rx="2" fill="#4a4a4a"/>
+  <rect x="590.8" y="280.0" width="20.0" height="45.4" rx="4" fill="#2b2b2b" stroke="#000000" stroke-width="1.5"/>
+  <rect x="595.8" y="285.0" width="10.0" height="35.4" rx="2" fill="#4a4a4a"/>
+  <rect x="616.2" y="280.0" width="20.0" height="45.4" rx="4" fill="#2b2b2b" stroke="#000000" stroke-width="1.5"/>
+  <rect x="621.2" y="285.0" width="10.0" height="35.4" rx="2" fill="#4a4a4a"/>
+  </g>
+  </g>
+  <text x="473.8" y="345.4" font-family="Arial" font-size="9" fill="#ffffff" text-anchor="end" transform="rotate(-90 473.8 345.4)">GND</text>
+  <text x="499.2" y="345.4" font-family="Arial" font-size="9" fill="#ffffff" text-anchor="end" transform="rotate(-90 499.2 345.4)">5V</text>
+  <text x="524.6" y="345.4" font-family="Arial" font-size="9" fill="#ffffff" text-anchor="end" transform="rotate(-90 524.6 345.4)">3V3</text>
+  <text x="550.0" y="345.4" font-family="Arial" font-size="9" fill="#ffffff" text-anchor="end" transform="rotate(-90 550.0 345.4)">RXD&lt;&lt;</text>
+  <text x="575.4" y="345.4" font-family="Arial" font-size="9" fill="#ffffff" text-anchor="end" transform="rotate(-90 575.4 345.4)">TXD&gt;&gt;</text>
+  <text x="600.8" y="345.4" font-family="Arial" font-size="9" fill="#ffffff" text-anchor="end" transform="rotate(-90 600.8 345.4)">SBW RST</text>
+  <text x="626.2" y="345.4" font-family="Arial" font-size="9" fill="#ffffff" text-anchor="end" transform="rotate(-90 626.2 345.4)">SBW TST</text>
+  <text x="443.8" y="295.0" font-family="Arial" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="end">J101</text>
+  <line x1="232.0" y1="302.7" x2="868.0" y2="302.7" stroke="#ffffff" stroke-width="2" stroke-dasharray="8 6"/>
+  <g id="J1">
+  <rect x="308.7" y="427.3" width="25.4" height="254.0" fill="#1a1a1a" stroke="#000000" stroke-width="1"/>
+  <rect id="J1.1" x="313.4" y="432.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.2" x="313.4" y="457.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.3" x="313.4" y="482.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.4" x="313.4" y="508.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.5" x="313.4" y="533.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.6" x="313.4" y="559.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.7" x="313.4" y="584.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.8" x="313.4" y="609.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.9" x="313.4" y="635.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J1.10" x="313.4" y="660.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  </g>
+  <g id="J3">
+  <rect x="334.1" y="427.3" width="25.4" height="254.0" fill="#1a1a1a" stroke="#000000" stroke-width="1"/>
+  <rect id="J3.1" x="338.8" y="432.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.2" x="338.8" y="457.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.3" x="338.8" y="482.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.4" x="338.8" y="508.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.5" x="338.8" y="533.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.6" x="338.8" y="559.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.7" x="338.8" y="584.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.8" x="338.8" y="609.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.9" x="338.8" y="635.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J3.10" x="338.8" y="660.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  </g>
+  <g id="J4">
+  <rect x="740.5" y="427.3" width="25.4" height="254.0" fill="#1a1a1a" stroke="#000000" stroke-width="1"/>
+  <rect id="J4.10" x="745.2" y="432.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J4.9" x="745.2" y="457.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J4.8" x="745.2" y="482.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J4.7" x="745.2" y="508.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J4.6" x="745.2" y="533.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J4.5" x="745.2" y="559.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J4.4" x="745.2" y="584.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J4.3" x="745.2" y="609.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J4.2" x="745.2" y="635.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J4.1" x="745.2" y="660.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  </g>
+  <g id="J2">
+  <rect x="765.9" y="427.3" width="25.4" height="254.0" fill="#1a1a1a" stroke="#000000" stroke-width="1"/>
+  <rect id="J2.10" x="770.6" y="432.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J2.9" x="770.6" y="457.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J2.8" x="770.6" y="482.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J2.7" x="770.6" y="508.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J2.6" x="770.6" y="533.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J2.5" x="770.6" y="559.0" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J2.4" x="770.6" y="584.4" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J2.3" x="770.6" y="609.8" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J2.2" x="770.6" y="635.2" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  <rect id="J2.1" x="770.6" y="660.6" width="16.0" height="16.0" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+  </g>
+  <text x="321.4" y="418.0" font-family="Arial" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">1</text>
+  <text x="346.8" y="418.0" font-family="Arial" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">21</text>
+  <text x="753.2" y="418.0" font-family="Arial" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">40</text>
+  <text x="778.6" y="418.0" font-family="Arial" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">20</text>
+  <rect x="145.0" y="430.5" width="74.0" height="19.0" rx="3" fill="#e74c3c" stroke="#ffffff" stroke-width="1"/>
+  <text x="182.0" y="444.7" font-family="Arial" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">3V3</text>
+  <rect x="366.8" y="431.0" width="64.0" height="18.0" rx="3" fill="#e74c3c" stroke="#ffffff" stroke-width="1"/>
+  <text x="398.8" y="444.3" font-family="Arial" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">5V</text>
+  <rect x="669.2" y="431.0" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="701.2" y="444.3" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P2.5</text>
+  <rect x="881.0" y="430.5" width="74.0" height="19.0" rx="3" fill="#2c3e50" stroke="#ffffff" stroke-width="1"/>
+  <text x="918.0" y="444.7" font-family="Arial" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">GND</text>
+  <rect x="145.0" y="455.9" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="182.0" y="470.1" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P6.5</text>
+  <rect x="366.8" y="456.4" width="64.0" height="18.0" rx="3" fill="#2c3e50" stroke="#ffffff" stroke-width="1"/>
+  <text x="398.8" y="469.7" font-family="Arial" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">GND</text>
+  <rect x="669.2" y="456.4" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="701.2" y="469.7" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P2.4</text>
+  <rect x="881.0" y="455.9" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="918.0" y="470.1" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P2.0</text>
+  <rect x="145.0" y="481.3" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="182.0" y="495.5" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P3.4</text>
+  <rect x="366.8" y="481.8" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="398.8" y="495.1" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P6.0</text>
+  <rect x="669.2" y="481.8" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="701.2" y="495.1" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P1.5</text>
+  <rect x="881.0" y="481.3" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="918.0" y="495.5" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P2.2</text>
+  <rect x="145.0" y="506.7" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="182.0" y="520.9" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P3.3</text>
+  <rect x="366.8" y="507.2" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="398.8" y="520.5" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P6.1</text>
+  <rect x="669.2" y="507.2" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="701.2" y="520.5" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P1.4</text>
+  <rect x="881.0" y="506.7" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="918.0" y="520.9" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P7.4</text>
+  <rect x="145.0" y="532.1" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="182.0" y="546.3" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P1.6</text>
+  <rect x="366.8" y="532.6" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="398.8" y="545.9" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P6.2</text>
+  <rect x="669.2" y="532.6" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="701.2" y="545.9" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P1.3</text>
+  <rect x="881.0" y="532.1" width="74.0" height="19.0" rx="3" fill="#f39c12" stroke="#ffffff" stroke-width="1"/>
+  <text x="918.0" y="546.3" font-family="Arial" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">RST</text>
+  <rect x="145.0" y="557.5" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="182.0" y="571.7" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P6.6</text>
+  <rect x="366.8" y="558.0" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="398.8" y="571.3" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P6.3</text>
+  <rect x="669.2" y="558.0" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="701.2" y="571.3" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P1.2</text>
+  <rect x="881.0" y="557.5" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="918.0" y="571.7" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P3.0</text>
+  <rect x="145.0" y="582.9" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="182.0" y="597.1" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P3.2</text>
+  <rect x="366.8" y="583.4" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="398.8" y="596.7" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P6.4</text>
+  <rect x="669.2" y="583.4" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="701.2" y="596.7" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P4.3</text>
+  <rect x="881.0" y="582.9" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="918.0" y="597.1" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P3.1</text>
+  <rect x="145.0" y="608.3" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="182.0" y="622.5" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P2.7</text>
+  <rect x="366.8" y="608.8" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="398.8" y="622.1" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P7.0</text>
+  <rect x="669.2" y="608.8" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="701.2" y="622.1" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P4.0</text>
+  <rect x="881.0" y="608.3" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="918.0" y="622.5" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P2.6</text>
+  <rect x="145.0" y="633.7" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="182.0" y="647.9" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P4.2</text>
+  <rect x="366.8" y="634.2" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="398.8" y="647.5" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P3.6</text>
+  <rect x="669.2" y="634.2" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="701.2" y="647.5" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P3.7</text>
+  <rect x="881.0" y="633.7" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="918.0" y="647.9" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P2.3</text>
+  <rect x="145.0" y="659.1" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="182.0" y="673.3" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P4.1</text>
+  <rect x="366.8" y="659.6" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="398.8" y="672.9" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P3.5</text>
+  <rect x="669.2" y="659.6" width="64.0" height="18.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="701.2" y="672.9" font-family="Arial" font-size="12" font-weight="bold" fill="#1b2631" text-anchor="middle">P8.2</text>
+  <rect x="881.0" y="659.1" width="74.0" height="19.0" rx="3" fill="#aed6f1" stroke="#ffffff" stroke-width="1"/>
+  <text x="918.0" y="673.3" font-family="Arial" font-size="13" font-weight="bold" fill="#1b2631" text-anchor="middle">P8.1</text>
+  <rect x="485.0" y="490.0" width="130.0" height="130.0" rx="3" fill="#2c2c2c" stroke="#000000" stroke-width="1.5"/>
+  <circle cx="497.0" cy="502.0" r="4.0" fill="#7f8c8d"/>
+  <text x="550.0" y="555.0" font-family="Arial" font-size="14" fill="#ffffff" text-anchor="middle">MSP430</text>
+  <text x="550.0" y="573.0" font-family="Arial" font-size="11" fill="#bdc3c7" text-anchor="middle">F5529</text>
+  <text x="550.0" y="640.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">U1</text>
+  <g id="Y2">
+  <rect x="505.0" y="450.0" width="90.0" height="20.0" rx="10" fill="#d0d3d4" stroke="#7f8c8d" stroke-width="1.5"/>
+  </g>
+  <text x="550.0" y="486.0" font-family="Arial" font-size="12" fill="#ffffff" text-anchor="middle">Y2 32 kHz</text>
+  <g id="Y1">
+  <rect x="505.0" y="655.0" width="90.0" height="20.0" rx="10" fill="#d0d3d4" stroke="#7f8c8d" stroke-width="1.5"/>
+  </g>
+  <text x="550.0" y="691.0" font-family="Arial" font-size="12" fill="#ffffff" text-anchor="middle">Y1 4 MHz</text>
+  <rect x="385.7" y="810.1" width="28.6" height="19.8" rx="2" fill="#f5f5f5" stroke="#999999" stroke-width="1"/>
+  <circle id="LED1" cx="400.0" cy="820.0" r="8.2" fill="#e74c3c" stroke="#555555" stroke-width="1.2"/>
+  <text x="400.0" y="850.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">LED1 P1.0</text>
+  <rect x="465.7" y="810.1" width="28.6" height="19.8" rx="2" fill="#f5f5f5" stroke="#999999" stroke-width="1"/>
+  <circle id="LED2" cx="480.0" cy="820.0" r="8.2" fill="#2ecc71" stroke="#555555" stroke-width="1.2"/>
+  <text x="480.0" y="850.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">LED2 P4.7</text>
+  <g id="S1">
+  <rect x="246.0" y="854.0" width="52.0" height="52.0" rx="5" fill="#bdc3c7" stroke="#7f8c8d" stroke-width="2"/>
+  <circle cx="272.0" cy="880.0" r="17.2" fill="#2c3e50" stroke="#000000" stroke-width="1.5"/>
+  </g>
+  <text x="272.0" y="925.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">S1 P2.1</text>
+  <g id="S2">
+  <rect x="802.0" y="854.0" width="52.0" height="52.0" rx="5" fill="#bdc3c7" stroke="#7f8c8d" stroke-width="2"/>
+  <circle cx="828.0" cy="880.0" r="17.2" fill="#2c3e50" stroke="#000000" stroke-width="1.5"/>
+  </g>
+  <text x="828.0" y="925.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">S2 P1.1</text>
+  <g id="USBF5">
+  <rect x="625.0" y="960.0" width="90.0" height="55.0" rx="5" fill="#95a5a6" stroke="#7f8c8d" stroke-width="2"/>
+  <rect x="637.0" y="970.0" width="66.0" height="12.0" rx="2" fill="#5d6d7e"/>
+  </g>
+  <text x="670.0" y="950.0" font-family="Arial" font-size="11" fill="#ffffff" text-anchor="middle">USB (F5529, M5)</text>
+  <text x="490.0" y="960.0" font-family="Arial" font-size="18" font-weight="bold" fill="#ffffff" text-anchor="middle">MSP-EXP430F5529LP</text>
+</svg>

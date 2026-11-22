@@ -1,0 +1,17 @@
+# Los programas de testfr4 (M7). Los ELF se versionan en elf/: regenerarlos pide
+# msp430-elf-gcc, las cabeceras de TI y la DriverLib de FR2xx/FR4xx que trae el
+# paquete de software de la MSP-EXP430FR4133 (BSD-3), todo en doc/refs.
+#   make -f Makefile.fr4133 [MSPGCC=<bin>]
+MSPGCC ?= msp430-elf-
+REFS   ?= ../../../doc/refs/msp430
+TI     ?= $(REFS)/ti/msp430/include_gcc
+DL     ?= $(REFS)/launchpads/MSP-EXP430FR4133/sw/MSP-EXP430FR4133_Software_Examples_linux/Firmware/Source/OutOfBox_MSP430FR4133/driverlib/MSP430FR2xx_4xx
+CFLAGS := -mmcu=msp430fr4133 -I$(TI) -L$(TI) -I$(DL) -Ishim -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
+DLSRC  := cs.c eusci_a_uart.c adc.c gpio.c wdt_a.c pmm.c lcd_e.c rtc.c
+PROGS  := fr4_basico fr4_blink
+
+all: $(PROGS:%=elf/%.elf)
+
+elf/%.elf: %.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -o $@ $< $(DLSRC:%=$(DL)/%)

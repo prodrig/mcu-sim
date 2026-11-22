@@ -437,3 +437,200 @@ testc3                 313      18846968240195        resto
 # segun el redondeo de to_seconds(). Con el LEDC, el CLINT y el LP timer en
 # enteros, las dos versiones dan esta cifra.
 testc6                 202      53183701458348        resto
+
+# test430: el nucleo MSP430 generico (CPU, CPUX y CPUXV2) en el SoC de
+# laboratorio (M1 de doc/analisis_msp430.md). N1 el decodificador contra
+# binutils; N2 los 10 programas diferenciales (CPU contra mspdebug sim, CPUX y
+# -mlarge contra msp430-elf-run, estos tambien en CPUXV2); N3 las tablas de
+# ciclos de SLAU144K y SLAU391F fila a fila; N4 las pruebas propias (la guia
+# donde el simulador de GDB no la sigue, irq y LPM, la irq por encima de
+# 64 KB); N5 printf de newlib con y sin -mlarge; N6 TI-TXT y ELF_MSP430.
+# M2 (16-11-2026) anade N7-N12 detras: los codigos de IR, la sonda de
+# bancada por 4 hilos y por SBW, el EEM y GDB por --gdb-dap y por --gdb. Los
+# grupos de M1 no cambian (acaban en 8248215750000 ps, como antes); N11-N12
+# hablan por un socket y su tiempo no cuenta: el invariante pasa a «resto».
+# Igual en dos pasadas.
+# P-20 (16-11-2026) mueve el resto a 8295630750000 (+13464250000 ps), A
+# PROPOSITO y solo en N8 y N9: el fusible ya no se funde con la secuencia
+# corta de antes, sino con la de BlowFuse del Replicator430 (VPP en TEST,
+# +7,08 ms en N8) y por SBW con su VPP y su TCLK (+6,38 ms en N9); y el tope
+# de SBW pasa de 7 a 100 us (la hoja de datos da 15-100 us; el ejemplo de
+# SLAA754 deja SBWTCK abajo hasta 25 us y en la placa funciona), con lo que
+# la comprobacion de salida espera mas. N1-N7 y N10 empiezan donde antes.
+# M4 (3) (16-11-2026) mueve el resto a 8295637000000 (+6250000 ps), A
+# PROPOSITO: una lectura de periferico del nucleo (no de instruccion) ahora
+# sincroniza antes el tiempo local acumulado del nucleo (`sincroniza()` en
+# nucleo_m430.h), para que vea el estado del periferico en su instante y no
+# en el del ultimo `wait`. Lo pedia el Replicator430 del F5529: leia TDO de
+# la G2553 por SBW antes de que la G2553 lo hubiera puesto. Los programas de
+# laboratorio que leen sus perifericos acaban un poco despues: N2 +1,5 us,
+# N3 +0,875 us, N4 y N5 +1,75 us, N6 +0,375 us; N7-N12 no se mueven. Igual en
+# dos pasadas.
+test430               776      8295637000000  resto
+
+# testg2: el MSP430G2553 (M3 de doc/analisis_msp430.md). G1 el SoC contra el
+# descriptor generado y las constantes de fabrica del DCO; G2 g2_basico.c
+# (DCO a 1 MHz, UART a 9600 en P1.2, Flash INFO D, sensor de temperatura del
+# ADC10, Timer0_A3, LPM0, S2 y eco de RX); G3 g2_wdt.c (PUC del perro y
+# WDTIFG); G4 la sonda de bancada por SBW en TEST/RST. Sin sockets: total.
+# Igual en dos pasadas.
+# P-20 (16-11-2026): G5, el Replicator430 de TI como oraculo (SBW, JTAG de 4
+# hilos en P1.4-P1.7, PSA, DATA_QUICK y el fusible), anade 8 comprobaciones
+# y el tiempo que hablan; G1-G4 acaban donde antes (188894000000).
+# P-20 (2): G6 (USCI_B0 en SPI e I2C con un OPT3001, Comp_A+, la DTC del
+# ADC10, captura y PWM) y G7 (los ejemplos y la demo de fabrica) anaden 15
+# comprobaciones; G1-G5 acaban donde antes (1363803568644).
+# M9 (21-11-2026): movida de 40/4948892901984 al anadir G8 (el BSL B1 de
+# ROM: la secuencia de TEST y RST, el protocolo de 1xx/2xx, la contrasena,
+# blink y B3; 7 comprobaciones) y G9 (el BSL de usuario de la G2xx de MSPBSL
+# cargando por el canal de vuelta con S2; 4). G1-G4 acaban donde antes; G5
+# dura 28889120 ps mas, y G6-G7 lo mismo que antes: en G5 la CPU, con el
+# vector de reset en blanco, acaba ejecutando en 0x0C00, donde ahora esta el
+# B1 (pone el DCO a 8 MHz) y antes 0x3FFF («jmp $»), y el JTAG la para mas
+# tarde. Con el BSL quitado (`carga_bsl("ninguno")`, el 0x3FFF de antes) G5 da
+# lo de antes al picosegundo. Ninguna otra suite de MSP430 se mueve.
+testg2                 51      12414990473648        total
+
+# testf5: el MSP430F5529 (M4 de doc/analisis_msp430.md). F1 el SoC contra el
+# descriptor y la TLV de fabrica; F2 f5_basico.c con la DriverLib de TI
+# (VCORE 3 y el FLL a 25 MHz, la UCA1 a 115200 leida en P4.4, la Flash de
+# 5xx, el ADC12_A con el REF, el DMA, el MPY32, el CRC16, una funcion en
+# 0x10000 y Timer0_A5). Sin sockets: total. Igual en dos pasadas.
+# M4 (3) (16-11-2026): F3 y F4, el Replicator430 de TI compilado para una
+# F5529 (P6.0-P6.5) que programa una G2553 por SBW y por JTAG de 4 hilos,
+# anaden 6 comprobaciones y su tiempo; F1-F2 acaban donde antes
+# (419001000000). F5, el RTC_A y el Comp_B con la DriverLib (f5_rtc_cb.c),
+# anade 4 comprobaciones; con el, las USCI de 5xx piden SMCLK en LPM3
+# mientras envian (SMCLKREQEN, UG5 5.2.10). F1-F4 acaban donde antes
+# (2008003000000). Igual en dos pasadas.
+# M4 (4) y M5 (17-11-2026): F6-F8, el Replicator430Xv2 de TI en un F5529
+# programando otro F5529 (SBW y JTAG), el patron magico y la firma, y F9, el
+# USB con el simpleUsbBackchannel de TI; anaden 16 comprobaciones. F1-F5
+# acaban donde antes (5048004000000). Igual en dos pasadas.
+# Lo que quedaba de M4 y M5 (17-11-2026): F10 el RTC_A en modo contador, F11
+# CBOUT en P1.6 y en el TA1, F12 lo del USB sin la pila de TI (Port U, el
+# temporizador y la marca de tiempo, RWUP, la sobrecarga del LDO) y F13 la
+# sonda de bancada con las secuencias de Xv2 (lo de --gdb por los pines);
+# anaden 20 comprobaciones y su tiempo. En el nucleo, dos cosas de Xv2 bajo
+# JTAG, A PROPOSITO: suspendida en la busqueda no debe ciclos de la
+# instruccion anterior, y con TCLK de MCLK CPUOFF no la duerme (las MOVA de
+# ReadCpuRegXv2 en LPM). F1-F9 acaban donde antes (20005009000000: F10 empieza
+# ahi); test430 y testg2 no se mueven. Igual en dos pasadas.
+# M9 (21-11-2026): movida de 59/25861134250000 al anadir F14 (el BSL USB de
+# Flash, el de la MSP Debug Stack portado a gcc: el chip en blanco con VBUS
+# entra, enumera como 2047:0200 y contesta la bateria; con un programa no
+# entra; 3 comprobaciones, 4 con BSL_TI=<imagen de TI>, que da lo mismo).
+# F14 empieza en 25861134250000: F1-F13 acaban donde antes, con el hilo de
+# ACLK a TB0.CCI6B y la entrada de los modulos al cambiar PxSEL.
+testf5                 62      26455455250005       total
+
+# testfr2: el MSP430FR2433 (M6 de doc/analisis_msp430.md). R1 el SoC contra el
+# descriptor y la TLV; R2 fr2_basico.c con la DriverLib (el FLL a 16 MHz con
+# el recorte de DCOFTRIM por programa, la UCA0 a 115200 leida en P1.4, el
+# sensor con la referencia de 1,5 V, MPY32, CRC16, la proteccion de la FRAM
+# con SYSCFG0, Timer0_A3); R3 LPM3.5 con el RTC (el BOR al despertar, la
+# BAKMEM, la RAM perdida, LOCKLPM5); R4 LPM4.5 y el despertar por P2.3; R5
+# el JSTATE por SBW; R6 la demo de fabrica de TI, su binario (la CTPL en
+# LPM3.5, S1 y S1+S2). Sin sockets: total. Igual en dos pasadas.
+testfr2                36       24351397000000       total
+# M10 (21-11-2026): movida de 26/13377796000000 al anadir R7 (el BSL B1 de
+# las FR2xx por UART: la secuencia, la contrasena, el borrado y la
+# proteccion, 115200, RX/CRC Data Block y Load PC con blink, el chip en
+# blanco y los 10 s hasta LPM4; 10 comprobaciones). R7 empieza en
+# 13377796000000: R1-R6 acaban donde antes con el BSL en la ROM.
+# Movido (17-11-2026, M7): 13367796000000 -> 13377796000000. El SoC de la
+# familia miraba la peticion de CCR0 de los Timer por su senal irq0, que
+# el Timer publica un delta despues; una rutina corta (la de fr2_basico.c:
+# ++ticks) volvia a entrar con la peticion ya borrada y contaba dos veces.
+# Ahora la mira en el Timer (TimerAP4::pide0/piden): los 10 ticks de R2 son
+# 10 ms y no 5, y todo lo de despues llega 10 ms mas tarde (R3-R6, 5 ms del
+# programa y 5 de la espera del banco). Las comprobaciones, las mismas.
+# M7 (17-11-2026): el SoC de la FR2433 es ahora la tabla de su chip para el
+# SoC de la familia (soc/msp430/fr2/soc_fr2.h); los Timer piden su reloj en
+# LPM (UG FR2 3.2.12), PxIFG no se borra con LOCKLPM5 (UG FR2 8.3.4) y P2IV
+# se lee (antes daba 0). testfr2 no se mueve. Igual en dos pasadas.
+# Despues, con el FR2311, el FR2355 y el FR2476: el Timer_B en timer_a.h, lo
+# analogico, el ICC (y su gancho al_reti en la RETI del nucleo m430), el ADC
+# de 12 bits, REFVSEL, FRWPOA, una reasignacion por funcion, y el final del
+# trozo de vFlashWrite por sector_de en common/gdb_rsp.h (lo mismo con
+# sectores alineados). test430, testg2, testf5, testfr2 y testfr4 no se
+# mueven, ni las suites de los STM32, el MSP432 y los ESP32.
+
+# testfr4: el MSP430FR4133 (M7 de doc/analisis_msp430.md). F1 el SoC contra el
+# descriptor, la TLV y el LCD_E al reset; F2 fr4_basico.c con la DriverLib y
+# el vidrio FH-1138P colgado de los pines (XT1, el FLL a 8 MHz, la UART, el
+# LCD_E en 4-mux, LCDDISP, las tramas, el parpadeo, VLCD, el sensor, el PWM
+# de TA1.1); F3 LPM3.5 con el LCD encendido, el despertar por el RTC desde
+# XT1, y SYS23; F4 la demo de fabrica de TI, su binario (los textos del
+# vidrio, el cronometro y el termometro). Sin sockets: total. Igual en dos
+# pasadas.
+testfr4                31       35407103000000       total
+# M10 (21-11-2026): movida de 27/34584002000000 al anadir F5 (el BSL de
+# 1 KB de las FR4xx: UART a 9600, sus ordenes, la contrasena y blink; 4
+# comprobaciones). F5 empieza en 34584002000000: F1-F4 no cambian.
+
+# testfr2311: el MSP430FR2311 (M7). H1 el descriptor y la TLV; H2
+# fr23_basico.c con la DriverLib y una red en el banco (el Timer_B con CNTL y
+# CLLD, TB25, el eCOMP0 contra su DAC, el SAC0 en GP con ganancia 3, el TIA0
+# con 1 Mohm y 1 uA); H3 la demo de fabrica de TI, su binario, con el
+# fotodiodo y R3 (el PWM de LED2 segun la luz). Sin sockets: total. Igual en
+# dos pasadas.
+testfr2311             16        1496903000000       total
+# M10 (21-11-2026): movida de 15/1328202000000 al anadir H4 (el chip en
+# blanco entra solo en el BSL por P1.6/P1.7; 1 comprobacion). H4 empieza en
+# 1328202000000: H1-H3 no cambian.
+# testfr2355: el MSP430FR2355 (M7). J1 el descriptor, la TLV y el ICC tras el
+# reset; J2 fr235_basico.c (el FLL a 24 MHz, el ADC de 12 bits y REFVSEL, el
+# ICC anidando por niveles, el DAC del SAC3 cargado por TB2.1 y el SAC1 en PGA
+# inversor en cascada leido por dentro, el eCOMP1 contra la de 1,2 V, TB3.6 y
+# el MPY32); J3 la demo de fabrica de TI, su binario (el sensor de luz con el
+# fotodiodo, S1, y el generador de funciones por S2). Sin sockets: total.
+# Igual en dos pasadas.
+testfr2355             37        7190426667008       total
+# Movido (17-11-2026, M7): 23/6522402000000 -> 36/6560025667008. J4 nuevo
+# (fr235_extra.c: la ROM de bibliotecas, la modulacion IR, TB0OUTH y el
+# MFM). J1-J3 no cambian de resultado (el arreglo de pide0 de arriba no
+# mueve su tiempo: sus rutinas de CCR0 eran lo bastante largas).
+# M10 (21-11-2026): movida de 36/6560025667008 al anadir J5 (el chip en
+# blanco, la configuracion por la TLV 0xB5, los ~300 ms y la UART de
+# P1.6/P1.7; 1 comprobacion). J5 empieza en 6560025667008: J1-J4 no cambian.
+# testfr2476: el MSP430FR2476 (M7). K1 el descriptor y la TLV; K2
+# fr247_basico.c con -mlarge (la FRAM de arriba de 0x10000 y PFWP alli, el ADC
+# de 12 bits y REFVSEL, TA2.1 reasignado por TA2RMP, TB0.6, el eCOMP0 contra la
+# de 1,2 V, la interrupcion de P6); K3 la demo de fabrica de TI, su binario
+# (el TMP235 y el LED RGB, S2 y S1). Sin sockets: total. Igual en dos pasadas.
+testfr2476             25        7577023000000       total
+# M10 (21-11-2026): movida de 19/6629302000000 al anadir K4 (el BSL por I2C
+# con la configuracion del usuario en 0xFF88: solo I2C, la direccion 0x60,
+# la RAM sin borrar; 6 comprobaciones). K4 empieza en 6629302000000: K1-K3
+# no cambian.
+
+# testfr5: las FR5xx/FR6xx (M8). L1 el FR5969 contra su descriptor y la TLV;
+# L2 fr59_basico.c con -mlarge (el DCO, el LFXT, el ADC12_B con el sensor y
+# AVCC/2, el Comp_E, AES-128, el DMA, el RTC_B, TB0.3, la IPE, la MPU con su NMI
+# y su PUC, LPM3.5 con el RTC_B); L3 la demo de fabrica de TI, su binario (el
+# ping, la temperatura en vivo, LPM3.5 y S2); L4 el FR5994 (la RAM del LEA,
+# la FRAM hasta 0x43FFF, CRC32, RTC_C y la microSD por SPI); L5 la demo de
+# fabrica del FR6989 con el LCD_C y el vidrio FH-1138P; L6 el Replicator430FR
+# en un F5529 programa el FR5969 por SBW, tambien con la contrasena de JTAG.
+# Movida de 25/8081812000000 al anadir L4-L6 (los mismos L1-L3). Sin sockets:
+# total. Igual en dos pasadas.
+# Movida de 43/35628516000000 al cerrar lo pendiente de M8: L7 (el HFXT y el
+# RAMCTL del FR5994), L8 (las funciones de los pines) y L9 (las erratas que se
+# modelan); L2 cambia porque fr59_basico.c apaga REFON antes del Comp_E (la
+# salida de TI para REF9) y L5 porque el cronometro del FR6989 se comprueba al
+# centisegundo (RTCPS de 16 bits y los preescaladores a cero al escribir la
+# hora).
+# Movida de 73/36925692000000 al anadir L10 (el LEA del FR5994: DSPLib con el
+# LEA contra la misma DSPLib con la CPU y el MPY32) y L11 (el ESI del
+# FR6989); L1-L9 dan lo mismo al picosegundo (FR5_SOLO=123456789: 73 y
+# 36925692000000). El MPY32 ya no satura con MPYSAT un MPYS negativo que no
+# desborda (solo -1 por -1 en fraccional): ninguna otra suite se mueve.
+# M9 (21-11-2026): movida de 86/40717595000000 al anadir L12 (el BSL B1 de
+# las FR5: la secuencia de TEST y RST, la version, la contrasena mala y el
+# borrado, RX/CRC/TX Data Block, Load PC con blink, la Z-Area leida desde la
+# aplicacion, B3, el FR5994 y el FR6989; 13 comprobaciones). L12 empieza en
+# 40717595000000: L1-L11 acaban donde antes, con el B1 en la ROM del BSL y la
+# entrada de los modulos al cambiar PxSEL (que tampoco mueve testfr2,
+# testfr4, testfr2311, testfr2355 ni testfr2476).
+testfr5                99       42490696000000       total

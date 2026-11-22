@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MSP-EXP430FR2355: la LaunchPad del MSP430FR2355 (M7 de doc/analisis_msp430.md)
+
+     Lo que lleva la placa aparte del chip [SLAU680, §2 y el esquema, figuras
+     17 y 18]:
+
+         MSP1  el MSP430FR2355TPT (LQFP-48)
+         D1    el fotodiodo con R3 (2,37 Mohm) y C6 (1 pF, no se modela): la
+               transimpedancia del SAC2. El cátodo a OA2- (P3.2, por J7), R3
+               hasta OA2O (P3.1, por J8), el ánodo a masa y a OA2+ (P3.3, por
+               J9). La demo lo pasa por el SAC0 de seguidor al ADC (A1)
+         LED1  rojo, en P1.0, tras J10, con 470 ohm (R2)
+         LED2  verde, en P6.6, tras J11, con 392 ohm (R6)
+         S1    en P4.1, a masa (sin resistencia en la placa: REN del chip)
+         S2    en P2.3, a masa
+         S3    RESET, en RST/SBWTDIO, con 47 kohm a 3V3 (R1) y 1 nF (C1)
+         Y1    32 768 Hz en P2.7/P2.6 (XIN/XOUT), conectado: el SoC tiene
+               cristal (cristal_xt1 = true, de la factoría)
+         J101  el bloque de aislamiento con el eZ-FET: GND, 5V, 3V3, RXD <<,
+               TXD >>, SBW RST y SBW TST [tabla 2]
+         BCL   el backchannel del eZ-FET: la UCA1 en P4.3 (TXD) y P4.2 (RXD),
+               hasta el PC por RFC 2217 en el 3363
+         J1-J4 los conectores BoosterPack de 40 pines [esquema, hoja 2]
+
+     El eZ-FET es de M11: --gdb-dap depura contra el núcleo y --gdb por los
+     pines (SBW en TEST/RST con la sonda de bancada). La demo de fábrica
+     (en el modo sensor de luz, LED2 con más luz que la del arranque y LED1
+     con menos; S1 recalibra; S2 pasa al generador de funciones, que manda
+     JSON por el backchannel; el mando `luz` de D1):
+
+         ./build/mcu-sim placas/msp_exp430fr2355.xml \
+             verif/fw/fr2355/OutOfBox_MSP-EXP430FR2355.txt 20000
+
+         ./build/mcu-sim placas/msp_exp430fr2355.xml --valida
+-->
+<placa nombre="msp-exp430fr2355">
+  <mcu tipo="MSP430FR2355" id="u0"/>
+
+  <!-- El fotodiodo y la transimpedancia, tras J7, J8 y J9. En OA2- (P3.2)
+       conducen a la vez D1 (su corriente) y R3: es lo que hace el circuito -->
+  <nodo id="P3.2" bus="si"/>
+  <componente tipo="Jumper" id="J7" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P3.2"/>
+  </componente>
+  <componente tipo="Jumper" id="J8" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P3.1"/>
+  </componente>
+  <componente tipo="Jumper" id="J9" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P3.3"/>
+    <pin nombre="2" nodo="DVSS"/>
+  </componente>
+  <componente tipo="Fotodiodo" id="D1" na_por_lux="5" luz="100">
+    <pin nombre="anodo" nodo="DVSS"/>
+    <pin nombre="catodo" nodo="J7.2"/>
+  </componente>
+  <componente tipo="Resistencia" id="R3" r="2370000">
+    <pin nombre="a" nodo="J8.2"/>
+    <pin nombre="b" nodo="J7.2"/>
+  </componente>
+
+  <componente tipo="Jumper" id="J10" quitable="si" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P1.0"/>
+  </componente>
+  <componente tipo="Jumper" id="J11" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P6.6"/>
+  </componente>
+  <componente tipo="Led" id="LED1" a_vss="si" vf="2.0" r="470">
+    <pin nombre="anodo" nodo="J10.2"/>
+  </componente>
+  <componente tipo="Led" id="LED2" a_vss="si" vf="2.1" r="392" color="verde">
+    <pin nombre="anodo" nodo="J11.2"/>
+  </componente>
+  <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P4.1"/>
+  </componente>
+  <componente tipo="Button" id="S2" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P2.3"/>
+  </componente>
+
+  <nodo id="RST" bus="si"/>
+  <componente tipo="Button" id="S3" v_cerrado="0" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="RST"/>
+  </componente>
+  <componente tipo="Rpull" id="R1" v="3.3" r="47000" visible="no">
+    <pin nombre="a" nodo="RST"/>
+  </componente>
+
+  <nodo id="5V" bus="si"/>
+  <nodo id="DVSS" bus="si"/>
+  <componente tipo="Fuente" id="USB" v="5" limite_ma="500">
+    <pin nombre="pin" nodo="J101.4"/>
+  </componente>
+  <componente tipo="Jumper" id="J101" filas="2" columnas="7"
+              puente="1 2, 3 4, 5 6, 7 8, 9 10, 11 12, 13 14">
+    <pin nombre="1" nodo="DVSS"/>       <!-- GND -->
+    <pin nombre="3" nodo="5V"/>         <!-- 5V -->
+    <pin nombre="5" nodo="DVCC"/>       <!-- 3V3 -->
+    <pin nombre="7" nodo="P4.2"/>       <!-- RXD << : UCA1RXD -->
+    <pin nombre="9" nodo="P4.3"/>       <!-- TXD >> : UCA1TXD -->
+    <pin nombre="11" nodo="RST"/>       <!-- SBW RST -->
+    <pin nombre="13" nodo="TEST"/>      <!-- SBW TST -->
+  </componente>
+  <componente tipo="PuenteSerie" id="BCL" host="rfc2217:3363"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="J101.10"/>
+    <pin nombre="tx" nodo="J101.8"/>
+  </componente>
+
+  <!-- Los conectores BoosterPack de 40 pines [esquema, hoja 2]: J1 (1-10)
+       y J3 (21-30, aquí 1-10), J4 (31-40, aquí 1-10) y J2 (11-20, aquí 1-10) -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="10">
+    <pin nombre="1" nodo="DVCC"/>  <pin nombre="2" nodo="P1.5"/>  <pin nombre="3" nodo="P1.6"/>
+    <pin nombre="4" nodo="P1.7"/>  <pin nombre="5" nodo="P3.6"/>  <pin nombre="6" nodo="P5.2"/>
+    <pin nombre="7" nodo="P4.5"/>  <pin nombre="8" nodo="P3.4"/>  <pin nombre="9" nodo="P1.3"/>
+    <pin nombre="10" nodo="P1.2"/>
+  </componente>
+  <componente tipo="Conector" id="J3" filas="1" columnas="10">
+    <pin nombre="1" nodo="5V"/>    <pin nombre="2" nodo="DVSS"/>  <pin nombre="3" nodo="P1.4"/>
+    <pin nombre="4" nodo="P5.3"/>  <pin nombre="5" nodo="P5.1"/>  <pin nombre="6" nodo="P5.0"/>
+    <pin nombre="7" nodo="P5.4"/>  <pin nombre="8" nodo="P1.1"/>  <pin nombre="9" nodo="P3.5"/>
+    <pin nombre="10" nodo="P3.1"/>
+  </componente>
+  <componente tipo="Conector" id="J4" filas="1" columnas="10">
+    <pin nombre="1" nodo="P3.2"/>  <pin nombre="2" nodo="P3.3"/>  <pin nombre="3" nodo="P2.4"/>
+    <pin nombre="4" nodo="P3.7"/>  <pin nombre="5" nodo="P6.4"/>  <pin nombre="6" nodo="P6.3"/>
+    <pin nombre="7" nodo="P6.2"/>  <pin nombre="8" nodo="P6.1"/>  <pin nombre="9" nodo="P6.0"/>
+    <pin nombre="10" nodo="P2.1"/>
+  </componente>
+  <componente tipo="Conector" id="J2" filas="1" columnas="10">
+    <pin nombre="1" nodo="P3.0"/>  <pin nombre="2" nodo="P2.5"/>  <pin nombre="3" nodo="P4.4"/>
+    <pin nombre="4" nodo="P4.7"/>  <pin nombre="5" nodo="P4.6"/>  <pin nombre="6" nodo="RST"/>
+    <pin nombre="7" nodo="P4.0"/>  <pin nombre="8" nodo="P2.2"/>  <pin nombre="9" nodo="P2.0"/>
+    <pin nombre="10" nodo="DVSS"/>
+  </componente>
+</placa>

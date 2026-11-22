@@ -1948,18 +1948,21 @@ SC_MODULE(I2cExtMaster), public I2cPart {
         SC_THREAD(run);
     }
     // Programa una transacción; el hilo la ejecuta y publica el resultado.
+    // Hasta MAXB bytes por transacción (el BSL de las FRAM manda paquetes de
+    // más de 260: M10)
+    static constexpr unsigned MAXB = 300;
     void request_write(uint8_t addr7, const uint8_t* d, unsigned n) {
-        addr_ = addr7; nw_ = (n > 8 ? 8 : n); nr_ = 0;
+        addr_ = addr7; nw_ = (n > MAXB ? MAXB : n); nr_ = 0;
         for (unsigned i = 0; i < nw_; ++i) buf_[i] = d[i];
         busy_ = true; done_ = false; go_.notify(sc_core::SC_ZERO_TIME);
     }
     void request_read(uint8_t addr7, unsigned n) {
-        addr_ = addr7; nw_ = 0; nr_ = (n > 8 ? 8 : n);
+        addr_ = addr7; nw_ = 0; nr_ = (n > MAXB ? MAXB : n);
         busy_ = true; done_ = false; go_.notify(sc_core::SC_ZERO_TIME);
     }
     bool done()      const { return done_; }
     bool addr_acked()const { return acked_; }
-    uint8_t rx(unsigned i) const { return buf_[i % 8]; }
+    uint8_t rx(unsigned i) const { return buf_[i % MAXB]; }
     unsigned n_acked() const { return n_acked_; }
 private:
     void bit_out(bool b) {
@@ -2018,7 +2021,7 @@ private:
         }
     }
     sc_core::sc_time half_;
-    uint8_t addr_ = 0, buf_[8] = {};
+    uint8_t addr_ = 0, buf_[MAXB] = {};
     unsigned nw_ = 0, nr_ = 0, n_acked_ = 0;
     bool busy_ = false, done_ = false, acked_ = false;
     sc_core::sc_event go_;

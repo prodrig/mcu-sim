@@ -248,10 +248,11 @@ LDLIBS   += -lsystemc $(LIBS_SO) $(EXTRA_LD)
 
 HDRS := $(wildcard common/*.h pins/*.h parts/*.h bus/*.h mem/*.h rcc/*.h core/*.h \
                    periph/*.h soc/*.h verif/*.h top/*.h \
-                   periph/msp432p4/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
+                   periph/msp432p4/*.h periph/ti/*.h soc/msp432p4/*.h soc/msp432p4/*.inc \
                    periph/msp432e4/*.h soc/msp432e4/*.h soc/msp432e4/*.inc \
                    soc/stm32f3/*.h soc/stm32f3/*.inc \
-                   rv/*/*.h soc/esp/*.h soc/esp32c3/*.h soc/esp32c6/*.h soc/esp32c6/*.inc periph/esp/*.h)
+                   rv/*/*.h soc/esp/*.h soc/esp32c3/*.h soc/esp32c6/*.h soc/esp32c6/*.inc periph/esp/*.h \
+                   m430/*/*.h soc/msp430/*/*.h)
 
 TEST407 := $(B)/test407$(EXE)
 MCUSIM  := $(B)/mcu-sim$(EXE)
@@ -268,6 +269,17 @@ ASANC3    := $(B)/asanc3$(EXE)
 TESTC6    := $(B)/testc6$(EXE)
 ASANC6    := $(B)/asanc6$(EXE)
 ASANRV    := $(B)/asanrv$(EXE)
+TEST430   := $(B)/test430$(EXE)
+TESTG2    := $(B)/testg2$(EXE)
+TESTF5    := $(B)/testf5$(EXE)
+TESTFR2   := $(B)/testfr2$(EXE)
+TESTFR4   := $(B)/testfr4$(EXE)
+TESTFR2311 := $(B)/testfr2311$(EXE)
+TESTFR2355 := $(B)/testfr2355$(EXE)
+TESTFR2476 := $(B)/testfr2476$(EXE)
+TESTFR5   := $(B)/testfr5$(EXE)
+TESTEZFET := $(B)/testezfet$(EXE)
+ASAN430   := $(B)/asan430$(EXE)
 HASHV   := $(B)/prueba_hash$(EXE)
 CRYPV   := $(B)/prueba_cryp$(EXE)
 BENCH  := $(B)/bench$(EXE)
@@ -282,7 +294,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testrv testrv-build asanrv rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 fr2311-slaa754 testf5 testf5-build testfr2 testfr2-build testfr4 testfr4-build testfr2311 testfr2311-build testfr2355 testfr2355-build testfr2476 testfr2476-build testfr5 testfr5-build testezfet testezfet-build ezfet-tilib rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash fr5-bsl-python g2-bsl-python fr2-bsl-python test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -435,6 +447,185 @@ else
 asanrv: $(ASANRV) $(B)/rvt/.extraido $(B)/act/.extraido
 	$(ASANRV) $(B)/rvt $(B)/act
 endif
+
+# LA SUITE DEL NÚCLEO MSP430 (fase M1 de doc/analisis_msp430.md): el núcleo
+# genérico de src/m430 (CPU, CPUX y CPUXV2) sobre el SoC de laboratorio, sin
+# chip. Los ELF y lo esperado se versionan en verif/m430: ejecutar la suite no
+# pide la cadena de MSP430; regenerarlos (make m430fw), sí: msp430-elf-gcc y
+# msp430-elf-run, y mspdebug para los de CPU.
+#   make test430             make asan430
+HDRS_430 := $(wildcard m430/*/*.h soc/msp430/desc/*.h verif/m430/*.inc)
+
+$(TEST430): top/sc_main_430.cpp $(HDRS) $(HDRS_430)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_430.cpp $(LDFLAGS) $(LDLIBS)
+
+$(ASAN430): top/sc_main_430.cpp $(HDRS) $(HDRS_430)
+	@mkdir -p $(B)
+	$(CXX) $(ASANFLAGS) -o $@ top/sc_main_430.cpp $(LDFLAGS) $(LDLIBS)
+
+test430-build: $(TEST430)
+
+test430: $(TEST430)
+	$(TEST430)
+
+ifeq ($(PLATAFORMA),windows)
+asan430:
+	@echo "MinGW no trae AddressSanitizer: 'make asan430' solo va en Linux y macOS."
+else
+asan430: $(ASAN430)
+	$(ASAN430)
+endif
+
+# LA SUITE DEL MSP430G2553 (fase M3): make testg2
+$(TESTG2): top/sc_main_g2.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/g2553/*.h periph/ti/*.h verif/m430/replicator/*.h verif/m430/replicator/430/*)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_g2.cpp $(LDFLAGS) $(LDLIBS)
+
+testg2-build: $(TESTG2)
+
+testg2: $(TESTG2)
+	$(TESTG2)
+
+# LA SUITE DEL MSP430F5529 (fase M4): make testf5
+$(TESTF5): top/sc_main_f5.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/f5529/*.h periph/ti/*.h)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_f5.cpp $(LDFLAGS) $(LDLIBS)
+
+testf5-build: $(TESTF5)
+
+testf5: $(TESTF5)
+	$(TESTF5)
+
+# LA SUITE DEL MSP430FR2433 (fase M6): make testfr2
+$(TESTFR2): top/sc_main_fr2.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/fr2/*.h soc/msp430/fr2433/*.h periph/ti/*.h)
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_fr2.cpp $(LDFLAGS) $(LDLIBS)
+
+testfr2-build: $(TESTFR2)
+
+testfr2: $(TESTFR2)
+	$(TESTFR2)
+
+# LA SUITE DEL MSP430FR4133 (fase M7): make testfr4
+$(TESTFR4): top/sc_main_fr4.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/fr2/*.h soc/msp430/fr4133/*.h periph/ti/*.h) parts/lcd_fh1138p.h
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_fr4.cpp $(LDFLAGS) $(LDLIBS)
+
+testfr4-build: $(TESTFR4)
+
+testfr4: $(TESTFR4)
+	$(TESTFR4)
+
+# LA SUITE DEL MSP430FR2311 (fase M7): make testfr2311
+$(TESTFR2311): top/sc_main_fr2311.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/fr2/*.h soc/msp430/fr2311/*.h periph/ti/*.h) parts/fotodiodo.h
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_fr2311.cpp $(LDFLAGS) $(LDLIBS)
+
+testfr2311-build: $(TESTFR2311)
+
+testfr2311: $(TESTFR2311)
+	$(TESTFR2311)
+
+# LA SUITE DEL MSP430FR2355 (fase M7): make testfr2355
+$(TESTFR2355): top/sc_main_fr2355.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/fr2/*.h soc/msp430/fr2355/*.h periph/ti/*.h) parts/fotodiodo.h
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_fr2355.cpp $(LDFLAGS) $(LDLIBS)
+
+testfr2355-build: $(TESTFR2355)
+
+testfr2355: $(TESTFR2355)
+	$(TESTFR2355)
+
+# LA SUITE DEL MSP430FR2476 (fase M7): make testfr2476
+$(TESTFR2476): top/sc_main_fr2476.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/fr2/*.h soc/msp430/fr2476/*.h periph/ti/*.h) parts/tmp235.h
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_fr2476.cpp $(LDFLAGS) $(LDLIBS)
+
+testfr2476-build: $(TESTFR2476)
+
+testfr2476: $(TESTFR2476)
+	$(TESTFR2476)
+
+# LA SUITE DE LAS FR5xx/FR6xx (fase M8): make testfr5
+$(TESTFR5): top/sc_main_fr5.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/fr2/*.h soc/msp430/fr5969/*.h soc/msp430/fr5994/*.h soc/msp430/fr6989/*.h soc/msp430/f5529/*.h periph/ti/*.h) parts/sd_spi.h parts/lcd_fh1138p.h
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_fr5.cpp $(LDFLAGS) $(LDLIBS)
+
+testfr5-build: $(TESTFR5)
+
+testfr5: $(TESTFR5)
+	$(TESTFR5)
+
+# LA eZ-FET EMULADA (fase M11b): make testezfet. Las imagenes del firmware son
+# de la copia de la MSP Debug Stack del usuario: MSPDS=CARPETA (sin ellas, se omite)
+MSPDS ?= ../doc/refs/msp430/MSPDebugStack_OS_Package_3_15_1_1
+$(TESTEZFET): top/sc_main_ezfet.cpp $(HDRS) $(HDRS_430) $(wildcard soc/msp430/ezfet/*.h soc/msp430/f5529/*.h soc/msp430/g2553/*.h soc/msp430/fr2/*.h soc/msp430/fr5969/*.h periph/ti/*.h) parts/puente_usb.h parts/canal_pty.h common/imagen_ezfet.h
+	@mkdir -p $(B)
+	$(CXX) $(CXXFLAGS) -o $@ top/sc_main_ezfet.cpp $(LDFLAGS) $(LDLIBS)
+
+testezfet-build: $(TESTEZFET)
+
+testezfet: $(TESTEZFET)
+	MSPDS=$(MSPDS) $(TESTEZFET)
+
+# libmsp430 DE VERDAD contra la eZ-FET emulada (M11b): la de la MSP Debug Stack
+# compilada con herramientas/libmsp430/mcu-sim.patch; la LaunchPad G2ET y la
+# FR5969 con --ezfet-imagenes; prueba_ezfet (identifica, borra, programa,
+# verifica y lee) y, si esta, mspdebug tilib (prog y verify)
+LIB430 := $(B)/libmsp430
+EZFET_PTY ?= /tmp/ttyEZFET-mcusim
+ezfet-tilib: $(MCUSIM)
+	@if [ ! -f $(MSPDS)/Bios/include/eZ_FetCore.h ]; then \
+	   echo "  [OMITE] ezfet-tilib: MSPDS=carpeta de la MSP Debug Stack (la fuente)"; exit 0; fi; \
+	 if [ ! -f $(LIB430)/libmsp430.so ]; then \
+	   echo "  compilando libmsp430 con el parche de mcu-sim (unos minutos)..."; \
+	   sh ../herramientas/libmsp430/compila.sh $(MSPDS) $(LIB430) || exit 1; fi; \
+	 export LD_LIBRARY_PATH=$(LIB430) MSP430_PUERTO_CDC=$(EZFET_PTY) MSP430_ESCALA_TIEMPO=20 MSP430_VERSION_LONG=1; \
+	 f=0; \
+	 for x in "msp_exp430g2et verif/g2553/elf/ej_blink MSP430G2xx3 0xC000 0x4031" \
+	          "msp_exp430fr5969 verif/fr5969/elf/fr59_blink MSP430FR5969 0x4400 0x0001"; do \
+	   set -- $$x; \
+	   $(MCUSIM) placas/$$1.xml --ms=600000 --ezfet-imagenes $(MSPDS) --ezfet-pty $(EZFET_PTY) \
+	       > $(B)/ezfet-$$1-sim.log 2>&1 & sim=$$!; \
+	   sleep 8; \
+	   $(LIB430)/prueba_ezfet $(EZFET_PTY) $$2.hex $$3 $$4 $$5 > $(B)/ezfet-$$1.log 2>&1; r=$$?; \
+	   sed "s/^  \[/  [$$3] [/" $(B)/ezfet-$$1.log | grep "\[OK\|\[FALLO"; \
+	   test $$r = 0 || f=1; \
+	   if command -v mspdebug >/dev/null 2>&1; then \
+	     mspdebug tilib -d $(EZFET_PTY) "prog $$2.elf" "verify $$2.elf" > $(B)/ezfet-$$1-mspdebug.log 2>&1 \
+	       && grep -q "^Done" $(B)/ezfet-$$1-mspdebug.log \
+	       && echo "  [OK  ] ezfet-tilib: mspdebug tilib programa y verifica $$2.elf en la $$3" \
+	       || { echo "  [FALLO] ezfet-tilib: mspdebug con la $$3, vease $(B)/ezfet-$$1-mspdebug.log"; f=1; }; \
+	   else echo "  [OMITE] ezfet-tilib: no esta mspdebug"; fi; \
+	   kill $$sim 2>/dev/null; wait $$sim 2>/dev/null; \
+	 done; exit $$f
+
+# msp430-elf-gdb DE VERDAD contra la MSP-EXP430G2ET (P-20): load, rupturas
+# de software y de hardware, watch, paso, Ctrl-C y monitor reset halt, por
+# --gdb-dap y por --gdb (Spy-Bi-Wire); la F5529LP por los dos, con una
+# ruptura por encima de 0x10000 (M4); y la FR2433 (M6) y la FR4133 (M7) por
+# los dos, con el load en la FRAM. Sin msp430-elf-gdb se omite; no toca
+# ningun invariante. (El de TI pide libncurses5: LD_LIBRARY_PATH si falta.)
+#   make -f Makefile.mcu-sim gdb-g2 [GDB430=/ruta/msp430-elf-gdb]
+gdb-g2: $(MCUSIM)
+	$(PYTHON) verif/g2553/gdb_g2.py --sim $(MCUSIM) $(if $(GDB430),--gdb $(GDB430))
+
+# SLAA754 (P-20): la MSP-EXP432P401R con el ejemplo de TI tal cual viene
+# compilado programa a la G2ET por Spy-Bi-Wire; el backchannel del MSP432,
+# a memoria, acaba en «MSP430 Programmed Successfully». Un minuto de pared.
+g2-slaa754: $(MCUSIM)
+	$(MCUSIM) placas/msp432_programa_g2553.xml --serie P4/BCL=memoria --ms=3000
+
+# SLAA754, la segunda mitad (M7): el mismo ejemplo para FRAM, tal cual viene
+# compilado (MSP432Host_SBW_MSP430FR.out), programa a la MSP-EXP430FR2311 por
+# Spy-Bi-Wire con el Replicator430FR: «MSP430 Programmed Successfully» y el
+# LED1 del FR2311 parpadea. Minuto y medio de pared.
+fr2311-slaa754: $(MCUSIM)
+	$(MCUSIM) placas/msp432_programa_fr2311.xml --serie P4/BCL=memoria --ms=30000
+
+m430fw:
+	cd verif/m430 && python3 gen_dif.py && python3 gen_ciclos.py && $(MAKE) -f Makefile.m430 && python3 gen_dec.py
 
 # LA SUITE DEL ESP32-C3 (fase E3 de doc/analisis_esp32_riscv.md): el C3 sin
 # ROM con el firmware de verif/fw/esp32c3, cuyos ELF se versionan.
@@ -1002,6 +1193,87 @@ f3-stm32flash: $(MCUSIM)
 	     && grep -q "\[D/VCP\] f3_vcp: la USART1 por PC4/PC5" $(B)/f3-stm32flash.log \
 	     && echo "  [OK  ] f3-stm32flash: stm32flash borra, escribe, verifica y arranca f3_vcp por el cargador AN3155" \
 	     || { echo "  [FALLO] f3-stm32flash: vease $(B)/f3-stm32flash.log"; exit 1; }; \
+	 fi
+
+# EL BSL B1 DE LA FR5969 CON python-msp430-tools (M9): el `mcu-sim` de verdad
+# con placas/msp_exp430fr5969_bsl.xml (la LaunchPad y el adaptador FT232 de
+# placas/bsl_adaptador.xml) y la herramienta de PyPI por RFC 2217, con
+# herramientas/bsl5_uart_py3.py (lo que le falta para Python 3): la secuencia
+# de TEST y RST, el borrado por contraseña mala, escribir y verificar blink y
+# el reset; al cerrar el puerto, blink corre (un LED encendido).
+#   make -f Makefile.mcu-sim fr5-bsl-python
+PUERTO_BSL430 ?= 47362
+fr5-bsl-python: $(MCUSIM)
+	@if ! python3 -c "import serial, msp430.bsl5.uart" >/dev/null 2>&1; then \
+	   echo "  [OMITE] fr5-bsl-python: hacen falta pySerial y python-msp430-tools (python3 -m pip install pyserial python-msp430-tools)"; \
+	 else \
+	   $(MCUSIM) placas/msp_exp430fr5969_bsl.xml --ms=12000 --tiempo-real \
+	       --serie A/U1=rfc2217:$(PUERTO_BSL430) --serie LP/BCL=memoria \
+	       > $(B)/fr5-bsl-python-sim.log 2>&1 & sim=$$!; \
+	   sleep 3; \
+	   python3 ../herramientas/bsl5_uart_py3.py -p rfc2217://localhost:$(PUERTO_BSL430) \
+	       --invert-reset -e -P verif/fr5969/elf/fr59_blink.hex -V -r -v \
+	       > $(B)/fr5-bsl-python.log 2>&1; r=$$?; \
+	   wait $$sim; \
+	   cat $(B)/fr5-bsl-python-sim.log >> $(B)/fr5-bsl-python.log; \
+	   test $$r = 0 \
+	     && grep -q "Programming: OK" $(B)/fr5-bsl-python.log \
+	     && grep -q "Verify by file: OK" $(B)/fr5-bsl-python.log \
+	     && grep -q "LED LP/LED.*encendido" $(B)/fr5-bsl-python.log \
+	     && echo "  [OK  ] fr5-bsl-python: python-msp430-tools entra en el BSL por TEST y RST, borra, escribe y verifica blink, y blink corre" \
+	     || { echo "  [FALLO] fr5-bsl-python: vease $(B)/fr5-bsl-python.log"; exit 1; }; \
+	 fi
+
+# EL BSL B1 DEL G2553 CON python-msp430-tools (M9): lo mismo con
+# placas/msp_exp430g2et_bsl.xml y msp430.bsl.target (el de 1xx/2xx, que ya va
+# con Python 3 tal cual), por P1.1 y P1.5: borra, escribe y verifica
+# ej_blink y lo arranca con -x 0xC000 (Load PC). No con -r: su reset escribe
+# en WDTCTL por el BSL con RST a masa, no sincroniza y la herramienta acaba
+# en error (lo mismo haría con el chip).
+#   make -f Makefile.mcu-sim g2-bsl-python
+g2-bsl-python: $(MCUSIM)
+	@if ! python3 -c "import serial, msp430.bsl.target" >/dev/null 2>&1; then \
+	   echo "  [OMITE] g2-bsl-python: hacen falta pySerial y python-msp430-tools"; \
+	 else \
+	   $(MCUSIM) placas/msp_exp430g2et_bsl.xml --ms=10000 --tiempo-real \
+	       --serie A/U1=rfc2217:$(PUERTO_BSL430) --serie LP/BCL=memoria \
+	       > $(B)/g2-bsl-python-sim.log 2>&1 & sim=$$!; \
+	   sleep 3; \
+	   python3 -m msp430.bsl.target -p rfc2217://localhost:$(PUERTO_BSL430) \
+	       --invert-reset -e -P verif/g2553/elf/ej_blink.elf -V -x 0xc000 -v \
+	       > $(B)/g2-bsl-python.log 2>&1; r=$$?; \
+	   wait $$sim; \
+	   cat $(B)/g2-bsl-python-sim.log >> $(B)/g2-bsl-python.log; \
+	   test $$r = 0 \
+	     && grep -q "Programming: OK" $(B)/g2-bsl-python.log \
+	     && grep -q "Verify by file: OK" $(B)/g2-bsl-python.log \
+	     && echo "  [OK  ] g2-bsl-python: msp430.bsl.target entra en el BSL por TEST y RST, borra, escribe, verifica y arranca ej_blink" \
+	     || { echo "  [FALLO] g2-bsl-python: vease $(B)/g2-bsl-python.log"; exit 1; }; \
+	 fi
+
+# EL BSL B1 DE LA FR2433 CON python-msp430-tools (M10): como fr5-bsl-python,
+# con placas/msp_exp430fr2433_bsl.xml (la LaunchPad y el adaptador) y el BSL
+# de las FR23xx-FR26xx: entra por TEST y RST, borra (contraseña mala, que
+# aquí sí contesta 0x3B 0x05), escribe y verifica fr2_blink y lo arranca.
+#   make -f Makefile.mcu-sim fr2-bsl-python
+fr2-bsl-python: $(MCUSIM)
+	@if ! python3 -c "import serial, msp430.bsl5.uart" >/dev/null 2>&1; then \
+	   echo "  [OMITE] fr2-bsl-python: hacen falta pySerial y python-msp430-tools"; \
+	 else \
+	   $(MCUSIM) placas/msp_exp430fr2433_bsl.xml --ms=12000 --tiempo-real \
+	       --serie A/U1=rfc2217:$(PUERTO_BSL430) --serie LP/BCL=memoria \
+	       > $(B)/fr2-bsl-python-sim.log 2>&1 & sim=$$!; \
+	   sleep 3; \
+	   python3 ../herramientas/bsl5_uart_py3.py -p rfc2217://localhost:$(PUERTO_BSL430) \
+	       --invert-reset -e -P verif/fr2433/elf/fr2_blink.elf -V -r -v \
+	       > $(B)/fr2-bsl-python.log 2>&1; r=$$?; \
+	   wait $$sim; \
+	   cat $(B)/fr2-bsl-python-sim.log >> $(B)/fr2-bsl-python.log; \
+	   test $$r = 0 \
+	     && grep -q "Programming: OK" $(B)/fr2-bsl-python.log \
+	     && grep -q "Verify by file: OK" $(B)/fr2-bsl-python.log \
+	     && echo "  [OK  ] fr2-bsl-python: python-msp430-tools entra en el BSL de la FR2433, borra, escribe, verifica y arranca fr2_blink" \
+	     || { echo "  [FALLO] fr2-bsl-python: vease $(B)/fr2-bsl-python.log"; exit 1; }; \
 	 fi
 
 # LA PREBUSQUEDA DE LA FLASH DEL E4 A 120 MHz (FWS = 5):

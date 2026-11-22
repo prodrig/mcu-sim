@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     EL REPLICATOR430 DE TI EN UNA F5529LP PROGRAMA A UNA G2ET (Spy-Bi-Wire)
+     (M4 de doc/analisis_msp430.md: «un MSP430 simulado programa a otro con
+     el código de referencia de TI»)
+
+     El firmware es el Replicator430 de SLAU320 (verif/f5529/replicator) con
+     los cambios de placa que pide la guía: el JTAG en P6 de la F5529LP, sin
+     traductores, el reloj desde REFO y el estado por el backchannel a 9600
+     («REP OK 00» al acabar; los LED de la placa: LED2 verde bien, LED1 rojo
+     error). Borra el G2553, le escribe el programa de ejemplo de TI (que hace
+     parpadear P1.0, el LED1 de la G2ET), lo verifica con la PSA y lo suelta.
+
+         ./build/mcu-sim placas/replicator_f5529_g2553_sbw.xml --ms=3000
+
+     Los hilos (F5529LP -> G2ET):
+-->
+<sistema nombre="replicator-f5529-g2553-sbw">
+  <placa id="F5" fichero="msp_exp430f5529lp.xml" x="0" y="0"/>
+  <placa id="G2" fichero="msp_exp430g2et.xml" x="120" y="0"/>
+  <placa id="M" fichero="monitor_serie_9600.xml" x="60" y="70"/>
+  <hilo a="F5/J3.5" b="G2/J2.7"/>     <!-- P6.2 TCK -> TEST/SBWTCK -->
+  <hilo a="F5/J1.2" b="G2/J2.6"/>     <!-- P6.5 TDI (SBWTDIO) -> RST/SBWTDIO -->
+  <hilo a="F5/J3.2" b="G2/J2.10"/>    <!-- GND -->
+  <hilo a="M/P1.RX" b="F5/J101.10"/>  <!-- el backchannel de la F5529LP, a 9600 -->
+  <hilo a="M/P1.GND" b="F5/J3.2"/>
+  <mcu ref="F5/u0" firmware="verif/f5529/elf/rep_sbw.elf"/>
+</sistema>

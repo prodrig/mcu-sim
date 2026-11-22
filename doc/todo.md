@@ -1000,6 +1000,268 @@ Flash, la caché y la ROM del C3). El detalle, en §10 del análisis:
   | **E6** · La fuente del JTAG | DIS_PAD_JTAG, SOFT_DIS_JTAG (impar), JTAG_SEL_ENABLE + GPIO10, DIS_USB_JTAG, al soltar CHIP_PU | TRM-C3 §7.3 y `efuse_reg.h` |
   | **E5** · El reinicio por RFC 2217 (`reinicio="esp"` del puente) | el puente reconoce el principio de la secuencia de esptool y la hace en tiempo simulado (100 ms + 50 ms) | `esp_rfc2217_server` (esp_port_manager.py): lo mismo con una placa de verdad |
 
+### P-20 — Los MSP430: un núcleo de 16 bits reutilizable y diez chips
+
+**Analizado en `doc/analisis_msp430.md`, con un plan de trece fases
+(M0-M12)**, en la rama `msp430`. El núcleo (CPU, CPUX y CPUXV2) va separado
+del chip en `src/m430/`, con su depuración (TAP de 8 bits, Spy-Bi-Wire, EEM,
+la sonda de bancada portada de la MSP Debug Stack y el *backend* de GDB) y su
+SoC de laboratorio (`test430`); encima, la capa de familia en `src/periph/ti/`
+(compartida con el P4) y los chips.
+
+**Estado (2026-11-22):** **M0-M12 hechas** (M9 y M11 con los huecos de abajo; M11a, sustituida por M11b), y
+cerrado lo que quedaba de M2-M8 que no depende de fases posteriores. El
+detalle, en §11 del análisis. Lo cerrado:
+
+* **M2**: DATA_QUICK, PSA y el fusible (con VPP por TEST en 4 hilos y por
+  SBW); el **Replicator430 de TI como oráculo** (`verif/m430/replicator`,
+  compilado para el anfitrión sobre los pines: G5 de `testg2`); el **guion con
+  `msp430-elf-gdb` de verdad** por `--gdb-dap` y por `--gdb` (`make gdb-g2`:
+  load con compare-sections, break, `monitor reset halt`, next, hbreak,
+  watch, stepi, Ctrl-C y el perro parado con GENCLKCTRL); el `load` por GDB,
+  con el programador de la Flash de 2xx.
+* **M3**: `msp_exp430g2et.xml` y su SVG (C23 de `gui-sistema`); el G2553 en
+  el binario `mcu-sim`; USCI_B0 (SPI e I2C, sobre la eUSCI con la cara de la
+  USCI: `periph/ti/usci.h`), Comp_A+, la DTC y las secuencias del ADC10, y
+  todas las funciones de los pines (G6); cinco ejemplos y la demo de fábrica
+  (G7, `verif/g2553/ejemplos`); **SLAA754**: el ejemplo de TI tal cual, en la
+  P401R, programa la G2ET por SBW (`make g2-slaa754`); SLAZ440K clasificada
+  (abajo).
+
+* **M4** (`testf5`): el F5529 entero salvo el USB, con la F5529LP; el
+  Replicator430 en un F5529 programa un G2553 (SBW y JTAG) y el
+  **Replicator430Xv2** programa otro F5529 (SBW y JTAG): el JTAG de Xv2
+  con CPUSUSP, el JMB, el patrón mágico y la firma de JTAG de 5xx (F8).
+* **M5** (`testf5` F9): el módulo USB (`periph/ti/usb_ti.h`); el binario del
+  simpleUsbBackchannel de TI enumera por el puente CDC-ACM y lleva datos
+  entre el USB y el backchannel. `usb=`/`--usb` en la F5529LP.
+
+* **Lo que quedaba de M4 y M5** (`testf5` F10-F13): el RTC_A en modo
+  contador, CBOUT en P1.6 y en el Timer1_A3, lo del USB sin la pila de TI
+  (Port U, el temporizador y la marca de tiempo, RWUP, el LDO), y **`--gdb`
+  por los pines del F5529**: la sonda de bancada habla Xv2
+  (`m430/sonda/sonda_xv2.h`, `DbgSondaXv2`), con `make gdb-g2` por los dos
+  caminos.
+
+* **M6** (`testfr2`): lo común de las FR2xx/FR4xx (CS con FLL, PMM con
+  LPM3.5 y LPM4.5, la FRAM con SYSCFG0, el RTC contador, el ADC de 10 bits,
+  la BAKMEM) con el FR2433 y su LaunchPad; el JSTATE; la demo de fábrica de
+  TI, su binario, con la CTPL en LPM3.5; GDB por los dos caminos con el
+  `load` en la FRAM. SLAZ664S clasificada (abajo).
+
+* **M9** (`testg2` G8-G9, `testfr5` L12, `testf5` F14; `make
+  fr5-bsl-python` y `g2-bsl-python`): el BSL USB de Flash del F5529 (el de
+  la MSP Debug Stack, BSD-3, portado a gcc; B2 = la imagen de TI, que da lo
+  mismo), los B1 propios de las FR5 y del G2553, la entrada por TEST y RST y
+  por PUR, `--bsl` en los tres, `bsl_adaptador.xml` con las dos LaunchPad, y
+  el BSL de usuario de la G2xx (BSD-3) cargando por el canal de vuelta con S2.
+  `python-msp430-tools` programa, verifica y arranca blink en el FR5969
+  (`bsl5.uart`, con `herramientas/bsl5_uart_py3.py`: la 0.10 no va con
+  Python 3) y en el G2553 (`bsl.target`, tal cual). Dos arreglos del modelo:
+  la entrada de un módulo al elegir su pin (FR2/FR5 y F5529) y DTR/RTS del
+  PuenteSerie al cerrar el puerto.
+
+* **M10** (`testfr2` R7, `testfr4` F5, `testfr2476` K4, `testfr2355` J5,
+  `testfr2311` H4; `make fr2-bsl-python`): el BSL de las FR2xx/FR4xx, propio:
+  3 KB (BSL1 y BSL2) con UART e I2C y detección automática, la espera de 10
+  s a LPM4, el chip en blanco, la configuración de la TLV (0xB5) y la del
+  usuario (0xFF88) en FR2355 y FR2476; y el de 1 KB, solo UART a 9600, del
+  FR4133.
+* **M11** (`make testezfet`, Z1-Z3; `make ezfet-tilib`): la eZ-FET lite de
+  bajo nivel, un F5528 que ejecuta el firmware de TI de la copia de la MSP
+  Debug Stack del usuario (`--ezfet-imagenes`), con su USB en un pty; con
+  `libmsp430` y su parche (`herramientas/libmsp430`), y con `mspdebug
+  tilib`, identifica, programa y verifica la G2553 y la FR5969. Salieron
+  cinco arreglos del núcleo y del TAP con la HAL de TI como oráculo (R3 en
+  CMPA, DATA_QUICK de 1xx y de Xv2, la lectura de Xv2 por ADDR_16BIT) y la
+  revisión de la TLV de FR5969/FR6989.
+* **M12** (`prueba_cruzada` G11 de `mcu-sim-gui`): los dibujos de FR5969,
+  FR5994 y FR6989; el vidrio LCD como imagen; los puentes de la eZ-FET como
+  interruptores (`Jumper quitable="si"`); y la pieza `ID.CPU`, con LPMx
+  separado de la parada del depurador.
+
+**Lo que queda, con su fase**: el tiempo y el ECC de la FRAM (**M8**, con las
+FR5xx/FR6xx, que tienen más estados de espera); el G2553 en `mcu-sim-gui`
+(**M12**, ya: la G2ET va en G11 de `prueba_cruzada`). **De M11**: (1) el
+backchannel, el segundo CDC de la eZ-FET, sin conectar; (2) GDB por la
+eZ-FET: el agente de TI no está en la MSP Debug Stack, y con el servidor de
+`mspdebug tilib` el `continue` hasta una ruptura y el paso no vuelven (el
+EEM por la HAL; y el PC tras SyncJtag sale 0xC004 en la G2553); (3) la
+actualización del firmware de la eZ-FET, sin probar. **De M9**: (1) `msp430.bsl5.hid` en el F5529, que pide
+`/dev/hidraw` o el servidor USB/IP (U4) y tiene `hid.py` en Python 2; (2) el
+BSL de RAM que cargan las herramientas en el F5529 no vuelve a enumerar tras
+Load PC 0x2504 (el USB del modelo tras su reset de bus; `RAM_BSL=` en F14
+lo reproduce); (3) BSL-Scripter, que no está en `doc/refs`; (4) los BSL por
+I2C de las FR5 «1» y el de UART del F5529. Y una observación sin fase: la
+`msp_exp430fr5969.xml` sin firmware da «sobrecorriente» en la fuente USB al
+arrancar (la placa sola, sin el adaptador; sin mirar aún).
+
+**Dos cosas que se aprendieron en el camino**, dichas aquí porque no son del
+modelo:
+
+* los ejemplos de TI del G2553 (SLAC485) y la demo de fábrica de la G2ET no
+  están en `doc/refs`: los de `verif/g2553/ejemplos` están ESCRITOS AQUÍ a
+  partir de lo que cuentan SLAU772A y los ejemplos clásicos, y lo dicen en su
+  cabecera. Si llegan los de TI, se compilan tal cual y se comparan;
+* la imagen que SLAA754 escribe en el G2553 tiene el vector de reset en
+  0xC024, una palabra dentro de su `mov #0x400,SP`: el «blinky» solo arranca
+  si el SP que quedó del programa anterior está en la RAM. En el simulador,
+  al encender, es 0, y el LED no parpadea: el programa de TI, no el modelo.
+
+**SLAZ440K (MSP430G2553, revisión C), clasificada** [§10.4 del análisis]:
+
+| Errata | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| BCL12 | cambiar RSEL de >13 a <12 (o al revés) para el DCO unos 20 µs, o del todo | se documenta | el DCO cambia en el acto |
+| CPU4 | PUSH #4 / PUSH #8 por el generador de constantes | **se modela** | avisa una vez (el compilador lo evita); TI no dice qué empuja |
+| EEM20 | el depurador puede borrar banderas que se borran al leer | se documenta | las lecturas de depuración no tienen efectos |
+| SYS15 | más consumo en LPM3/4 si SMCLK cambia justo antes | se documenta | no hay consumo |
+| TA12 | se pierde la interrupción al sumar 1 a CCRx con un reloj lento | se documenta | — |
+| TA16 | el primer incremento de TAR tras TACLR no respeta IDx | se documenta | — |
+| TA21 | TAIFG de más al rearrancar en modo ascendente con TAR = CCR0 | se documenta | — |
+| TAB22 | registros del Timer cambiados tras un PUC del perro | se documenta | — |
+| USCI20, USCI26, USCI34 | I2C multimaestro | no aplica | no hay multimaestro |
+| USCI22 | I2C maestro receptor con direcciones de 10 bits | no aplica | no hay 10 bits |
+| USCI23, USCI24 | UART con detección de baudios | no aplica | no se modela la detección |
+| USCI25 | TXIFG no se borra con NACK y reinicio | se documenta | lo que dice la guía |
+| USCI29 | una interrupción del I2C puede ir al vector TRAPINT | se documenta | — |
+| USCI30 | I2C receptor: error si RXBUF no se lee a tiempo | se documenta | el receptor retiene SCL |
+| USCI35 | tiempos de START con SCL > 50 kHz | se documenta | sin tiempos analógicos |
+| USCI40 | SPI esclavo con UCCKPH = 1: los bytes se corren un bit | se documenta | — |
+| XOSC5 | el fallo del cristal LF puede no detectarse | se documenta | sin cristal, OFIFG siempre |
+
+**SLAZ314AD (MSP430F5529), clasificada** [§10.4 del análisis; M4]. Por
+grupos, porque son 79:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22 | POPM con el SR; @PC como origen | **se modela** | avisan una vez (M1) |
+| CPU23, CPU26-CPU35, CPU39, CPU40, CPU47 | rotaciones, CALL SP, CALLA, el PC en anidamientos y pasos, saltos seguidos de datos, VMAIFG | se documenta | los compiladores las evitan; el modelo hace lo que dice la guía |
+| CPU37, EEM9-EEM23, JTAG26, JTAG27 | la depuración (trazas, disparadores con esperas, LPMx.5) | se documenta | el EEM del modelo no tiene esas carreras |
+| ADC25 | escribir ADC12CTL0 con CONSEQ = 00 dispara | se documenta | solo dispara ADC12SC |
+| ADC27, ADC29 | linealidad; la calibración del sensor en la TLV | se documenta | la TLV sale del propio modelo del sensor |
+| ADC42, ADC69 | el ADC se para si se dispara encima o se cambia el reloj | se documenta | — |
+| DMA4, DMA7, DMA8, DMA10 | escrituras de 20 bits, interrupciones perdidas, la pila | se documenta | — |
+| FLASH33, FLASH34, FLASH35, FLASH37 | fsystem < 160 kHz, leer durante el borrado de banco, SVM | se documenta | PMM_setVCore de DriverLib ya trae el rodeo de FLASH37 |
+| MPY1 | guardar/restaurar del MPY32 | se documenta | — |
+| PMAP1, PORT15, PORT16, PORT19, PORT24 | el PMAP, PMALOCKED, los pines al arrancar, LPMx.5, consumo | se documenta | — |
+| PMM9-PMM20 | SVS/SVM, relojes rápidos al salir de LPM3/4, VCORE, la protección de sobretensión | se documenta | el PMM del modelo no tiene tensiones |
+| RTC3, RTC6 | RTC_A: leer el calendario sin RTCRDY; el contador con RTCHOLD | se documenta | el modelo no tiene esa carrera; el modo contador no está |
+| SYS10, SYS12, SYS14, SYS16, SYS18 | BSL, ACCVIFG con 2,4-2,6 V, consumo tras un PUC, la rampa de Vcc, el USB al arrancar | se documenta / M5 | — |
+| BSL6, BSL7, JTAG20 | el BSL | no aplica (M9) | — |
+| USB4-USB13 | el USB: PLL, suspensión, VBUS, búferes | se documenta | la UBM del modelo hace lo de la guía; la pila de TI ya trae los rodeos |
+| COMP10 | la salida del comparador en LPM3/4 | se documenta | CBOUT no sale a los pines |
+| TAB23 | leer TAR = CCR0 | se documenta | — |
+| USCI26, USCI30, USCI31 | I2C multimaestro, receptor, error de trama tras UCSWRST | se documenta | (las mismas que en el G2553) |
+
+**SLAZ664S (MSP430FR2433), clasificada** [§10.4 del análisis; M6]. Son 18:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22, CPU40 | POPM con el SR, @PC como origen, el PC tras ciertas instrucciones | **se modela** | avisan una vez (M1); las corrige el compilador |
+| CPU46 | POPM lee una palabra de más y puede poner VMAIFG | se documenta | el modelo no lee de más |
+| ADC50 | el sensor en LPM3 con ACLK como reloj del ADC | se documenta | el sensor del modelo no depende del modo |
+| ADC63 | escribir el byte alto de ADCCTL2 puede borrar ADCHI/ADCLO | se documenta | — |
+| CS13, PMM32 | bloqueo al pasar de AM a LPM3/4 con el DCO por encima de 2 MHz | se documenta | el modelo no tiene esa carrera; la CTPL ya baja el DCO a 4 MHz al despertar |
+| GC4, GC5 | errores de bit de la FRAM que no existen (al ejecutar de la FRAM, al salir de LPM1-4) | se documenta | la FRAM del modelo no falla; GCCTL1 queda a 0 |
+| PORT28 | la resistencia de bajada de TEST/SBWTCK | se documenta | TEST sin conducir es «suelto» |
+| RTC15 | el RTC se para si se le cambia la fuente desde XT1CLK con XT1 parado | se documenta | — |
+| USCI42, USCI45, USCI47, USCI50 | UCTXCPTIFG por byte, estiramiento del reloj SPI, SPI esclavo con UCCKPH = 1, SPI maestro de 4 hilos con UCSTEM = 0 | se documenta | la eUSCI es la del MSP432P4 (las mismas, sin modelar) |
+| BSL18 | el vector vacío no llama al BSL | no aplica | solo la revisión A; el modelo es de la última: con el vector borrado entra en el BSL (M10, R7 de `testfr2`) |
+| EEM23 | el EEM con módulos con esperas (MPY, CRC, FRAM) | se documenta | el EEM del modelo no tiene esas carreras |
+
+**SLAZ550AA (MSP430FR4133, revisión B), clasificada** [§10.4 del análisis;
+M7]. Son 24; las que comparte con la FR2433 (SLAZ664S, arriba), con la misma
+clase:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22, CPU40, CPU46, ADC50, ADC63, CS13, PMM32, GC4, GC5, PORT28, RTC15, USCI42, USCI45, USCI47, USCI50, EEM23 | (las de la FR2433) | (las mismas) | (lo mismo) |
+| SYS23 | la RAM en 0x20FE-0x20FF no se conserva tras un BOR por RST, por PMMSWBOR, por la seguridad o por SVSH | **se modela** | esos dos bytes quedan a 0x00 [de modelo: TI no dice qué queda] y avisa una vez; `testfr4` F3 lo comprueba |
+| ADC39 | resultados erróneos en el muestreo extendido (ADCSHP = 0) con ADCCLK asíncrono a SHI | se documenta | el ADC del modelo no tiene esa carrera |
+| CS11 | el FLL no engancha a -40 °C o 85 °C si DCO estaba cerca de un extremo a temperatura ambiente | se documenta | el DCO del modelo no deriva con la temperatura |
+| GC1 | UBDIFG no da NMI | se documenta | la FRAM del modelo no falla (GCCTL1 a 0) |
+| USCI41 | UCBUSY de la eUSCI_A en SPI se queda a 1 o conmuta | se documenta | la eUSCI es la del MSP432P4, sin esa avería |
+| EEM28 | los relojes de salida se ven en el pin durante una parada de depuración en LPMx | se documenta | los relojes de salida del modelo son un nivel (corren o no) |
+| EEM30 | una ruptura en la primera instrucción que lee la FRAM se pierde con FRPWR = 0 | se documenta | GCCTL0.FRPWR no apaga nada en el modelo |
+
+**SLAZ679R (MSP430FR2311), clasificada** [§10.4 del análisis; M7]. Son 16;
+todas, salvo TB25, de las de la FR2433 (SLAZ664S), con la misma clase:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| ADC50, ADC63, BSL18, CPU21, CPU22, CPU40, CPU46, CS13, EEM23, PMM32, RTC15, USCI42, USCI45, USCI47, USCI50 | (las de la FR2433) | (las mismas) | (lo mismo) |
+| TB25 | en modo ascendente, con CLLD = 01 o 10, TBxCCRn pasa a TBxCLn en el acto y no al llegar TBxR a 0 | **se modela** | `TimerACaps::tb25`; `testfr2311` H2 lo comprueba (en ascendente, en el acto; en continuo, al paso por 0) |
+
+**SLAZ695J (MSP430FR2355), clasificada** [§10.4 del análisis; M7]. Son 13,
+todas de las de la FR2311 (SLAZ679R), con la misma clase; ninguna toca lo que
+es propio de la FR2355 (el ICC, los SAC-L3, el ADC de 12 bits, la referencia
+mejorada, FRWPOA):
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22, CPU40, CPU46, CS13, EEM23, PMM32, RTC15, USCI42, USCI45, USCI47, USCI50 | (las de la FR2433) | (las mismas) | (lo mismo) |
+| TB25 | (la de la FR2311) | **se modela** | `ChipFr2::errata_tb25` también en `CHIP_FR2355`, para sus cuatro Timer_B |
+
+**SLAZ726B (MSP430FR2476), clasificada** [§10.4 del análisis; M7]. Son 9:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22, CPU40, CPU46, EEM23, USCI42, USCI50 | (las de la FR2433) | (las mismas) | (lo mismo) |
+| TB25 | (la de la FR2311) | **se modela** | `ChipFr2::errata_tb25` también en `CHIP_FR2476`, para su Timer0_B7 |
+| COMP12 | la salida del eCOMP0 no llega a TB0.CCI1B | **se modela** | `CHIP_FR2476` no la conecta (`ccib_timer = -1`): esa captura B es la salida de TA3 CCR1 [DS tabla 9-15] |
+
+**SLAZ473AG (MSP430FR5969, revisiones F-H), clasificada** [§10.4 del análisis;
+M8]. Son 51. Las que se modelan llevan su bit en `ChipFr2::errata5` (`E5_*`,
+`soc/msp430/fr2/soc_fr2.h`), avisan una vez y las prueba `testfr5` L9:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| CPU21, CPU22, CPU40, CPU46 | (las de la FR2433) | (las mismas) | (lo mismo) |
+| CPU47 | VMAIFG por una instrucción que cambia el PC al final de una memoria sin otra contigua | se documenta | el modelo no busca de más |
+| ADC41 | en LPM3/LPM4, con ADC12OSC y sin REFON, TB0, TA1 y TA2 no disparan el ADC12_B | **se modela** | `E5_ADC41`: los SHS 2-5 no llegan (`adc41_bloquea`); L9 |
+| ADC42 | un disparo con la conversión en curso, en secuencia o repetición, para el ADC | **se modela** | `Adc12B::E_ADC42`: BUSY a 1, sin TOV, hasta ENC = 0 y ON = 0 (la salida que da TI); L9 |
+| ADC43 | el DMA se dispara tras cada conversión de una secuencia, no al final | **se modela** | `Adc12B::E_ADC43`; sin ella (FR5994), al final de la secuencia [UG FR5 §34.2.9] |
+| ADC66 | ON conmutado con BUSY en secuencia o repetición para el ADC | **se modela** | `Adc12B::E_ADC66`, la misma parada que ADC42 [de modelo: la misma salida] |
+| ADC69 | con SSEL = SMCLK, SMCLKOFF = 1 y DIV /3, /5, /7, cambiar SSEL cuelga el ADC hasta un PUC | **se modela** | `Adc12B::E_ADC69` |
+| ADC71 | ENC y SC a la vez tras un disparo que no era SC: BUSY y SC a 1 | **se modela** | `Adc12B::E_ADC71` [de modelo: sale con ON = 0; TI no dice cómo]; L9 |
+| ADC38 | un disparo de un Timer sin conmutar ENC al final de la secuencia o de la conversión puede parar el ADC | se documenta | «puede»; un programa que sigue la guía (ENC entre conversiones) no la ve |
+| ADC64 | resultados erróneos en el muestreo extendido con menos de 6 ciclos y VR sin búfer | se documenta | analógico |
+| ADC67 | la calibración del sensor en la TLV es mala en algunos lotes | no aplica | la TLV del modelo es buena (la de los lotes > 88XXXXX) |
+| ADC70 | el DMA se queda parado al cambiar de disparo por la CPU a disparo por flanco | se documenta | la secuencia exacta no está en la errata |
+| AES1 | escribir AESAXIN con AESBUSY ni aborta ni pone AESERRFG | **se modela** | `Aes256P4::errata_aes1` [de modelo: la escritura se pierde]; L9 |
+| COMP7 | salida falsa con poca sobretensión | se documenta | analógico |
+| COMP10 | con CEON = 0 y CEOUTPOL = 1, el pin de COUT cambia al entrar y salir de LPM3/LPM4 | **se modela** | `E5_COMP10`: en LPM3/LPM4 el pin se invierte; L9 |
+| CS3, CS7, CS12 | la sobrecarga del PMM al subir SMCLK, el DCO fuera de margen al despertar o al cambiar | se documenta | el DCO del modelo es exacto al momento |
+| DMA7, DMA11 | interrupciones perdidas en una lectura-modificación-escritura; un PUC por un disparo en la transición a LPM | se documenta | carreras de un ciclo que el modelo no tiene |
+| GC1, GC4, GC5 | UBDIFG sin NMI; errores de bit de la FRAM que no existen | se documenta | la FRAM del modelo no falla |
+| PMM24, PMM31, PMM32, PMM33 | bloqueos al entrar o salir de LPM2-LPM4 | se documenta | carreras de tiempo que el modelo no tiene |
+| PORT28 | la resistencia de bajada de TEST | (la de la FR2433) | (lo mismo) |
+| REF9 | con REFON = 1 el Comp_E no tiene la referencia | **se modela** | `CompEP4::errata_ref9` [de modelo, la lectura: aunque la pida con CEREFL]; `fr59_basico.c` usa la salida de TI (REFON = 0, que la pida el Comp_E); L9 |
+| RTC10 | una bandera del RTC perdida al entrar en LPM3.5 | se documenta | ventana de tiempo |
+| TB25 | (la de la FR2311) | **se modela** | `errata_tb25` en las tres FR5 |
+| USCI41, USCI42, USCI45, USCI47, USCI50 | (las de la FR2433 y la FR4133) | (las mismas) | (lo mismo) |
+| WDG5 | el perro en marcha no impide LPMx.5 | **se modela** | `E5_WDG5`: entra y el perro se apaga; L9 |
+| EEM19, EEM23, EEM27, EEM28, EEM30, EEM31, JTAG27 | de depuración | se documenta | — |
+
+**SLAZ517AG (MSP430FR6989), clasificada** [M8]. Son 56; las del FR5969 (sin
+ADC41, CS3, DMA11 ni PMM33), con la misma clase, y siete más:
+
+| Erratas | Qué | Clase | En el modelo |
+| :--- | :--- | :--- | :--- |
+| ESI2 | TSM1 se puede corromper si la CPU escribe en el ESI con la TSM en marcha | se documenta | «puede» |
+| PMM21, PMM27, PMM29 | el despertar de LPM4.5 a -40 °C, un BOR con cinco periféricos pidiendo ACLK, un bloqueo raro | se documenta | — |
+| RTC12 | RTCTCOK se pierde al despertar de LPM3.5 | **se modela** | `E5_RTC12` (`RtcC5::despierta_lpm35`); L9 |
+| TA22 | las salidas de TA0 cambian al entrar en LPM3/LPM4 | **se modela** | `E5_TA22` (`TimerAP4::invierte_salidas`, las de OUTMOD distinto de 0 [de modelo]); L9 |
+| EEM29 | de depuración | se documenta | — |
+
+**SLAZ681O (MSP430FR5994, revisión C), clasificada** [M8]. Son 25: ADC42,
+ADC69, ADC71, RTC12 y TB25 **se modelan** (como arriba; sin ADC43, el DMA
+del ADC12_B va al final de la secuencia); CPU21, CPU22, CPU40, CPU46,
+CPU47, CS12, PMM31, PMM32, USCI42, USCI45, USCI47 y USCI50 se documentan
+como arriba; ADC65 (el reloj del ADC no se apaga entre conversiones de una
+secuencia) se documenta (consumo); ADC67 no aplica.
+
 ---
 
 ## 3. Funciones no modeladas — "bits sin máquina" (F)
@@ -1342,16 +1604,16 @@ porque en casi todos los casos la respuesta ha sido, hasta ahora, ninguno.
 
 | Categoría | Puntos |
 | :--- | ---: |
-| **P** — Pendientes de plan | 19 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
+| **P** — Pendientes de plan | 20 *(una cerrada: P-14, con la matriz manual a medias; P-15, hecha su primera parte)* |
 | **F** — Funciones no modeladas | 51 |
 | **T** — Temporización y física | 25 *(cuatro cerradas: T-22, T-23, T-24 y T-25)* |
 | **D** — Datos sin fuente | 14 |
 | **X** — Discrepancias, silencios de [IR] y erratas de ST | 14 |
 | **V** — Huecos de verificación | 12 |
 | **I** — Deuda de instrumentación y proyecto | 52 *(treinta y cinco cerradas: I-11, I-12, I-15, I-16, I-17, I-20, I-22, I-23, I-24, I-25, I-26, I-28, I-30, I-31, I-32, I-33, I-34, I-35, I-36, I-37, I-38, I-39, I-40, I-41, I-42, I-43, I-44, I-45, I-46, I-47, I-48, I-50, I-51, I-53 e I-54)* |
-| **Total** | **187** |
+| **Total** | **188** |
 
-De los 187, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
+De los 188, **uno solo** (P-01) es un pendiente de plan de primer orden; **once**
 son trabajo acotado y barato (bloque 1 y 2 de la sección 10); y **la gran
 mayoría** son decisiones conscientes de alcance, cada una con su motivo escrito
 en el informe que la originó.
@@ -1376,3 +1638,6 @@ en el informe que la originó.
 >
 > **Y la quinta (2026-11-07), al dar de alta P-19.** Una P más:
 > 19 + 51 + 25 + 14 + 14 + 11 + 52 = **186**.
+>
+> **Y la sexta (2026-11-16), al dar de alta P-20 (los MSP430).** Una P más
+> (la V-12 de `asanc6` ya estaba contada): 20 + 51 + 25 + 14 + 14 + 12 + 52 = **188**.

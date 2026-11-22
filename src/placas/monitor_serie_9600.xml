@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Un monitor de linea serie: escucha a 9600 8N1 lo que llega a RX y lo
+     guarda en memoria (lo imprime al final). Para colgarlo de un hilo de un
+     <sistema>, como el analizador logico del laboratorio. -->
+<placa nombre="monitor-serie-9600">
+  <componente tipo="Conector" id="P1" filas="2" columnas="1" nombres="RX GND"/>
+  <nodo id="P1.RX" bus="si"/>
+  <nodo id="P1.GND" bus="si"/>
+  <componente tipo="PuenteSerie" id="MON" host="memoria" baudios="9600" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="P1.RX"/>
+  </componente>
+</placa>

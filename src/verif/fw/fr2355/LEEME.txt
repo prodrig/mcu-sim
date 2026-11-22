@@ -1,0 +1,11 @@
+OutOfBox_MSP-EXP430FR2355.txt: el binario TI-TXT de la demo de fábrica de la
+MSP-EXP430FR2355, TAL CUAL (MSP-EXP430FR2355 Software Examples,
+Firmware/Binary/OutOfBox_MSP-EXP430FR2355; los fuentes, en Firmware/Source,
+son BSD de TI; compilado con CCS: sus variables PERSISTENT van al principio de
+la FRAM, que el arranque deja sin proteger con SYSCFG0.FRWPOA). Dos modos:
+el sensor de luz (el fotodiodo D1 en transimpedancia en el SAC2, el SAC0 de
+seguidor, el ADC de 12 bits por A1 y el PWM por programa de LED1 y LED2; S1
+recalibra) y, con S2, el generador de funciones (un seno en el DAC del SAC3,
+invertido por el SAC1 en PGA en cascada, leído por el ADC y mandado en JSON
+por la UCA1 a 115200). Lo usa testfr2355 J3 con la parte Fotodiodo (M7 de
+doc/analisis_msp430.md).

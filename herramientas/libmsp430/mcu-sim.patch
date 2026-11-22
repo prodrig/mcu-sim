@@ -1,0 +1,74 @@
+diff -ru a/DLL430_v3/src/DLL430_capi.cpp b/DLL430_v3/src/DLL430_capi.cpp
+--- a/DLL430_v3/src/DLL430_capi.cpp
++++ b/DLL430_v3/src/DLL430_capi.cpp
+@@ -137,6 +137,16 @@
+ 		return toStatus(false);
+ 	}
+ 
++	// mcu-sim (M11): mspdebug declara la version como long; en 64 bits la
++	// mitad alta queda sin escribir y la toma por negativa (<<FET firmware
++	// update is required>>). Con MSP430_VERSION_LONG se escribe entera.
++	if (getenv("MSP430_VERSION_LONG"))
++	{
++		int32_t v = 0;
++		const bool ok = DLL430_CurrentInstance->Initialize(port, &v);
++		*reinterpret_cast<int64_t*>(version) = v;
++		return toStatus(ok);
++	}
+ 	return toStatus(DLL430_CurrentInstance->Initialize(port, version));
+ 	bool ret = false;
+ 
+diff -ru a/DLL430_v3/src/TI/DLL430/HalExecBuffered.cpp b/DLL430_v3/src/TI/DLL430/HalExecBuffered.cpp
+--- a/DLL430_v3/src/TI/DLL430/HalExecBuffered.cpp
++++ b/DLL430_v3/src/TI/DLL430/HalExecBuffered.cpp
+@@ -307,7 +307,10 @@
+ 	dataCondition.wait(lock, pred);
+ 	return true;
+ #else
+-	return dataCondition.wait_for(lock, boost::chrono::milliseconds(timeout), pred);
++	// mcu-sim (M11): la sonda simulada va mas despacio que el reloj de pared;
++	// MSP430_ESCALA_TIEMPO alarga los plazos de las ordenes
++	static const int escala = getenv("MSP430_ESCALA_TIEMPO") ? std::max(1, atoi(getenv("MSP430_ESCALA_TIEMPO"))) : 1;
++	return dataCondition.wait_for(lock, boost::chrono::milliseconds(timeout * escala), pred);
+ #endif
+ }
+ 
+diff -ru a/DLL430_v3/src/TI/DLL430/UsbCdcIoChannel.cpp b/DLL430_v3/src/TI/DLL430/UsbCdcIoChannel.cpp
+--- a/DLL430_v3/src/TI/DLL430/UsbCdcIoChannel.cpp
++++ b/DLL430_v3/src/TI/DLL430/UsbCdcIoChannel.cpp
+@@ -309,6 +309,17 @@
+ 		}
+ 	}
+ #else
++	// mcu-sim (M11): la eZ-FET emulada no es un ttyACM sino un pty, que se da
++	// en MSP430_PUERTO_CDC (su nombre es la propia ruta: vale para -d)
++	if (productId == 0x0013)
++	{
++		if (const char* pty = getenv("MSP430_PUERTO_CDC"))
++		{
++			PortInfo portInfo(pty, pty, PortInfo::CDC);
++			portInfo.status = UsbCdcIoChannel(portInfo).getStatus();
++			portList[portInfo.name] = portInfo;
++		}
++	}
+ 	stringstream cdcIdStream;
+ 	cdcIdStream << hex << setfill('0') << "usb:v" << setw(4) << vendorId << "p" << setw(4) << productId;
+ 
+diff -ru a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -1,4 +1,4 @@
+-CXXFLAGS := -fPIC -std=c++0x -fvisibility=hidden -fvisibility-inlines-hidden
++CXXFLAGS := -fPIC -std=c++14 -w -fvisibility=hidden -fvisibility-inlines-hidden
+ 
+ PCH_HEADER := ./DLL430_v3/src/TI/DLL430/pch.h
+ PCH_COMPILED := ./DLL430_v3/src/TI/DLL430/pch.h.gch
+@@ -66,7 +66,7 @@
+ 	BSTATIC := -Wl,-Bstatic
+ 	BDYNAMIC := -Wl,-Bdynamic
+ 
+-	HIDOBJ := $(LIBTHIRD)/hid-libusb.o
++	HIDOBJ := -lhidapi-libusb
+ else
+ 	CXX:= clang++
+ 

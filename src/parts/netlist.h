@@ -348,6 +348,7 @@ struct DeclMcu {
     // Dónde va el JTAG de un ESP32-C3 (E6): "pines" (MTMS-MTDO, como con
     // EFUSE_DIS_USB_JTAG quemado) o "usb" (el USB-Serial-JTAG, de fábrica)
     std::string jtag;
+    std::string hfxt;                 // FR5xx/FR6xx: un cristal en HFXIN/HFXOUT, en Hz
     // El Ethernet de un MSP432E4 (T7): a donde da su PHY interno -memoria,
     // qemu:PUERTO o qemu-cliente:HOST:PUERTO, y ,pcap=FICHERO-. Vacío: nada
     std::string eth;
@@ -1052,7 +1053,9 @@ public:
                 todos.push_back(Conexion{g.pin_k(k), nm});
             }
             // El puente de un Jumper: sus dos pines, el mismo nodo
-            for (const auto& pz : g.puentes) pares.emplace_back(g.nodo(i.id, pz.first), g.nodo(i.id, pz.second));
+            // (salvo si se puede quitar: entonces es un contacto entre los dos, M12)
+            if (!(i.tipo == "Jumper" && i.si("quitable", false)))
+                for (const auto& pz : g.puentes) pares.emplace_back(g.nodo(i.id, pz.first), g.nodo(i.id, pz.second));
             i.pines = todos;
         }
 
@@ -1482,12 +1485,15 @@ public:
         };
         std::map<Clave, std::vector<std::string>> activos_c, rieles_c;
         std::map<Clave, unsigned> colgados_c;
-        std::set<Clave> con_conector;
+        std::set<Clave> con_conector, con_puente;
         for (const Instancia& i : inst_) {
             if (!i.pieza) continue;
             for (const Terminal& t : i.pieza->terminales()) {
                 if (t.paso) {                           // un pin de conector
                     con_conector.insert(Clave{t.net, t.net ? std::string() : t.nodo});
+                    // el de un jumper quitable (M12), que conduce: lo que hay
+                    // al otro lado del puente gobierna este nodo
+                    if (!t.pasivo && !t.ids.empty()) con_puente.insert(Clave{t.net, t.net ? std::string() : t.nodo});
                     continue;
                 }
                 const Clave k{t.net, t.net ? std::string() : t.nodo};
@@ -1572,6 +1578,9 @@ public:
             // gobierna quien la conecte -el CS de una pantalla-. En un
             // sistema sí se avisa: ahí se sabe que nadie la ha conectado.
             if (placas_.empty() && con_conector.count(kv.first)) continue;
+            // Ni un nodo al que llega un puente quitable: con el puente puesto
+            // es el del otro lado (el bloque J101 de la eZ-FET)
+            if (con_puente.count(kv.first)) continue;
             err.push_back("nodo " + nom + ": " + std::to_string(kv.second) +
                           " terminal(es) colgados y ninguno conduce; su tension "
                           "no esta definida");

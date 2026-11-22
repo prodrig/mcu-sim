@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MSP-EXP430FR6989: la LaunchPad del MSP430FR6989 (M8 de doc/analisis_msp430.md)
+
+     Lo que lleva la placa aparte del chip [SLAU627A, §2]:
+
+         U1    el MSP430FR6989IPZ (LQFP-100)
+         LCD1  el vidrio FH-1138P en el LCD_C [tabla 4]: las patillas 1-20 y
+               32-38 en los Sx, 21-24 en COM3-COM0 (P6.6-P6.3)
+         LED1  rojo en P1.0 y LED2 verde en P9.7 [de modelo: 470 ohm]
+         S1    en P1.1 y S2 en P1.2, a masa (el pull-up, el de dentro)
+         S3    RESET, con 47 kohm a 3V3
+         Y4    32 768 Hz en PJ.4/PJ.5 (LFXT): cristal_xt1 = true, de la factoría
+         J101  el bloque de aislamiento con el eZ-FET
+         BCL   el backchannel: la UCA1 en P3.4 (TXD) y P3.5 (RXD), por RFC
+               2217 en el 3364
+
+     La demo de fábrica (el texto que se desplaza; S1 y S2 a la vez cambian
+     de modo: el cronómetro y el termómetro):
+
+         ./build/mcu-sim placas/msp_exp430fr6989.xml \
+             verif/fw/fr6989/OutOfBox_MSP430FR6989.txt 20000
+-->
+<placa nombre="msp-exp430fr6989">
+  <mcu tipo="MSP430FR6989" id="u0"/>
+
+  <componente tipo="LcdFh1138p" id="LCD1" muestra="si">
+    <pin nombre="1" nodo="P8.3"/>
+    <pin nombre="2" nodo="P8.2"/>
+    <pin nombre="3" nodo="P8.1"/>
+    <pin nombre="4" nodo="P8.0"/>
+    <pin nombre="5" nodo="P5.6"/>
+    <pin nombre="6" nodo="P5.5"/>
+    <pin nombre="7" nodo="P5.4"/>
+    <pin nombre="8" nodo="P7.4"/>
+    <pin nombre="9" nodo="P4.6"/>
+    <pin nombre="10" nodo="P4.5"/>
+    <pin nombre="11" nodo="P4.4"/>
+    <pin nombre="12" nodo="P5.7"/>
+    <pin nombre="13" nodo="P5.2"/>
+    <pin nombre="14" nodo="P5.1"/>
+    <pin nombre="15" nodo="P5.0"/>
+    <pin nombre="16" nodo="P10.2"/>
+    <pin nombre="17" nodo="P10.1"/>
+    <pin nombre="18" nodo="P7.6"/>
+    <pin nombre="19" nodo="P7.5"/>
+    <pin nombre="20" nodo="P6.7"/>
+    <pin nombre="21" nodo="P6.6"/>
+    <pin nombre="22" nodo="P6.5"/>
+    <pin nombre="23" nodo="P6.4"/>
+    <pin nombre="24" nodo="P6.3"/>
+    <pin nombre="32" nodo="P10.0"/>
+    <pin nombre="33" nodo="P7.7"/>
+    <pin nombre="34" nodo="P5.3"/>
+    <pin nombre="35" nodo="P7.3"/>
+    <pin nombre="36" nodo="P7.2"/>
+    <pin nombre="37" nodo="P7.1"/>
+    <pin nombre="38" nodo="P7.0"/>
+  </componente>
+
+  <componente tipo="Led" id="LED1" a_vss="si" vf="2.0" r="470" color="rojo">
+    <pin nombre="anodo" nodo="P1.0"/>
+  </componente>
+  <componente tipo="Led" id="LED2" a_vss="si" vf="2.9" r="470" color="verde">
+    <pin nombre="anodo" nodo="P9.7"/>
+  </componente>
+  <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P1.1"/>
+  </componente>
+  <componente tipo="Button" id="S2" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P1.2"/>
+  </componente>
+
+  <nodo id="RST" bus="si"/>
+  <componente tipo="Button" id="S3" v_cerrado="0" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="RST"/>
+  </componente>
+  <componente tipo="Rpull" id="R3" v="3.3" r="47000" visible="no">
+    <pin nombre="a" nodo="RST"/>
+  </componente>
+
+  <nodo id="5V" bus="si"/>
+  <nodo id="DVSS" bus="si"/>
+  <componente tipo="Fuente" id="USB" v="5" limite_ma="500">
+    <pin nombre="pin" nodo="J101.4"/>
+  </componente>
+  <componente tipo="Jumper" id="J101" quitable="si" filas="2" columnas="6"
+              puente="1 2, 3 4, 5 6, 7 8, 9 10, 11 12">
+    <pin nombre="1" nodo="DVSS"/>
+    <pin nombre="3" nodo="DVCC"/>
+    <pin nombre="5" nodo="P3.5"/>       <!-- RXD << -->
+    <pin nombre="7" nodo="P3.4"/>       <!-- TXD >> -->
+    <pin nombre="9" nodo="RST"/>
+    <pin nombre="11" nodo="TEST"/>
+  </componente>
+  <componente tipo="PuenteSerie" id="BCL" host="rfc2217:3364"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="J101.8"/>
+    <pin nombre="tx" nodo="J101.6"/>
+  </componente>
+</placa>

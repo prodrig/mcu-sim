@@ -1,0 +1,27 @@
+# Los programas de testfr5 (M8). Los ELF se versionan en elf/: regenerarlos pide
+# msp430-elf-gcc y las cabeceras de TI, en doc/refs. Con -mlarge: el programa
+# pone código y datos en la FRAM de arriba de 0x10000 (el LEA y la FRAM hasta 0x43FFF).
+# fr5994_lea pide además la MSP DSP Library (DSPLib, BSD-3; DSPLIB=<su raíz>):
+# se compila dos veces, con el LEA y con MSP_DISABLE_LEA (la CPU y el MPY32).
+#   make -f Makefile.fr5994 [MSPGCC=<bin>] [DSPLIB=<dir>]
+MSPGCC ?= msp430-elf-
+REFS   ?= ../../../doc/refs/msp430
+TI     ?= $(REFS)/ti/msp430/include_gcc
+DSPLIB ?= /home/claude/ext/dsplib/DSPLib
+CFLAGS := -mmcu=msp430fr5994 -mlarge -I$(TI) -Ishim -L$(TI) -O1 -g -ffunction-sections -fdata-sections -Wl,--gc-sections
+PROGS  := fr5994_basico fr5994_reloj
+DSPSRC := $(wildcard $(DSPLIB)/source/*/*.c)
+
+all: $(PROGS:%=elf/%.elf) elf/fr5994_lea.elf elf/fr5994_lea_cpu.elf
+
+elf/%.elf: %.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -o $@ $<
+
+elf/fr5994_lea.elf: fr5994_lea.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -w -I$(DSPLIB)/include -o $@ $< $(DSPSRC)
+
+elf/fr5994_lea_cpu.elf: fr5994_lea.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -w -DMSP_DISABLE_LEA -I$(DSPLIB)/include -o $@ $< $(DSPSRC)

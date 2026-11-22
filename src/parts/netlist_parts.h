@@ -44,13 +44,18 @@
 #include "controlador_motor.h"
 #include "transmision.h"
 #include "maquina.h"
+#include "jumper_quitable.h"
 #include "pieza.h"
 #include "bus_potencia.h"
 #include "mems_st.h"
 #include "xds110.h"
 #include "spi_flash.h"
+#include "sd_spi.h"
 #include "auto_reset_esp.h"
 #include "ws2812.h"
+#include "lcd_fh1138p.h"
+#include "fotodiodo.h"
+#include "tmp235.h"
 
 namespace stm32 {
 
@@ -626,6 +631,10 @@ REGISTRA_PARTE(Jumper,
             "posicion, y `JP1@no` como se ve sin puente. mcu-sim manda a la "
             "ventana el dibujo con el de la posicion que dice puente= y sin los "
             "demas: cambiar el jumper en el XML cambia el dibujo.")
+      .atr("quitable", "no",
+           "si: los puentes se quitan y se ponen con la simulacion en marcha: cada "
+           "uno es un contacto entre sus dos nodos y un mando `A-B` (una casilla "
+           "en la ventana), como el bloque de aislamiento de la eZ-FET (J101)")
       .nota("El puente no se mueve con la simulacion en marcha: une dos nodos "
             "antes de construir, como un <hilo>. Un <sistema> lo puede poner en "
             "otro sitio sin tocar la placa: <jumper ref=\"E/J5\" puente=\"PWM LCD\"/>.")
@@ -640,6 +649,18 @@ REGISTRA_PARTE(Jumper,
         std::vector<std::pair<std::string, analog_net_if*>> pines;
         for (const Conexion& c : d.pines)
             pines.emplace_back(c.pin, n.existe(c.nodo) ? &n[c.nodo] : nullptr);
+        if (d.si("quitable", false)) {
+            auto nodo = [&](const std::string& pin) -> analog_net_if* {
+                for (const auto& p : pines) if (p.first == pin) return p.second;
+                return nullptr;
+            };
+            std::vector<JumperQuitable::Puente> pz;
+            for (const auto& q : g.puentes) {
+                const std::string a = g.pin_k(q.first), b = g.pin_k(q.second);
+                pz.push_back({a, b, nodo(a), nodo(b)});
+            }
+            return new JumperQuitable(d.id.c_str(), g.filas, g.columnas, g.zigzag, pines, pz);
+        }
         return new Conector(g.filas, g.columnas, g.zigzag, pines, "Jumper");
     });
 
@@ -3079,6 +3100,62 @@ REGISTRA_PARTE(Ws2812,
         return new Ws2812(d.id.c_str(), n[d.nodo_de("din")], unsigned(d.num("n", 1)));
     });
 
+REGISTRA_PARTE(LcdFh1138p,
+    Ayuda("El vidrio LCD FH-1138P de la MSP-EXP430FR4133: 4-mux, seis caracteres de 14 "
+          "segmentos y simbolos. Mira las TENSIONES de sus 38 patillas (las ondas del LCD_E): "
+          "en la fase de cada COM, un segmento esta encendido si su patilla va al extremo "
+          "contrario. Las patillas 21-24 son COM3-COM0; 25-31 no van a nada [SLAU595B tabla 3].")
+      .pin("1 .. 38", "los que se usen", "Las patillas del vidrio, por su numero.")
+      .atr("muestra", "no", "si: escribe el texto cada vez que cambia")
+      .nota("Observables: car1..car6 (el codigo ASCII de cada caracter) y tramas. "
+            "La S y el 5 son el mismo glifo (hal_LCD.c): el vidrio lo lee como 5."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        std::vector<analog_net_if*> p(LcdFh1138p::NP, nullptr);
+        for (unsigned k = 0; k < LcdFh1138p::NP; ++k) {
+            const std::string& s = d.nodo_de(std::to_string(k + 1));
+            if (!s.empty()) p[k] = &n[s];
+        }
+        return new LcdFh1138p(d.id.c_str(), p, d.si("muestra", false));
+    });
+
+REGISTRA_PARTE(Fotodiodo,
+    Ayuda("Un fotodiodo a tension cero o en inversa: con luz, una corriente que entra por el "
+          "catodo y sale por el anodo, proporcional a la luz (na_por_lux). El D1 (SFH 2701) "
+          "de la MSP-EXP430FR2311, en la transimpedancia del SAC0 con R3 [SLAU664B].")
+      .ejemplo("<componente tipo=\"Fotodiodo\" id=\"D1\" na_por_lux=\"5\" luz=\"100\">\n"
+               "  <pin nombre=\"anodo\" nodo=\"DVSS\"/> <pin nombre=\"catodo\" nodo=\"OPAMP_MENOS\"/>\n"
+               "</componente>")
+      .pin("anodo, catodo", "obligatorios", "Sus dos patas.")
+      .atr("na_por_lux", "5", "La sensibilidad, en nA por lux [de modelo].")
+      .atr("luz", "0", "La luz con la que empieza, en lux.")
+      .nota("Mando: luz (lux). Observables: luz y corriente (uA). Sin corriente oscura ni capacidad."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        if (d.nodo_de("anodo").empty() || d.nodo_de("catodo").empty()) {
+            SC_REPORT_ERROR("netlist", ("Fotodiodo '" + d.id + "': le faltan anodo y catodo").c_str());
+            return nullptr;
+        }
+        return new Fotodiodo(d.id.c_str(), n[d.nodo_de("anodo")], n[d.nodo_de("catodo")],
+                             d.num("na_por_lux", 5.0), d.num("luz", 0.0));
+    });
+
+REGISTRA_PARTE(Tmp235,
+    Ayuda("El sensor de temperatura analogico TMP235: con VDD, VOUT = 500 mV + 10 mV/C "
+          "por la temperatura, de -40 a 150 C. El U1 de la LP-MSP430FR2476, en A1 (P1.1), "
+          "con VDD tras J9 [SLAU802].")
+      .ejemplo("<componente tipo=\"Tmp235\" id=\"U1\" temperatura=\"25\">\n"
+               "  <pin nombre=\"vdd\" nodo=\"J9.2\"/> <pin nombre=\"vout\" nodo=\"P1.1\"/>\n"
+               "</componente>")
+      .pin("vdd, vout", "obligatorios", "La alimentacion y la salida.")
+      .atr("temperatura", "25", "La temperatura con la que empieza, en C.")
+      .nota("Mando: temperatura (C). Observables: temperatura y vout (V). Sin VDD, la salida suelta."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        if (d.nodo_de("vdd").empty() || d.nodo_de("vout").empty()) {
+            SC_REPORT_ERROR("netlist", ("Tmp235 '" + d.id + "': le faltan vdd y vout").c_str());
+            return nullptr;
+        }
+        return new Tmp235(d.id.c_str(), n[d.nodo_de("vdd")], n[d.nodo_de("vout")], d.num("temperatura", 25.0));
+    });
+
 REGISTRA_PARTE(AutoResetEsp,
     Ayuda("El reinicio automatico de las placas de Espressif: dos NPN cruzados "
           "entre el DTR y el RTS del puente USB-UART, y el RC del pin de "
@@ -3149,6 +3226,26 @@ REGISTRA_PARTE(SpiFlash,
         }
         return new SpiFlash(d.id.c_str(), *m, n[d.nodo_de("cs")], opt("clk"), opt("di"), opt("do"),
                             opt("wp"), opt("hold"));
+    });
+
+REGISTRA_PARTE(SdSpi,
+    Ayuda("Una tarjeta microSD (SDHC) en modo SPI, a nivel de pin: CS, SCK, "
+          "MOSI y MISO, modo 0, el bit alto primero. Contesta CMD0, CMD8, "
+          "CMD9, CMD10, CMD12, CMD13, CMD16, CMD17, CMD24, CMD55, ACMD41 y "
+          "CMD58 como una tarjeta de verdad (direcciones de bloque, CCS = 1). "
+          "La de la MSP-EXP430FR5994, en la UCB0.")
+      .ejemplo("<componente tipo=\"SdSpi\" id=\"SD\" mb=\"1024\">\n"
+               "  <pin nombre=\"cs\"   nodo=\"P4.0\"/>\n"
+               "  <pin nombre=\"sck\"  nodo=\"P2.2\"/>\n"
+               "  <pin nombre=\"mosi\" nodo=\"P1.6\"/>\n"
+               "  <pin nombre=\"miso\" nodo=\"P1.7\"/>\n"
+               "</componente>")
+      .pin("cs, sck, mosi, miso", "obligatorios", "El bus SPI; MISO en alta impedancia sin CS.")
+      .atr("mb", "1024", "La capacidad en MB (bloques de 512 B).")
+      .atr("imagen", "ninguna", "Un fichero con la imagen de la tarjeta desde el bloque 0 (FAT, por ejemplo)."),
+    [](const Instancia& d, NodeMap& n, Netlist&) -> ExtPartBase* {
+        return new SdSpi(d.id.c_str(), n[d.nodo_de("cs")], n[d.nodo_de("sck")], n[d.nodo_de("mosi")], n[d.nodo_de("miso")],
+                         uint32_t(d.num("mb", 1024)), d.txt("imagen", ""));
     });
 
 REGISTRA_PARTE(CameraSensor,

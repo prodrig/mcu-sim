@@ -1,0 +1,7 @@
+OutOfBox_MSP430FR6989.txt: el binario TI-TXT de la demo de fábrica de la
+MSP-EXP430FR6989, TAL CUAL (MSP-EXP430FR6989 Software Examples,
+Firmware/Binary/OutOfBox_MSP430FR6989; los fuentes, en Firmware/Source, son
+BSD de TI). Desplaza «WELCOME TO THE FR6989 LAUNCHPAD» por el vidrio FH-1138P
+del LCD_C; S1 y S2 a la vez (2 s) cambian de modo: el cronómetro (con el
+RTC_C) y el termómetro (el sensor por el ADC12_B). Lo usa testfr5 L5 (M8 de
+doc/analisis_msp430.md).

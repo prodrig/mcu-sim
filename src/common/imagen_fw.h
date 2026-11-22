@@ -95,8 +95,12 @@ inline FormatoFw formato_fw(const std::string& ruta) {
 
 // ELF32, little endian, ARM. "" si todo bien; si no, el motivo.
 // `maquina` es el e_machine que se acepta: 40 (EM_ARM) por omisión, o 243
-// (EM_RISCV) para un núcleo RISC-V (E1 de doc/analisis_esp32_riscv.md).
-inline constexpr uint16_t ELF_ARM = 40, ELF_RISCV = 243;
+// (EM_RISCV) para un núcleo RISC-V (E1 de doc/analisis_esp32_riscv.md), o 105
+// (EM_MSP430, el de msp430-elf-gcc y el .out de CCS) para un MSP430 (M0 de
+// doc/analisis_msp430.md). En el MSP430 se carga cada segmento en su dirección
+// física (p_paddr): la de .data es la de su copia en la Flash o la FRAM, y los
+// del modelo grande (-mlarge) pasan de 0x10000 sin nada especial.
+inline constexpr uint16_t ELF_ARM = 40, ELF_RISCV = 243, ELF_MSP430 = 105;
 inline std::string lee_elf(const std::string& ruta, std::vector<TrozoFw>& t,
                            uint16_t maquina_ok = ELF_ARM) {
     using namespace detalle_fw;
@@ -107,13 +111,15 @@ inline std::string lee_elf(const std::string& ruta, std::vector<TrozoFw>& t,
         return ruta + " no es un ELF";
     if (f[4] != 1) return ruta + (maquina_ok == ELF_ARM
                                   ? ": es un ELF de 64 bits, y un Cortex-M es de 32"
+                                  : maquina_ok == ELF_MSP430 ? ": es un ELF de 64 bits, y un MSP430 usa ELF32"
                                   : ": es un ELF de 64 bits, y este nucleo es de 32");
     if (f[5] != 1) return ruta + ": es un ELF big endian";
     const uint16_t maquina = le16(&f[18]);
     if (maquina != maquina_ok)
         return ruta + ": es un ELF para otra arquitectura (e_machine = " +
                std::to_string(maquina) + "), no para " +
-               (maquina_ok == ELF_ARM ? "ARM" : maquina_ok == ELF_RISCV ? "RISC-V" : "este nucleo");
+               (maquina_ok == ELF_ARM ? "ARM" : maquina_ok == ELF_RISCV ? "RISC-V"
+                : maquina_ok == ELF_MSP430 ? "MSP430" : "este nucleo");
     const uint32_t phoff = le32(&f[28]);
     const uint16_t phentsize = le16(&f[42]), phnum = le16(&f[44]);
     if (phnum == 0) return ruta + ": el ELF no tiene segmentos que cargar";

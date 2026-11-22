@@ -138,6 +138,10 @@
 #include "../soc/msp432e4/msp432e4_mcu.h"
 #include "../soc/stm32f3/stm32f3_mcu.h"
 #include "../soc/esp32c3/esp32c3_mcu.h"
+#include "../soc/msp430/g2553/g2553_mcu.h"
+#include "../soc/msp430/f5529/f5529_mcu.h"
+#include "../soc/msp430/fr2/fr2_mcu.h"
+#include "../soc/msp430/ezfet/ezfet.h"
 #include "../soc/esp32c6/esp32c6_mcu.h"
 
 using namespace sc_core;
@@ -232,6 +236,9 @@ static std::vector<std::pair<std::string, std::string>> g_roms, g_tlvs, g_bsls,
 static bool        g_lista_mcus = false;
 static unsigned    g_gdb_puerto = 0;
 static bool        g_flash_rapida = false;   // --flash-rapida (E6)
+static std::string g_ezfet_dir;               // --ezfet-imagenes (M11)
+static std::string g_ezfet_pty = "/tmp/ttyEZFET";   // --ezfet-pty
+static stm32::EzFet* g_ezfet = nullptr;
 static bool        g_congela = false;        // --stopped-core-stops-sim
 static bool        g_puerto_dado = false;
 
@@ -262,6 +269,8 @@ struct McuMontado {
     GdbStub*      stub = nullptr;       // solo en modo "pines" y con puerto
     // El de pines de un RISC-V (G2', E6): el stub sobre un DTM por JTAG
     GdbStubRv*    stub_rv = nullptr;
+    // El que el chip se hace él (un MSP430: su sonda por SBW, P-20)
+    GdbRspBase*   stub_chip = nullptr;
     JtagSonda*    sonda_jtag = nullptr;
     DmiPorJtag*   dmi_jtag = nullptr;
     SondaRed*     ocd  = nullptr;       // modos "openocd" y "cmsis-dap", con puerto
@@ -522,7 +531,11 @@ SC_MODULE(Sim) {
             analog_net_if* jt[4] = {m.mcu->nodo_depuracion("tck"), m.mcu->nodo_depuracion("tms"),
                                     m.mcu->nodo_depuracion("tdi"), m.mcu->nodo_depuracion("tdo")};
             const bool solo_jtag = !m.mcu->nodo_swclk() && jt[0] && jt[1] && jt[2] && jt[3];
-            if (d.depuracion == "pines" && d.puerto_gdb && solo_jtag) {
+            if (d.depuracion == "pines" && d.puerto_gdb)
+                m.stub_chip = m.mcu->stub_pines("gdb_" + (d.id.empty() ? std::string("dut") : d.id), d.puerto_gdb);
+            if (m.stub_chip) {
+                // el chip se ha colgado su propia sonda
+            } else if (d.depuracion == "pines" && d.puerto_gdb && solo_jtag) {
                 const std::string snm = "gdb_" + (d.id.empty() ? "dut" : d.id);
                 m.sonda_jtag = new JtagSonda(JtagSonda::Pines{jt[0], jt[1], jt[2], jt[3], nullptr}, 10e6);
                 m.dmi_jtag = new DmiPorJtag(*m.sonda_jtag);
@@ -545,6 +558,21 @@ SC_MODULE(Sim) {
                 m.stub->pon_programador(m.mcu->programador());
                 m.stub->pon_herramienta(m.mcu->herramienta());
                 m.stub->set_enabled(false);      // se abre al arrancar, no aquí
+            }
+            // --ezfet-imagenes: la eZ-FET de la LaunchPad, un F5528 con el
+            // firmware de TI, cableada por SBW al primer MSP430 de la placa (M11).
+            // Aquí, al montar: es un módulo más
+            if (!g_ezfet_dir.empty() && !g_ezfet) {
+                analog_net_if* tck = m.mcu->nodo_depuracion("sbwtck");
+                analog_net_if* tdio = m.mcu->nodo_depuracion("sbwtdio");
+                if (tck && tdio) {
+                    g_ezfet = new stm32::EzFet("ezfet", *tck, *tdio, g_ezfet_dir, g_ezfet_pty);
+                    if (!g_ezfet->error().empty()) muere("--ezfet-imagenes: " + g_ezfet->error());
+                    std::printf("ezfet de %s: %s\n", d.id.empty() ? "(el mcu)" : d.id.c_str(),
+                                g_ezfet->describir().c_str());
+                    std::printf("  para libmsp430 (la de herramientas/libmsp430): MSP430_PUERTO_CDC=%s\n",
+                                g_ezfet_pty.c_str());
+                }
             }
             // La sonda de OpenOCD se cuelga de los mismos pines, y su SRST es
             // el NRST del chip, como en una sonda de verdad (T5 del MSP432)
@@ -1472,6 +1500,14 @@ SC_MODULE(Sim) {
         // firmware: lo que dice su <mcu> o `--rom/--tlv ID=`, y si no, lo que
         // vaya sin id en la linea de ordenes. Sin id, un chip que no lo tiene
         // se salta; con id, o en el XML, es un error.
+        // El HFXT de las FR5xx/FR6xx: solo del <mcu hfxt="Hz">
+        for (McuMontado& m : mcus) {
+            if (m.decl.hfxt.empty()) continue;
+            const char* quien = m.decl.id.empty() ? "(el mcu)" : m.decl.id.c_str();
+            const std::string e = m.mcu->opcion("hfxt", m.decl.hfxt);
+            if (!e.empty()) muere(std::string("hfxt de ") + quien + ": " + e);
+            std::printf("hfxt de %s: %s\n", quien, m.mcu->describe_opcion("hfxt").c_str());
+        }
         for (const char* clave : {"rom", "tlv", "bsl", "eth", "usb", "jtag"}) {
             const char c = clave[0];
             auto& lista = c == 'r' ? g_roms : c == 't' ? g_tlvs : c == 'b' ? g_bsls : c == 'e' ? g_eths
@@ -1508,7 +1544,7 @@ SC_MODULE(Sim) {
             }
             if (!todos.empty() && aceptan == 0)
                 muere(std::string("--") + clave + " " + todos + ": ninguno de los MCUs de "
-                      "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432; el usb, tambien del STM32F303)");
+                      "la placa tiene " + clave + " que se pueda cambiar (es de los MSP432; el bsl, tambien de los MSP430G2553, F5529 y FR; el usb, del STM32F303 y el F5529)");
         }
         // --flash-rapida: los tiempos de programar y borrar de la Flash SPI
         // de los chips que la tienen (ESP32-C3), al 1 % (E6)
@@ -1524,6 +1560,8 @@ SC_MODULE(Sim) {
                 }
             if (!n) muere("--flash-rapida: ningun MCU de la placa tiene una Flash SPI (es del ESP32-C3)");
         }
+        if (!g_ezfet_dir.empty() && !g_ezfet)
+            muere("--ezfet-imagenes: la placa no tiene un MSP430 con SBW (TEST y RST)");
         // Lo que la ROM o el TLV nuevos cambian de lo que se dijo al montar
         for (McuMontado& m : mcus) {
             const std::string nm = m.decl.id.empty() ? std::string("dut") : m.decl.id;
@@ -1591,6 +1629,9 @@ SC_MODULE(Sim) {
                 } else if (m.stub_rv) {                         // modo pines, RISC-V (G2')
                     m.stub_rv->set_verbose(g_traza_gdb);
                     m.stub_rv->set_enabled(true);
+                } else if (m.stub_chip) {                       // modo pines, el del chip (MSP430)
+                    m.stub_chip->set_verbose(g_traza_gdb);
+                    m.stub_chip->set_enabled(true);
                 } else if (m.mcu->tiene_gdb_interno()) {       // modo dap
                     m.mcu->gdb_interno(true, g_traza_gdb);
                 }
@@ -2348,10 +2389,11 @@ static const OpcionCli OPCIONES[] = {
      "ventana (0x0200_0000 en el P4, 0x0100_0000 en el E4) o un ELF. Sin ID, de "
      "todos los que la tienen"},
     {"--bsl", "valor", "texto", "", "", "", true, true, "u0=ninguno",
-     "el BSL de un MSP432P4, como [ID=]VALOR: b1 (el sustituto, por omision), "
-     "ninguno, o el de TI de un fichero: el BSL432_MSP432P401.txt (o .out) del "
-     "paquete MSP432BSL. Con la Flash en blanco el chip arranca en el. Sin ID, de "
-     "todos los que lo tienen"},
+     "el BSL de un MSP432P4 o de un MSP430 (G2553, F5529, las FR), como "
+     "[ID=]VALOR: b1 (el de mcu-sim, por omision), ninguno, o el de TI de un "
+     "fichero: el BSL432_MSP432P401.txt (o .out) del paquete MSP432BSL, o el "
+     "volcado de la ROM (o de la Flash del BSL del F5529) de un chip en TI-TXT, "
+     "Intel HEX o ELF. Sin ID, de todos los que lo tienen"},
     {"--eth", "valor", "texto", "", "", "", true, true, "u0=qemu:5555",
      "el Ethernet de un MSP432E4, como [ID=]DESTINO: memoria, qemu:PUERTO (un "
      "servidor con el protocolo de -netdev stream de QEMU, el de gvproxy y passt) "
@@ -2369,6 +2411,13 @@ static const OpcionCli OPCIONES[] = {
     {"--flash-rapida", "bandera", "", "", "", "", false, true, "",
      "los tiempos de programar y borrar la Flash SPI de un ESP32-C3, al 1 %: para "
      "programar con OpenOCD (program_esp), que espera con plazos de reloj de pared"},
+    {"--ezfet-imagenes", "valor", "texto", "", "", "", false, true, "~/ti/MSPDebugStack_OS_Package_3_15_1_1",
+     "la eZ-FET de la LaunchPad de bajo nivel: un MSP430F5528 que ejecuta el firmware "
+     "de TI (Bios/include/eZ_Fet*.h de la copia de la MSP Debug Stack de DIR), "
+     "cableado por SBW al MSP430 de la placa; su USB va a un pty (--ezfet-pty) para "
+     "la libmsp430 con el parche de herramientas/libmsp430"},
+    {"--ezfet-pty", "valor", "texto", "/tmp/ttyEZFET", "", "", false, true, "/tmp/ttyEZFET",
+     "el enlace del pty de la eZ-FET (Linux y macOS)"},
     {"--jtag", "valor", "texto", "", "", "", true, true, "u0=pines",
      "a donde va el JTAG de un ESP32-C3, como [ID=]VALOR: pines (MTMS-MTDO, como con "
      "EFUSE_DIS_USB_JTAG quemado: lo que piden --openocd, --cmsis-dap y --gdb) o usb (el "
@@ -2662,6 +2711,10 @@ int sc_main(int argc, char** argv) {
         else if (a == "--openocd") g_gdb_modo = "openocd";
         else if (a == "--cmsis-dap") g_gdb_modo = "cmsis-dap";
         else if (a == "--flash-rapida") g_flash_rapida = true;
+        else if (a == "--ezfet-imagenes" && i + 1 < argc) g_ezfet_dir = argv[++i];
+        else if (a.rfind("--ezfet-imagenes=", 0) == 0) g_ezfet_dir = a.substr(17);
+        else if (a == "--ezfet-pty" && i + 1 < argc) g_ezfet_pty = argv[++i];
+        else if (a.rfind("--ezfet-pty=", 0) == 0) g_ezfet_pty = a.substr(12);
         else if (a == "--stopped-core-stops-sim") g_congela = true;
         else if (a.rfind("--port=", 0) == 0) {
             g_gdb_puerto = unsigned(std::atoi(a.c_str() + 7));
@@ -2859,6 +2912,12 @@ int sc_main(int argc, char** argv) {
                 "                                dispositivo CDC-ACM, hasta un puerto\n"
                 "                                serie: rfc2217:PUERTO, tcp:PUERTO,\n"
                 "                                sus -cliente:HOST:PUERTO o memoria\n"
+                "     sim placa.xml --ezfet-imagenes DIR  la eZ-FET de una LaunchPad de\n"
+                "                                MSP430: un F5528 con el firmware de TI\n"
+                "                                (de la MSP Debug Stack de DIR) por SBW\n"
+                "                                al MSP430; su USB, a un pty para la\n"
+                "                                libmsp430 (--ezfet-pty ENLACE, por\n"
+                "                                omision /tmp/ttyEZFET; Linux y macOS)\n"
                 "     sim placa.xml --tlv [ID=]FICHERO  el TLV de una placa MSP432P4\n"
                 "                                (los 4 KB de 0x0020_1000): el DCO\n"
                 "                                sigue sus calibraciones\n"

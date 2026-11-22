@@ -702,11 +702,13 @@ protected:
                 if (!flash_borrar(dir, 1)) return false;
                 sector_borrado_[size_t(s)] = true;
             }
-            // Lo que quede dentro de ESTE sector, de una vez.
-            const uint32_t tam = nv_->tam_sector(s);
-            const uint32_t fin = ((dir & ~(tam - 1u)) + tam);
-            unsigned trozo = n - i;
-            if (dir + trozo > fin) trozo = unsigned(fin - dir);
+            // Lo que quede dentro de ESTE sector, de una vez. El final se
+            // busca con `sector_de`, no alineando la dirección: los sectores
+            // de una FRAM que empieza en 0xF100 (FR2311) no están alineados
+            // a su tamaño, y un trozo que pasara al siguiente sector sin
+            // borrarlo quedaría luego borrado al tocar ese sector (M7)
+            unsigned trozo = 0;
+            while (i + trozo < n && sector_de(dir + trozo) == s) ++trozo;
             if (!flash_programar(dir, d + i, trozo)) return false;
             i += trozo;
         }

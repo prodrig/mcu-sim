@@ -1,0 +1,5 @@
+SimpleUsbBackchannel.txt: el binario TI-TXT del ejemplo «simpleUsbBackchannel»
+de TI para la MSP-EXP430F5529LP, TAL CUAL (MSP-EXP430F5529LP Software Examples,
+Firmware/Binary/SimpleUsbBackchannel; BSD de TI). Un CDC-ACM con la pila USB de
+TI que lleva lo que llega por USB a la UART del backchannel (UCA1) y al revés.
+Lo usa testf5 F9 (M5 de doc/analisis_msp430.md).

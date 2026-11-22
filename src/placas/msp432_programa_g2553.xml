@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =========================================================================
+     LA MSP-EXP432P401R PROGRAMA A LA MSP-EXP430G2ET POR SPY-BI-WIRE
+     (SLAA754, «MSP430 Spy-Bi-Wire With SimpleLink MCUs»; P-20 / M3 de
+     doc/analisis_msp430.md)
+
+     El ejemplo de TI MSP432Host_SBW_MSP430 (TI-RTOS, el GPIO y la UART del
+     SDK) tal y como viene compilado en slaa754.zip
+     (verif/fw/msp432p4/slaa754/MSP432Host_SBW_MSP430.out): el Replicator430
+     sobre dos GPIO del MSP432, que borra la Flash del G2553, le escribe un
+     «blinky» y lo arranca. Los hilos, los de su README:
+
+         P4/P6.0 (J1.2)  ->  G2/RST  (J2.6, SBWTDIO)
+         P4/P6.1 (J3.23) ->  G2/TEST (J2.7, SBWTCK)
+         las masas
+
+     En la G2ET, los puentes SBW RST y SBW TST de J101 se quitan (el eZ-FET
+     no debe tirar de esas lineas). Lo que va haciendo sale por el
+     backchannel del XDS110 a 9600 (aqui, a memoria); al final, el LED1 del
+     G2553 parpadea.
+
+         ./build/mcu-sim placas/msp432_programa_g2553.xml --serie P4/BCL=memoria --ms=30000
+
+     (M, monitor_serie_9600.xml, escucha el TX del backchannel a 9600: lo que
+     saldria en el terminal del PC)
+     ========================================================================= -->
+<sistema nombre="msp432-programa-g2553">
+  <placa id="P4" fichero="msp_exp432p401r.xml" x="0" y="0"/>
+  <placa id="G2" fichero="msp_exp430g2et.xml" x="120" y="0"/>
+  <placa id="M" fichero="monitor_serie_9600.xml" x="60" y="70"/>
+  <hilo a="P4/J1.2" b="G2/J2.6"/>     <!-- P6.0 -> RST/SBWTDIO -->
+  <hilo a="P4/J3.3" b="G2/J2.7"/>     <!-- P6.1 -> TEST/SBWTCK -->
+  <hilo a="P4/J6.GND1" b="G2/J2.10"/> <!-- GND -->
+  <!-- El monitor, del TX del backchannel del MSP432 (lo que veria el PC) -->
+  <hilo a="M/P1.RX" b="P4/J101.10"/>
+  <hilo a="M/P1.GND" b="P4/J6.GND2"/>
+  <mcu ref="P4/u0" firmware="verif/fw/msp432p4/slaa754/MSP432Host_SBW_MSP430.out"/>
+</sistema>

@@ -1,0 +1,24 @@
+# Los programas de testg2 (fase M3). Los ELF se versionan en elf/: regenerarlos
+# pide msp430-elf-gcc y las cabeceras de TI (doc/refs/msp430/ti/msp430/include_gcc).
+#   make -f Makefile.g2553 [MSPGCC=<bin>] [TI=<include_gcc>]
+MSPGCC ?= msp430-elf-
+TI     ?= ../../../doc/refs/msp430/ti/msp430/include_gcc
+CFLAGS := -mmcu=msp430g2553 -I$(TI) -L$(TI) -O1 -g
+
+EJ := ej_blink ej_uart_usci ej_uart_ta ej_adc_temp oobe
+all: elf/g2_basico.elf elf/g2_wdt.elf elf/g2_perif.elf $(EJ:%=elf/%.elf)
+
+elf/%.elf: %.c
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -o $@ $<
+
+elf/%.elf: ejemplos/%.c ejemplos/ta_uart.h
+	@mkdir -p elf
+	$(MSPGCC)gcc $(CFLAGS) -o $@ $<
+
+# El BSL de usuario de la G2xx de MSPBSL (BSD-3, en ensamblador de GNU) y la
+# aplicación que se le carga en G9 (M9)
+all: elf/g2_bsl_usuario.elf elf/g2_bsl_app.elf
+elf/g2_bsl_%.elf: g2_bsl_%.S g2_bsl_usuario.ld
+	@mkdir -p elf
+	$(MSPGCC)gcc -mmcu=msp430g2553 -I$(TI) -L$(TI) -g -nostdlib -nostartfiles -T g2_bsl_usuario.ld -o $@ $<

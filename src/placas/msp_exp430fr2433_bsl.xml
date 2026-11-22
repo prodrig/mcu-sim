@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La MSP-EXP430FR2433 con el adaptador del BSL (M10): fuera los puentes
+     RXD, TXD, RST y TST de J101 (el eZ-FET lite ya no llega al chip) y el
+     adaptador en su lado del MCU: su TXD a P1.5 (UCA0RXD) y su RXD a P1.4.
+         ./build/mcu-sim placas/msp_exp430fr2433_bsl.xml --tiempo-real --ms=60000
+         python3 ../herramientas/bsl5_uart_py3.py -p rfc2217://localhost:3370 \
+             invert-reset -e -P verif/fr2433/elf/fr2_blink.elf -V -r
+     (con dos guiones delante de invert-reset: aquí no caben) -->
+<sistema nombre="msp-exp430fr2433-bsl">
+  <placa id="LP" fichero="msp_exp430fr2433.xml" x="0" y="0"/>
+  <placa id="A" fichero="bsl_adaptador.xml" x="80" y="0"/>
+  <jumper ref="LP/J101" puente="1 2, 3 4, 5 6"/>
+  <hilo a="A/P1.TXD" b="LP/J101.7"/>    <!-- a P1.5, UCA0RXD -->
+  <hilo a="A/P1.RXD" b="LP/J101.9"/>    <!-- de P1.4, UCA0TXD -->
+  <hilo a="A/P1.RST" b="LP/J101.11"/>
+  <hilo a="A/P1.TEST" b="LP/J101.13"/>
+  <hilo a="A/P1.GND" b="LP/J101.1"/>
+</sistema>

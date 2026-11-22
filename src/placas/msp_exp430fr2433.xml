@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MSP-EXP430FR2433: la LaunchPad del MSP430FR2433 (M6 de doc/analisis_msp430.md)
+
+     Lo que lleva la placa aparte del chip [SLAU739, §2 y el esquema]:
+
+         U1    el MSP430FR2433IRGE (VQFN-24)
+         LED1  rojo, en P1.0, tras el puente J10
+         LED2  verde, en P1.1, tras el puente J11
+         S1    en P2.3, a masa (sin resistencia en la placa: REN del chip)
+         S2    en P2.7, igual
+         S3    RESET, en RST/SBWTDIO, con 47 kohm a 3V3 (R1) y 1 nF
+         Q1    32 768 Hz en P2.0/P2.1, NO conectado de fábrica (R4 y R5 llevan
+               P2.0/P2.1 a J2): el SoC no tiene cristal (cristal_xt1 = false)
+         J101  el bloque de aislamiento con el eZ-FET lite: GND, 5V, 3V3,
+               RXD <<, TXD >>, SBW RST y SBW TST
+         BCL   el backchannel del eZ-FET: la UCA0 en P1.4 (TXD) y P1.5 (RXD),
+               hasta el PC por RFC 2217 en el 3360
+         J1-J2 los conectores BoosterPack de 20 pines, del esquema (página 2)
+
+     El eZ-FET es de M11: --gdb-dap depura contra el núcleo y --gdb por los
+     pines (SBW en TEST/RST con la sonda de bancada). La demo de fábrica:
+
+         ./build/mcu-sim placas/msp_exp430fr2433.xml \
+             verif/fw/fr2433/OutOfBox_MSP430FR2433.txt 20000
+
+         ./build/mcu-sim placas/msp_exp430fr2433.xml --valida
+-->
+<placa nombre="msp-exp430fr2433">
+  <mcu tipo="MSP430FR2433" id="u0"/>
+
+  <componente tipo="Jumper" id="J10" quitable="si" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P1.0"/>
+  </componente>
+  <componente tipo="Jumper" id="J11" filas="2" columnas="1" puente="1 2">
+    <pin nombre="1" nodo="P1.1"/>
+  </componente>
+  <componente tipo="Led" id="LED1" a_vss="si" vf="2.0" r="470">
+    <pin nombre="anodo" nodo="J10.2"/>
+  </componente>
+  <componente tipo="Led" id="LED2" a_vss="si" vf="2.1" r="470" color="verde">
+    <pin nombre="anodo" nodo="J11.2"/>
+  </componente>
+  <componente tipo="Button" id="S1" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P2.3"/>
+  </componente>
+  <componente tipo="Button" id="S2" v_cerrado="0" r_cerrado="10">
+    <pin nombre="pin" nodo="P2.7"/>
+  </componente>
+
+  <nodo id="RST" bus="si"/>
+  <componente tipo="Button" id="S3" v_cerrado="0" r_cerrado="10" rebote="no">
+    <pin nombre="pin" nodo="RST"/>
+  </componente>
+  <componente tipo="Rpull" id="R1" v="3.3" r="47000" visible="no">
+    <pin nombre="a" nodo="RST"/>
+  </componente>
+
+  <nodo id="5V" bus="si"/>
+  <nodo id="DVSS" bus="si"/>
+  <componente tipo="Fuente" id="USB" v="5" limite_ma="500">
+    <pin nombre="pin" nodo="J101.4"/>
+  </componente>
+  <componente tipo="Jumper" id="J101" filas="2" columnas="7"
+              puente="1 2, 3 4, 5 6, 7 8, 9 10, 11 12, 13 14">
+    <pin nombre="1" nodo="DVSS"/>       <!-- GND -->
+    <pin nombre="3" nodo="5V"/>         <!-- 5V -->
+    <pin nombre="5" nodo="DVCC"/>       <!-- 3V3 -->
+    <pin nombre="7" nodo="P1.5"/>       <!-- RXD << : UCA0RXD -->
+    <pin nombre="9" nodo="P1.4"/>       <!-- TXD >> : UCA0TXD -->
+    <pin nombre="11" nodo="RST"/>       <!-- SBW RST -->
+    <pin nombre="13" nodo="TEST"/>      <!-- SBW TST -->
+  </componente>
+  <componente tipo="PuenteSerie" id="BCL" host="rfc2217:3360"
+              baudios="host" formato="8N1" muestra="si">
+    <pin nombre="rx" nodo="J101.10"/>
+    <pin nombre="tx" nodo="J101.8"/>
+  </componente>
+
+  <!-- Los conectores BoosterPack de 20 pines [esquema, página 2] -->
+  <componente tipo="Conector" id="J1" filas="1" columnas="10">
+    <pin nombre="1" nodo="DVCC"/>  <pin nombre="2" nodo="P1.0"/>  <pin nombre="3" nodo="P1.5"/>
+    <pin nombre="4" nodo="P1.4"/>  <pin nombre="5" nodo="P1.6"/>  <pin nombre="6" nodo="P1.7"/>
+    <pin nombre="7" nodo="P2.4"/>  <pin nombre="8" nodo="P2.7"/>  <pin nombre="9" nodo="P1.3"/>
+    <pin nombre="10" nodo="P1.2"/>
+  </componente>
+  <!-- J2: 11-20, aquí 1-10 (1 es el 11) -->
+  <componente tipo="Conector" id="J2" filas="1" columnas="10">
+    <pin nombre="1" nodo="P2.0"/>  <pin nombre="2" nodo="P2.1"/>  <pin nombre="3" nodo="P3.1"/>
+    <pin nombre="4" nodo="P2.5"/>  <pin nombre="5" nodo="P2.6"/>  <pin nombre="6" nodo="RST"/>
+    <pin nombre="7" nodo="P3.2"/>  <pin nombre="8" nodo="P2.2"/>  <pin nombre="9" nodo="P1.1"/>
+    <pin nombre="10" nodo="DVSS"/>
+  </componente>
+</placa>
