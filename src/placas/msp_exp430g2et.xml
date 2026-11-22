@@ -89,7 +89,7 @@
   </componente>
 
   <!-- J101 [tabla 2]: los impares del chip, los pares del eZ-FET -->
-  <componente tipo="Jumper" id="J101" filas="2" columnas="7"
+  <componente tipo="Jumper" id="J101" quitable="si" filas="2" columnas="7"
               puente="1 2, 3 4, 5 6, 7 8, 9 10, 11 12, 13 14">
     <pin nombre="1" nodo="DVSS"/>       <!-- GND -->
     <pin nombre="3" nodo="5V"/>         <!-- 5V -->

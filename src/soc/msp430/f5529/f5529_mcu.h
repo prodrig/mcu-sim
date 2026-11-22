@@ -18,6 +18,7 @@
 #ifndef STM32_SOC_MSP430_F5529_F5529_MCU_H
 #define STM32_SOC_MSP430_F5529_F5529_MCU_H
 
+#include "../../../parts/estado_cpu.h"
 #include <cstdio>
 #include <memory>
 #include "../../mcu_if.h"
@@ -113,6 +114,13 @@ public:
     }
 
     void registra_nodos(const std::string& prefijo, NodeMap& n) override {
+        // El estado de la CPU para la ventana: LPMx no es parada (M12)
+        if (!estado_cpu_)
+            estado_cpu_.reset(new EstadoCpu(prefijo.empty() ? std::string("CPU") : prefijo + ".CPU", [this] {
+                if (chip_->nucleo.en_reset()) return int(EstadoCpu::RESET);
+                if (chip_->nucleo.parada_dbg()) return int(EstadoCpu::PARADA);
+                return EstadoCpu::por_sr(chip_->nucleo.cpu.sr());
+            }));
         ContextoNomenclatura& c = ContextoNomenclatura::g();
         if (prefijo.empty()) c.fija_desnudo(&NOM_MSP430F5);
         else                 c.fija(prefijo, &NOM_MSP430F5);
@@ -222,6 +230,7 @@ public:
     }
 
 private:
+    std::unique_ptr<EstadoCpu> estado_cpu_;
     SocF5529* chip_;
     McuDesc desc_;
     std::vector<AnalogNet*> propios_;

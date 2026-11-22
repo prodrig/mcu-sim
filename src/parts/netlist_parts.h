@@ -44,6 +44,7 @@
 #include "controlador_motor.h"
 #include "transmision.h"
 #include "maquina.h"
+#include "jumper_quitable.h"
 #include "pieza.h"
 #include "bus_potencia.h"
 #include "mems_st.h"
@@ -630,6 +631,10 @@ REGISTRA_PARTE(Jumper,
             "posicion, y `JP1@no` como se ve sin puente. mcu-sim manda a la "
             "ventana el dibujo con el de la posicion que dice puente= y sin los "
             "demas: cambiar el jumper en el XML cambia el dibujo.")
+      .atr("quitable", "no",
+           "si: los puentes se quitan y se ponen con la simulacion en marcha: cada "
+           "uno es un contacto entre sus dos nodos y un mando `A-B` (una casilla "
+           "en la ventana), como el bloque de aislamiento de la eZ-FET (J101)")
       .nota("El puente no se mueve con la simulacion en marcha: une dos nodos "
             "antes de construir, como un <hilo>. Un <sistema> lo puede poner en "
             "otro sitio sin tocar la placa: <jumper ref=\"E/J5\" puente=\"PWM LCD\"/>.")
@@ -644,6 +649,18 @@ REGISTRA_PARTE(Jumper,
         std::vector<std::pair<std::string, analog_net_if*>> pines;
         for (const Conexion& c : d.pines)
             pines.emplace_back(c.pin, n.existe(c.nodo) ? &n[c.nodo] : nullptr);
+        if (d.si("quitable", false)) {
+            auto nodo = [&](const std::string& pin) -> analog_net_if* {
+                for (const auto& p : pines) if (p.first == pin) return p.second;
+                return nullptr;
+            };
+            std::vector<JumperQuitable::Puente> pz;
+            for (const auto& q : g.puentes) {
+                const std::string a = g.pin_k(q.first), b = g.pin_k(q.second);
+                pz.push_back({a, b, nodo(a), nodo(b)});
+            }
+            return new JumperQuitable(d.id.c_str(), g.filas, g.columnas, g.zigzag, pines, pz);
+        }
         return new Conector(g.filas, g.columnas, g.zigzag, pines, "Jumper");
     });
 

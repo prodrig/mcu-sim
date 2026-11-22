@@ -54,7 +54,7 @@
     <pin nombre="b" nodo="J7.2"/>
   </componente>
 
-  <componente tipo="Jumper" id="J10" filas="2" columnas="1" puente="1 2">
+  <componente tipo="Jumper" id="J10" quitable="si" filas="2" columnas="1" puente="1 2">
     <pin nombre="1" nodo="P1.0"/>
   </componente>
   <componente tipo="Jumper" id="J11" filas="2" columnas="1" puente="1 2">

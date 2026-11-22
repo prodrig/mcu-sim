@@ -27,12 +27,25 @@
 // Observables: car1..car6 (el código ASCII de cada carácter, 32 en blanco) y
 // tramas (las tramas completas vistas). Con muestra=si escribe el texto cada
 // vez que cambia: «[LCD1] "WELCOM"».
+//
+// Y LA IMAGEN DEL VIDRIO (M12): `vidrio`, 192 x 60 píxeles, lo que se ve
+// -cada segmento encendido oscuro sobre el gris verdoso del cristal y los
+// apagados apenas marcados-, para la ventana, que la pinta como la pantalla
+// de un TFT (T_IMAGEN) sin saber que es un LCD. Los catorce segmentos de
+// cada carácter con su nombre de la tabla 3 (A-F el contorno, G y M los dos
+// medios, H, J y K arriba, Q, P y N abajo: la X es H+K+Q+N, la T es A+J+P en
+// hal_LCD.c), el punto, los dos puntos de A2 y A4 y, en la fila de arriba,
+// los símbolos (menos, antena, grados, temporizador, corazón, REC, !, TX, RX
+// y la batería con sus seis barras) como marcas [de modelo: la forma; en el
+// vidrio de verdad cada símbolo tiene su dibujo].
 // =============================================================================
 #ifndef STM32_PARTS_LCD_FH1138P_H
 #define STM32_PARTS_LCD_FH1138P_H
 
 #include <systemc>
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -94,6 +107,61 @@ SC_MODULE(LcdFh1138p), public ExtPartBase {
         return float(tramas_);
     }
 
+    static constexpr uint16_t ANCHO = 192, ALTO = 60;
+    unsigned n_imagenes() const override { return 1; }
+    Imagen   imagen(unsigned) const override { return {"vidrio", ANCHO, ALTO}; }
+    uint64_t version_imagen(unsigned) const override { return version_; }
+    void pinta_imagen(unsigned, std::string& rgb) const override {
+        rgb.assign(size_t(ANCHO) * ALTO * 3, '\0');
+        for (size_t k = 0; k < size_t(ANCHO) * ALTO; ++k) {
+            rgb[3 * k] = char(0xB4); rgb[3 * k + 1] = char(0xC2); rgb[3 * k + 2] = char(0xA8);
+        }
+        auto px = [&](int x, int y, bool on) {
+            if (x < 0 || y < 0 || x >= ANCHO || y >= ALTO) return;
+            const size_t k = 3 * (size_t(y) * ANCHO + size_t(x));
+            rgb[k] = char(on ? 0x1C : 0xA6); rgb[k + 1] = char(on ? 0x24 : 0xB4); rgb[k + 2] = char(on ? 0x1C : 0x9A);
+        };
+        auto raya = [&](int x0, int y0, int x1, int y1, bool on) {
+            const int n = std::max(std::abs(x1 - x0), std::abs(y1 - y0));
+            for (int i = 0; i <= n; ++i) {
+                const int x = x0 + (n ? (x1 - x0) * i / n : 0), y = y0 + (n ? (y1 - y0) * i / n : 0);
+                px(x, y, on); px(x + 1, y, on); px(x, y + 1, on); px(x + 1, y + 1, on);
+            }
+        };
+        auto caja = [&](int x, int y, int w, int h, bool on) {
+            for (int j = 0; j < h; ++j) for (int i = 0; i < w; ++i) px(x + i, y + j, on);
+        };
+        // Los catorce segmentos en una celda de 20 x 32 (su nombre sin «An»)
+        struct Seg { const char* n; int x0, y0, x1, y1; };
+        static const Seg SEG[14] = {
+            {"A", 2, 0, 18, 0}, {"B", 18, 1, 18, 15}, {"C", 18, 17, 18, 31}, {"D", 2, 32, 18, 32},
+            {"E", 2, 17, 2, 31}, {"F", 2, 1, 2, 15}, {"G", 3, 16, 9, 16}, {"M", 11, 16, 17, 16},
+            {"H", 4, 2, 9, 14}, {"J", 10, 2, 10, 14}, {"K", 16, 2, 11, 14},
+            {"Q", 9, 18, 4, 30}, {"P", 10, 18, 10, 30}, {"N", 11, 18, 16, 30}};
+        for (unsigned c = 0; c < 6; ++c) {
+            const int x0 = 6 + int(c) * 30, y0 = 18;
+            const std::string a = "A" + std::to_string(c + 1);
+            for (const Seg& g : SEG) raya(x0 + g.x0, y0 + g.y0, x0 + g.x1, y0 + g.y1, simbolo(a + g.n));
+            if (c < 5) caja(x0 + 22, y0 + 31, 3, 3, simbolo(a + "DP"));
+            if (c == 1 || c == 3) {
+                const bool on = simbolo(a + "COL");
+                caja(x0 + 24, y0 + 8, 3, 3, on);
+                caja(x0 + 24, y0 + 22, 3, 3, on);
+            }
+        }
+        // Los símbolos, de izquierda a derecha en la fila de arriba
+        static const char* const SIM[] = {"NEG", "ANT", "DEG", "TMR", "HRT", "REC", "!", "TX", "RX"};
+        int x = 6;
+        for (const char* n : SIM) { caja(x, 4, 9, 7, simbolo(n)); x += 13; }
+        // La batería: su marco y sus seis barras
+        caja(x + 2, 3, 2, 9, simbolo("BATT"));
+        caja(x + 4, 3, 40, 1, simbolo("BATT"));
+        caja(x + 4, 11, 40, 1, simbolo("BATT"));
+        caja(x + 44, 3, 2, 9, simbolo("BATT"));
+        caja(x + 46, 5, 2, 5, simbolo("[]"));
+        for (unsigned b = 0; b < 6; ++b) caja(x + 6 + int(b) * 6, 5, 4, 5, simbolo("B" + std::to_string(b + 1)));
+    }
+
 private:
     // [SLAU595B tabla 3] patilla → {COM3, COM2, COM1, COM0}
     static constexpr const char* MAPA[NP][4] = {
@@ -130,7 +198,7 @@ private:
     bool visto_[4] = {};
     bool vivo_ = false;
     double vlcd_ = 0.0;
-    uint64_t tramas_ = 0;
+    uint64_t tramas_ = 0, version_ = 1;
     std::string texto_ = "      ";
 
     analog_net_if* com(unsigned c) const { return pines_[23 - c]; }   // COM0 en la patilla 24
@@ -162,7 +230,11 @@ private:
                 // trama a medio escribir (el programa cambia la memoria entre
                 // dos COM) no llega a verse [de modelo: el cristal tarda
                 // decenas de ms en responder]
-                if (std::memcmp(on_, trama_ant_, sizeof on_) == 0) { std::memcpy(estable_, on_, sizeof on_); publica(); }
+                if (std::memcmp(on_, trama_ant_, sizeof on_) == 0) {
+                    if (std::memcmp(estable_, on_, sizeof on_) != 0) ++version_;
+                    std::memcpy(estable_, on_, sizeof on_);
+                    publica();
+                }
                 std::memcpy(trama_ant_, on_, sizeof on_);
             }
         }
@@ -174,7 +246,7 @@ private:
         else if (ahora - t_cambio_ >= sc_core::sc_time(50, sc_core::SC_MS) && vivo_) {
             for (auto& f : on_) for (bool& b : f) b = false;
             std::memcpy(estable_, on_, sizeof on_); std::memcpy(trama_ant_, on_, sizeof on_);
-            vivo_ = false; vlcd_ = 0.0;
+            vivo_ = false; vlcd_ = 0.0; ++version_;
             publica();
         }
         sc_core::next_trigger(sc_core::sc_time(50, sc_core::SC_MS), lista_);

@@ -28,7 +28,7 @@
 <placa nombre="msp-exp430fr2433">
   <mcu tipo="MSP430FR2433" id="u0"/>
 
-  <componente tipo="Jumper" id="J10" filas="2" columnas="1" puente="1 2">
+  <componente tipo="Jumper" id="J10" quitable="si" filas="2" columnas="1" puente="1 2">
     <pin nombre="1" nodo="P1.0"/>
   </componente>
   <componente tipo="Jumper" id="J11" filas="2" columnas="1" puente="1 2">

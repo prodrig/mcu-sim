@@ -15,6 +15,7 @@
 #ifndef STM32_SOC_MSP430_FR2_FR2_MCU_H
 #define STM32_SOC_MSP430_FR2_FR2_MCU_H
 
+#include "../../../parts/estado_cpu.h"
 #include <cstdlib>
 #include <cstdio>
 #include <memory>
@@ -193,6 +194,14 @@ public:
     }
 
     void registra_nodos(const std::string& prefijo, NodeMap& n) override {
+        // El estado de la CPU para la ventana: LPMx no es parada (M12)
+        if (!estado_cpu_)
+            estado_cpu_.reset(new EstadoCpu(prefijo.empty() ? std::string("CPU") : prefijo + ".CPU", [this] {
+                if (chip_->nucleo.en_reset()) return int(EstadoCpu::RESET);
+                if (chip_->nucleo.parada_dbg()) return int(EstadoCpu::PARADA);
+                if (chip_->en_lpm5()) return int(EstadoCpu::LPMX5);
+                return EstadoCpu::por_sr(chip_->nucleo.cpu.sr());
+            }));
         ContextoNomenclatura& c = ContextoNomenclatura::g();
         if (prefijo.empty()) c.fija_desnudo(&NOM_MSP430FR2);
         else                 c.fija(prefijo, &NOM_MSP430FR2);
@@ -271,6 +280,7 @@ public:
     }
 
 private:
+    std::unique_ptr<EstadoCpu> estado_cpu_;
     SocFR2* chip_;
     McuDesc desc_;
     McuCapsFr2 caps_;

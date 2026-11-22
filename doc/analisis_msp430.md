@@ -2188,11 +2188,98 @@ laboratorio. Son:
 
 **Tamaño:** grande, pero ya sin incógnitas de fondo.
 
+**Hecho (22-11-2026): M11b entera; M11a, sustituida por M11b (abajo).**
+* **La eZ-FET lite de bajo nivel** (`soc/msp430/ezfet/ezfet.h`, `EzFet`): el
+  modelo del F5529 hace de F5528 (la misma familia F552x, la misma Flash de
+  128 KB hasta 0x243FF y el mismo USB) y ejecuta **las cinco imágenes de TI**
+  (núcleo, HAL, HIL, canal de comunicación y la capa del DC-DC), leídas de la
+  copia de [MSPDS] del usuario (`common/imagen_ezfet.h`: las cabeceras de
+  srecord de `Bios/include`, con sus longitudes en palabras). El
+  identificador de herramienta, 0xAAAB (eZ-FET lite sin DC-DC) en 0x100E;
+  P4.2/P4.3 son RST/SBWTDIO y TST/SBWTCK del objetivo (los del `_Jtag_Target`
+  de `hil/ez_fet`); en P6.0-P6.2, VBUS y las dos VCC con sus divisores
+  [de modelo: 5 V y 3,3 V fijos]. El núcleo pone el F5528 a 25 MHz y se
+  enumera como 2047:0013 «MSP Tools Driver» con dos CDC; el de depuración va
+  a un **pty** (`parts/canal_pty.h`): `mcu-sim PLACA --ezfet-imagenes DIR
+  [--ezfet-pty /tmp/ttyEZFET]` cuelga la eZ-FET del primer MSP430 de la
+  placa. `PuenteUsbCdc` acepta un canal propio y elige el CDC de un
+  dispositivo compuesto (`cdc`, el primero por omisión).
+* **`libmsp430` con un parche pequeño** (`herramientas/libmsp430`:
+  `mcu-sim.patch`, `compila.sh` y el cliente `prueba_ezfet.cpp`), por
+  variables de entorno y sin cambiar nada si no se dan: `MSP430_PUERTO_CDC`
+  (el pty en la lista de eZ-FET), `MSP430_ESCALA_TIEMPO` (los plazos de las
+  órdenes, de reloj de pared, por N: la simulación va unas 4 veces más
+  despacio que la placa) y `MSP430_VERSION_LONG` (mspdebug declara la versión
+  `long`, y en 64 bits la mitad alta sin escribir la hacía negativa: «FET
+  firmware update is required»). Más `-std=c++14` y la hidapi del sistema.
+* **Lo que hacen:** `libmsp430` abre la eZ-FET **sin pedir actualizarla** (las
+  versiones y los CRC son los de las mismas imágenes), identifica el
+  **MSP430G2xx3** y la **MSP430FR5969**, borra, programa, verifica y lee; y
+  **`mspdebug tilib`** programa y verifica las dos (`make ezfet-tilib`, unos
+  90 s).
+* **Lo que salió en el modelo, con la HAL de TI como segundo oráculo** (las
+  macros de producción, que no hacen lo mismo que el Replicator):
+  1. R3 como origen de CMPA es #0 (el TSTA de IAR, `cmpa r3,r6 ; jz`); con #2
+     el montón del núcleo recorría su lista sin fin. ADDA y SUBA siguen con #2
+     (el INCDA/DECDA de CCS).
+  2. DATA_QUICK de 1xx cargado con TCLK arriba (ReadMemQuick de la HAL:
+     `SetPc(Start-2)` y `halt_cpu()` acaban con TCLK alto) empieza en el MAB,
+     y el DR leído con TCLK abajo trae la palabra de la dirección rápida; con
+     TCLK abajo, como el Replicator, sigue en MAB+4 [de modelo los dos].
+  3. DATA_QUICK de Xv2: el acceso en la **bajada** y luego el incremento (los
+     dos de TI cargan con TCLK arriba y leen tras SetTCLK, ClrTCLK).
+  4. Xv2: una lectura con ADDR_16BIT y un pulso de TCLK (el ReadMemWordXv2 de
+     la HAL, que lee el DR con DATA_CAPTURE).
+  5. La revisión de HW de la TLV de la FR5969 y la FR6989, 0x21: con 0x10,
+     `libmsp430` las daba por «Legacy» (`legacy.xml` de su base de datos).
+* **M11a** (el V3 en C++ sobre la sonda de bancada) no se hace: M11b ya
+  ejecuta las macros HAL de TI, de verdad, y M11a también necesitaría las
+  imágenes (las versiones y los CRC que se contestan). Queda como idea si
+  algún día hace falta una eZ-FET sin la copia de [MSPDS].
+* **Lo que queda:** (1) el backchannel (el segundo CDC) no se conecta; (2) por
+  GDB: el agente de TI no está en [MSPDS] y el `msp430-elf-gdb` de esta
+  máquina no arranca; el servidor de `mspdebug tilib` para la CPU y lee los
+  registros, pero el `continue` hasta una ruptura y el paso no vuelven (el
+  EEM por la HAL, a investigar; el PC de después de SyncJtag sale 0xC004 en
+  la G2553); (3) la actualización de firmware no se ha probado; (4) USB/IP
+  (U4) sigue sin existir: el pty es solo para Linux y macOS.
+
+**Pruebas:** `make testezfet` (Z1-Z3, 9: la enumeración, la versión con
+0xAAAB, el arranque de SBW respuesta a respuesta como en una sesión grabada
+de `libmsp430`, y los JTAG ID 0x89 y 0x99; se omite sin las imágenes,
+`MSPDS=CARPETA`) y `make ezfet-tilib` (`prueba_ezfet` con las dos LaunchPad
+y `mspdebug tilib`).
+
 ### M12 · `mcu-sim-gui`
 
 Las diez placas con sus dibujos; el vidrio LCD como elemento animado; los
 puentes de la eZ-FET como interruptores de la placa; y el estado de la CPU en
 LPMx, que no es lo mismo que una CPU parada por el depurador.
+
+**Hecho (22-11-2026):**
+* **Los dibujos que faltaban**: `msp_exp430fr5969.svg`, `msp_exp430fr5994.svg`
+  y `msp_exp430fr6989.svg` (`placas/dibuja_ti.py`, `lp_fr5`): con estas, las
+  diez placas de MSP430 tienen el suyo.
+* **El vidrio LCD animado**: `LcdFh1138p` enseña una imagen, `vidrio` (192 x
+  60), con los segmentos que se ven -los catorce de cada carácter por su
+  nombre de la tabla 3, los puntos, los dos puntos y los símbolos-. La
+  ventana la pone encima del LCD1 del dibujo como la pantalla de un TFT, sin
+  saber que es un LCD (FR4133 y FR6989).
+* **Los puentes de la eZ-FET, interruptores**: `Jumper` con `quitable="si"`
+  (`parts/jumper_quitable.h`): cada puente es un contacto entre sus dos nodos
+  con un mando `A-B`, una casilla en la ventana. Lo llevan los bloques de
+  aislamiento (J101, J10, J13) de las diez LaunchPad. El dibujo sigue
+  enseñando la placa como sale de fábrica. La comprobación de la placa no
+  da por flotante el lado de la eZ-FET (en un sistema: el de SLAA754).
+* **La CPU en LPMx no es una CPU parada**: cada MSP430 lleva la pieza
+  `ID.CPU` (`parts/estado_cpu.h`) con `lpm` y `depurador` (● / ○ en la
+  ventana) y `modo` (0 activa, 1-5 LPM0-LPM4, 6 LPMx.5, 7 parada, 8 en
+  reset).
+* En `mcu-sim-gui` no hace falta código: todo va por el protocolo de
+  siempre. Su `prueba_cruzada` gana **G11** (rama `msp430`): la FR4133 con la
+  demo de TI (el vidrio llega como imagen y cambia con el texto; J101 con sus
+  siete interruptores, y uno que se quita en marcha), la G2ET durmiendo en
+  LPM0 (lpm a 1 y depurador a 0) y los tres dibujos nuevos.
 
 ---
 

@@ -1009,7 +1009,7 @@ la sonda de bancada portada de la MSP Debug Stack y el *backend* de GDB) y su
 SoC de laboratorio (`test430`); encima, la capa de familia en `src/periph/ti/`
 (compartida con el P4) y los chips.
 
-**Estado (2026-11-21):** **M0-M10 hechas** (M9 con los huecos de abajo), y
+**Estado (2026-11-22):** **M0-M12 hechas** (M9 y M11 con los huecos de abajo; M11a, sustituida por M11b), y
 cerrado lo que quedaba de M2-M8 que no depende de fases posteriores. El
 detalle, en §11 del análisis. Lo cerrado:
 
@@ -1067,10 +1067,27 @@ detalle, en §11 del análisis. Lo cerrado:
   s a LPM4, el chip en blanco, la configuración de la TLV (0xB5) y la del
   usuario (0xFF88) en FR2355 y FR2476; y el de 1 KB, solo UART a 9600, del
   FR4133.
+* **M11** (`make testezfet`, Z1-Z3; `make ezfet-tilib`): la eZ-FET lite de
+  bajo nivel, un F5528 que ejecuta el firmware de TI de la copia de la MSP
+  Debug Stack del usuario (`--ezfet-imagenes`), con su USB en un pty; con
+  `libmsp430` y su parche (`herramientas/libmsp430`), y con `mspdebug
+  tilib`, identifica, programa y verifica la G2553 y la FR5969. Salieron
+  cinco arreglos del núcleo y del TAP con la HAL de TI como oráculo (R3 en
+  CMPA, DATA_QUICK de 1xx y de Xv2, la lectura de Xv2 por ADDR_16BIT) y la
+  revisión de la TLV de FR5969/FR6989.
+* **M12** (`prueba_cruzada` G11 de `mcu-sim-gui`): los dibujos de FR5969,
+  FR5994 y FR6989; el vidrio LCD como imagen; los puentes de la eZ-FET como
+  interruptores (`Jumper quitable="si"`); y la pieza `ID.CPU`, con LPMx
+  separado de la parada del depurador.
 
 **Lo que queda, con su fase**: el tiempo y el ECC de la FRAM (**M8**, con las
 FR5xx/FR6xx, que tienen más estados de espera); el G2553 en `mcu-sim-gui`
-(**M12**). **De M9**: (1) `msp430.bsl5.hid` en el F5529, que pide
+(**M12**, ya: la G2ET va en G11 de `prueba_cruzada`). **De M11**: (1) el
+backchannel, el segundo CDC de la eZ-FET, sin conectar; (2) GDB por la
+eZ-FET: el agente de TI no está en la MSP Debug Stack, y con el servidor de
+`mspdebug tilib` el `continue` hasta una ruptura y el paso no vuelven (el
+EEM por la HAL; y el PC tras SyncJtag sale 0xC004 en la G2553); (3) la
+actualización del firmware de la eZ-FET, sin probar. **De M9**: (1) `msp430.bsl5.hid` en el F5529, que pide
 `/dev/hidraw` o el servidor USB/IP (U4) y tiene `hid.py` en Python 2; (2) el
 BSL de RAM que cargan las herramientas en el F5529 no vuelve a enumerar tras
 Load PC 0x2504 (el USB del modelo tras su reset de bus; `RAM_BSL=` en F14
