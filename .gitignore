@@ -146,3 +146,7 @@ doc/refs/
 # El nombre viejo, que se queda por seguridad: si alguna copia del repositorio
 # todavía tiene la carpeta sin renombrar, sigue sin subirse.
 doc/pdf/
+
+# Paquetes de Python descargados (pip download) para algun generador de
+# vectores: no son parte del proyecto. Uno se colo en E8 (9a96378).
+*.whl

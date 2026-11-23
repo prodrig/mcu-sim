@@ -3,6 +3,7 @@
 # de 16 bits de semilla fija y lo que dan lin2alaw/alaw2lin y
 # lin2ulaw/ulaw2lin de audioop (audioop-lts desde Python 3.13), la segunda
 # fuente: nada del modelo. Escribe i2s_vec.h.
+# Desde Python 3.13, audioop ya no viene con Python: pip install audioop-lts.
 import audioop, random, struct, sys
 
 rnd = random.Random(0xC312)
