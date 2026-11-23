@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <cstdio>
 #include "../../soc/msp430/desc/desc430.h"
+#include "../../common/verbosidad.h"
 
 namespace stm32 {
 
@@ -41,7 +42,7 @@ struct M430Errata {
         if (!(activas & bit)) return false;
         if (!(avisadas & bit)) {
             avisadas |= bit;
-            std::fprintf(stderr, "[m430] errata %s en pc=0x%05X (aviso una vez)\n", que, unsigned(pc));
+            ::stm32::avisa_consola("[m430] errata %s en pc=0x%05X (aviso una vez)\n", que, unsigned(pc));
         }
         return true;
     }

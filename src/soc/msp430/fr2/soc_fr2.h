@@ -70,6 +70,7 @@
 #include <unistd.h>
 #endif
 #include "../../../m430/cpu/nucleo_m430.h"
+#include "../../../common/verbosidad.h"
 #include "../../../m430/debug/eem.h"
 #include "../../../m430/debug/tap_m430.h"
 #include "../../../m430/debug/pines_m430.h"
@@ -505,7 +506,7 @@ SC_MODULE(SocFR2), public m430_irq_if {
                 lpm34_ = l34;
                 if (l34 && (chip.errata5 & E5_TA22) && !ta.empty()) {      // TA22: TA0 al entrar
                     ta[0]->invierte_salidas();
-                    if (!avisado_ta22_) { avisado_ta22_ = true; std::fprintf(stderr, "[%s] errata TA22: las salidas de TA0 cambian al entrar en LPM3/LPM4\n", chip.etiqueta); }
+                    if (!avisado_ta22_) { avisado_ta22_ = true; ::stm32::avisa_consola("[%s] errata TA22: las salidas de TA0 cambian al entrar en LPM3/LPM4\n", chip.etiqueta); }
                 }
                 if (chip.errata5 & E5_COMP10) pines_salida();
             }
@@ -895,7 +896,7 @@ private:
         if (cs.falta()) sfrifg1_ |= 0x02;                             // OFIFG
         if (cs.f_mclk > 8.1e6 && (frctl0_ & 0x70) == 0 && !avisado_nwaits_) {
             avisado_nwaits_ = true;                                   // una vez por simulación
-            std::fprintf(stderr, "[%s] MCLK %.2f MHz sin estados de espera de la FRAM (NWAITS = 0; > 8 MHz pide 1) [DS]\n",
+            ::stm32::avisa_consola("[%s] MCLK %.2f MHz sin estados de espera de la FRAM (NWAITS = 0; > 8 MHz pide 1) [DS]\n",
                          chip.etiqueta, cs.f_mclk / 1e6);
         }
         {
@@ -1202,7 +1203,7 @@ private:
     void sys23() {
         if (!chip.errata_sys23) return;
         mem_[0x20FE] = mem_[0x20FF] = 0x00;
-        if (!n_sys23_++) std::fprintf(stderr, "[%s] SYS23: el BOR no conserva la RAM en 0x20FE-0x20FF [SLAZ550AA]\n", chip.etiqueta);
+        if (!n_sys23_++) ::stm32::avisa_consola("[%s] SYS23: el BOR no conserva la RAM en 0x20FE-0x20FF [SLAZ550AA]\n", chip.etiqueta);
     }
 
     // El arranque: la firma de JTAG [UG FR2 §1.11: 0xFF80 = 0x5555 y 0xFF82 =
@@ -1548,7 +1549,7 @@ private:
     bool adc41_bloquea(unsigned shs) {
         if (!(chip.errata5 & E5_ADC41) || !adc5 || adc5->fuente_reloj() != 0 || (ref5 && ref5->refon())) return false;
         if ((nucleo.cpu.sr() & 0x00D0) != 0x00D0 || shs < 2 || shs > 5) return false;
-        if (!avisado_adc41_) { avisado_adc41_ = true; std::fprintf(stderr, "[%s] errata ADC41: un disparo de SHS = %u en LPM3/LPM4 no llega al ADC12_B\n", chip.etiqueta, shs); }
+        if (!avisado_adc41_) { avisado_adc41_ = true; ::stm32::avisa_consola("[%s] errata ADC41: un disparo de SHS = %u en LPM3/LPM4 no llega al ADC12_B\n", chip.etiqueta, shs); }
         return true;
     }
     bool avisado_adc41_ = false;
@@ -2163,7 +2164,7 @@ private:
     void aviso(uint32_t a) {
         if (avisado_) return;
         avisado_ = true;
-        std::fprintf(stderr, "[%s] 0x%04X: registro sin modulo (aviso una vez)\n", chip.etiqueta, unsigned(a));
+        ::stm32::avisa_consola("[%s] 0x%04X: registro sin modulo (aviso una vez)\n", chip.etiqueta, unsigned(a));
     }
     // La eUSCI de esa dirección (y su desplazamiento)
     EusciFr* usci_de(uint32_t a, uint32_t& off) const {
@@ -2699,7 +2700,7 @@ private:
             mpuipc0_ = uint16_t(c0 & 0xE0u); mpuipsegb2_ = b2; mpuipsegb1_ = b1;
             return;
         }
-        std::fprintf(stderr, "[%s] la estructura de la IPE en 0x%05X no vale: el arranque borra la FRAM [UG FR5 §9.6.2]\n",
+        ::stm32::avisa_consola("[%s] la estructura de la IPE en 0x%05X no vale: el arranque borra la FRAM [UG FR5 §9.6.2]\n",
                      chip.etiqueta, unsigned(s));
         std::fill(mem_.begin() + desc.principal.ini, mem_.begin() + 0x10000, 0xFF);
         if (desc.principal2.existe()) std::fill(mem_.begin() + desc.principal2.ini, mem_.begin() + desc.principal2.fin + 1, 0xFF);
@@ -2868,7 +2869,7 @@ public:
                 if (k >= 0 && ram_off_[k]) {                          // RAMCTL: sin alimentar
                     if (!avisado_ram_off_) {
                         avisado_ram_off_ = true;
-                        std::fprintf(stderr, "[%s] acceso a 0x%05X: el sector %d de la RAM está apagado (RCRS%dOFF = 2)\n",
+                        ::stm32::avisa_consola("[%s] acceso a 0x%05X: el sector %d de la RAM está apagado (RCRS%dOFF = 2)\n",
                                      chip.etiqueta, unsigned(a), k, k);
                     }
                     if (gp.is_read()) for (unsigned i = 0; i < n; ++i) d[i] = ((a + i) & 1u) ? 0x3F : 0xFF;

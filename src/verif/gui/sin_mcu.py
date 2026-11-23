@@ -230,7 +230,7 @@ def n4_rechazos(sim):
         tmp.append(placa_tmp('  <nodo id="x"/>\n'
                              '  <componente tipo="Fuente" id="F"><pin nombre="pin" nodo="x"/></componente>\n'
                              '  <componente tipo="Gnd" id="G"><pin nombre="pin" nodo="x"/></componente>'))
-        rc, out, err = corre(sim, [tmp[-1], "--valida"])
+        rc, out, err = corre(sim, [tmp[-1], "--valida", "--verbose"])
         check("[elec] nodo x: dos fuentes a la vez" in err and "1 avisos" in out,
               "una Fuente y una Gnd en el mismo nodo: un cortocircuito declarado, "
               "y la validacion electrica lo avisa")

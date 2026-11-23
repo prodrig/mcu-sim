@@ -475,7 +475,7 @@ def cliente_tcp(sim, tiempo_real, dir_log):
     puerto = srv.getsockname()[1]
     srv.close()                                  # todavia no escucha nadie
     log = os.path.join(dir_log, "interop_tcp_cliente.log")
-    s = Simulador(sim, "tcp-cliente", 0, tiempo_real, log, extra=["--espera-terminal"],
+    s = Simulador(sim, "tcp-cliente", 0, tiempo_real, log, extra=["--espera-terminal", "--verbose"],
                   host_puerto="127.0.0.1:%d" % puerto)
     try:
         time.sleep(2.5)                          # dos o tres intentos fallidos

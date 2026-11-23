@@ -93,6 +93,7 @@
 #include "../common/gui_cliente.h"
 #include "../common/serie_destino.h"
 #include "../common/svg_variantes.h"
+#include "../common/verbosidad.h"
 #include "soc_f4.h"
 #include "../verif/image_loader.h"
 #if defined(_WIN32)
@@ -511,7 +512,7 @@ SC_MODULE(Sim) {
             // de fiarse de lo que vea.
             m.ojo = m.mcu->limitaciones();
             for (const std::string& q : m.ojo)
-                std::fprintf(stderr, "  [ojo] %s: %s\n", nm.c_str(), q.c_str());
+                stm32::avisa_consola("  [ojo] %s: %s\n", nm.c_str(), q.c_str());
             // Los nodos, con el prefijo del chip. Y además con el nombre
             // desnudo cuando solo hay uno: es lo que hace que las placas
             // escritas hasta hoy sigan valiendo sin migrarlas.
@@ -649,7 +650,7 @@ SC_MODULE(Sim) {
         }
         resuelve_memorias();
         for (const std::string& q : placa.valida_electrica(nodos)) {
-            std::fprintf(stderr, "  [elec] %s\n", q.c_str());
+            stm32::avisa_consola("  [elec] %s\n", q.c_str());
             avisos_placa.push_back(q);
             ++n_avisos;
         }
@@ -714,7 +715,7 @@ SC_MODULE(Sim) {
             avisos_placa.push_back(
                 "hay un puente serie por TCP y no se ha pedido --tiempo-real: el "
                 "terminal vera el ritmo de la simulacion, no el de la placa");
-            std::fprintf(stderr,
+            stm32::avisa_consola(
                 "  [serie] AVISO: hay un puente serie por TCP y no se ha pedido\n"
                 "          --tiempo-real. El terminal vera el ritmo de la\n"
                 "          simulacion, no el de la placa: un printf por segundo\n"
@@ -761,7 +762,7 @@ SC_MODULE(Sim) {
             std::printf("  --stopped-core-stops-sim: %zu nucleo(s); con uno parado por la depuracion, "
                         "el tiempo simulado de toda la placa se detiene\n", congelador_->nucleos.size());
             if (congelador_->nucleos.empty())
-                std::fprintf(stderr, "  AVISO: --stopped-core-stops-sim: ningun MCU de la placa dice sus nucleos\n");
+                stm32::avisa_consola("  AVISO: --stopped-core-stops-sim: ningun MCU de la placa dice sus nucleos\n");
         }
         SC_THREAD(run);
     }
@@ -973,7 +974,7 @@ SC_MODULE(Sim) {
     void lee_dibujos() {
         const bool sis = placa.es_sistema();
         auto aviso = [&](const std::string& t) {
-            std::fprintf(stderr, "  [dibujo] %s\n", t.c_str());
+            stm32::avisa_consola("  [dibujo] %s\n", t.c_str());
             avisos_placa.push_back(t);
         };
         auto base = [](const std::string& r) {
@@ -1436,7 +1437,7 @@ SC_MODULE(Sim) {
                     if (CanalTcp* c = x->canal_swo_tcp())
                         red.push_back({c, nullptr, c->describir() + " (SWO de " + i.id + ")"});
         if (red.empty()) {
-            std::fprintf(stderr, "  [serie] --espera-terminal: esta placa no tiene "
+            stm32::avisa_consola("  [serie] --espera-terminal: esta placa no tiene "
                          "puentes serie por red; no hay nada que esperar\n");
             return;
         }
@@ -1532,13 +1533,13 @@ SC_MODULE(Sim) {
                 // Un puente Ethernet por TCP sin --tiempo-real: los plazos de
                 // ARP y TCP del otro lado son de reloj de pared
                 if (c == 'e' && v.rfind("qemu", 0) == 0 && g_tiempo_real <= 0.0 && !g_ms_dado)
-                    std::fprintf(stderr, "  [eth] AVISO: el Ethernet de %s va por TCP y no se ha "
+                    stm32::avisa_consola("  [eth] AVISO: el Ethernet de %s va por TCP y no se ha "
                                  "pedido --tiempo-real: los plazos de ARP y TCP del ordenador\n"
                                  "        son de reloj de pared, y la simulacion va a su ritmo\n", quien);
                 // Y uno USB por TCP: como el puente serie, el terminal vera el
                 // ritmo de la simulacion
                 if (c == 'u' && v != "memoria" && g_tiempo_real <= 0.0 && !g_ms_dado)
-                    std::fprintf(stderr, "  [usb] AVISO: el USB de %s va a un terminal por TCP y no se ha "
+                    stm32::avisa_consola("  [usb] AVISO: el USB de %s va a un terminal por TCP y no se ha "
                                  "pedido --tiempo-real:\n        el terminal vera el ritmo de la "
                                  "simulacion, no el de la placa\n", quien);
             }
@@ -1567,7 +1568,7 @@ SC_MODULE(Sim) {
             const std::string nm = m.decl.id.empty() ? std::string("dut") : m.decl.id;
             for (const std::string& q : m.mcu->limitaciones())
                 if (std::find(m.ojo.begin(), m.ojo.end(), q) == m.ojo.end())
-                    std::fprintf(stderr, "  [ojo] %s: %s\n", nm.c_str(), q.c_str());
+                    stm32::avisa_consola("  [ojo] %s: %s\n", nm.c_str(), q.c_str());
         }
 
         // Las memorias no volatiles, ANTES del firmware: el firmware se graba
@@ -2369,6 +2370,10 @@ static const OpcionCli OPCIONES[] = {
      "puerto TCP del stub de GDB, o de la sonda de OpenOCD"},
     {"--traza-gdb", "bandera", "", "", "", "", false, true, "",
      "imprime cada paquete RSP que llega al stub"},
+    {"--verbose", "bandera", "", "", "", "", false, true, "",
+     "con los avisos por la consola: lo declarado y no modelado de cada MCU ([ojo]), "
+     "las erratas, los conflictos electricos que no paran la simulacion... Sin ella "
+     "solo salen los errores"},
     {"--firmware", "valor", "texto", "", "", "", true, true, "u0=mi_programa.bin",
      "el firmware del MCU ID, como ID=FICHERO (u0, o N/u0 en un sistema), tambien "
      "con varios MCUs. Manda sobre el firmware= de su <mcu>"},
@@ -2590,6 +2595,11 @@ int sc_main(int argc, char** argv) {
     sc_report_handler::set_actions("rcc",   SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("flash", SC_WARNING, SC_DO_NOTHING);
     sc_report_handler::set_actions("pll",   SC_WARNING, SC_DO_NOTHING);
+    // Los avisos por stderr, callados salvo con --verbose (common/verbosidad.h).
+    // mcu-sim-gui pinta en rojo todo lo que llega por stderr, y entre tanto
+    // aviso -lo no modelado de cada MCU, las erratas...- los errores de verdad
+    // no se veian. Los errores salen siempre.
+    stm32::verbose() = false;
 
     std::vector<std::string> libres;
     for (int i = 1; i < argc; ++i) {
@@ -2598,6 +2608,7 @@ int sc_main(int argc, char** argv) {
         else if (a == "--espera-terminal") g_espera_terminal = true;
         else if (a == "--ondas") g_ondas = true;
         else if (a == "--traza-gdb") g_traza_gdb = true;
+        else if (a == "--verbose") stm32::verbose() = true;
         else if (a == "--argumentos") return vuelca_argumentos();
         else if (a == "--mcus") g_lista_mcus = true;
         else if (a == "--memorias") g_lista_memorias = true;
@@ -2933,6 +2944,11 @@ int sc_main(int argc, char** argv) {
                 "                                en XML, para mcu-sim-gui\n"
                 "     sim placa.xml --ms=2       tiempo simulado (global: hay un\n"
                 "                                solo reloj por muchos chips)\n"
+                "     sim placa.xml --verbose    con los avisos por la consola (stderr):\n"
+                "                                lo declarado y no modelado de cada MCU\n"
+                "                                ([ojo]), las erratas, los conflictos\n"
+                "                                electricos que no paran la simulacion...\n"
+                "                                Sin ella solo salen los errores\n"
                 "     sim --argumentos           estas opciones en XML, para que\n"
                 "                                mcu-sim-gui construya su dialogo\n"
                 "     sim --help COMPONENTE      que hace ese componente y que\n"

@@ -24,6 +24,7 @@
 #include <systemc>
 #include <cstdio>
 #include "../../common/gdb_rsp.h"
+#include "../../common/verbosidad.h"
 
 namespace stm32 {
 
@@ -148,7 +149,7 @@ private:
     }
     bool falla(const char* que, uint32_t a, const char* por) {
         ++n_fallos_;
-        std::fprintf(stderr, "  [flash F303] %s en 0x%08X: %s\n", que, unsigned(a), por);
+        ::stm32::avisa_consola("  [flash F303] %s en 0x%08X: %s\n", que, unsigned(a), por);
         return false;
     }
 };

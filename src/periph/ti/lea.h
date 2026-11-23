@@ -62,6 +62,7 @@
 #include <functional>
 #include <map>
 #include <vector>
+#include "../../common/verbosidad.h"
 
 namespace stm32 {
 
@@ -229,7 +230,7 @@ private:
     void aviso_una(uint16_t c, const char* q) {
         if (std::find(avisadas_.begin(), avisadas_.end(), c) != avisadas_.end()) return;
         avisadas_.push_back(c);
-        std::fprintf(stderr, "[lea] orden 0x%03X: %s\n", unsigned(c), q);
+        ::stm32::avisa_consola("[lea] orden 0x%03X: %s\n", unsigned(c), q);
     }
 
     // --- Las órdenes ---------------------------------------------------------------

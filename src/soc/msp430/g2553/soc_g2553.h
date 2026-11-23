@@ -57,6 +57,7 @@
 #include <string>
 #include <vector>
 #include "../../../m430/cpu/nucleo_m430.h"
+#include "../../../common/verbosidad.h"
 #include "../../../m430/debug/pines_m430.h"
 #include "../../../periph/ti/timer_a.h"
 #include "../../../periph/ti/usci.h"
@@ -782,7 +783,7 @@ private:
             if (!(adc_ctl0_ & 0x10) || !(adc_ctl0_ & 0x02)) continue;           // ADC10ON y ENC
             if (((adc_ctl1_ >> 10) & 3) && !adc_avisado_shs_) {
                 adc_avisado_shs_ = true;
-                std::fprintf(stderr, "[g2553] ADC10: el disparo por el Timer_A (SHSx) no se modela; vale ADC10SC\n");
+                ::stm32::avisa_consola("[g2553] ADC10: el disparo por el Timer_A (SHSx) no se modela; vale ADC10SC\n");
             }
             adc_busy_ = true;
             adc_dtc_parada_ = false;
@@ -897,7 +898,7 @@ private:
     void aviso(uint32_t a) {
         if (avisado_) return;
         avisado_ = true;
-        std::fprintf(stderr, "[g2553] 0x%04X: registro sin módulo (aviso una vez)\n", unsigned(a));
+        ::stm32::avisa_consola("[g2553] 0x%04X: registro sin módulo (aviso una vez)\n", unsigned(a));
     }
     // P1 0x20-0x27, P2 0x28-0x2F, P3 0x18-0x1B y P3REN 0x10
     Puerto* puerto_de(uint32_t a, unsigned& r) {

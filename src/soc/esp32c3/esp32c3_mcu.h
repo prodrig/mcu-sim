@@ -42,6 +42,7 @@
 #include "../esp/programador_esp.h"
 #include "../../rv/gdb/gdb_stub_rv.h"
 #include "../herramientas.h"
+#include "../../common/verbosidad.h"
 
 namespace stm32 {
 
@@ -233,7 +234,7 @@ public:
             const std::string e = chip_->pon_rom(valor);
             if (!e.empty()) return e;
             const std::string a = chip_->aviso_rom();
-            if (!a.empty()) std::fprintf(stderr, "  [ojo] %s\n", a.c_str());
+            if (!a.empty()) ::stm32::avisa_consola("  [ojo] %s\n", a.c_str());
             return "";
         }
         return mcu_if::opcion(clave, valor);

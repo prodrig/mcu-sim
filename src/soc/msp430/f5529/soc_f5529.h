@@ -47,6 +47,7 @@
 #include <string>
 #include <vector>
 #include "../../../m430/cpu/nucleo_m430.h"
+#include "../../../common/verbosidad.h"
 #include "../../../m430/debug/eem.h"
 #include "../../../m430/debug/tap_m430.h"
 #include "../../../m430/debug/pines_m430.h"
@@ -418,7 +419,7 @@ private:
         static const double MAX[4] = {8e6, 12e6, 20e6, 25e6};
         if (f_mclk_ > MAX[vcore()] * 1.02 && !avisado_vcore_) {
             avisado_vcore_ = true;
-            std::fprintf(stderr, "[f5529] MCLK %.2f MHz con PMMCOREV = %u (máximo %.0f MHz): fuera de especificación [DS]\n",
+            ::stm32::avisa_consola("[f5529] MCLK %.2f MHz con PMMCOREV = %u (máximo %.0f MHz): fuera de especificación [DS]\n",
                          f_mclk_ / 1e6, vcore(), MAX[vcore()] / 1e6);
         }
     }
@@ -1182,7 +1183,7 @@ private:
     void aviso(uint32_t a) {
         if (avisado_ || a < 0x900) return;
         avisado_ = true;
-        std::fprintf(stderr, "[f5529] 0x%04X: registro sin modulo (aviso una vez)\n", unsigned(a));
+        ::stm32::avisa_consola("[f5529] 0x%04X: registro sin modulo (aviso una vez)\n", unsigned(a));
     }
     // Los registros de 16 bits (las palabras de los módulos de palabra)
     bool lee16(uint32_t a, uint16_t& v, bool dbg) {

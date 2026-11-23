@@ -40,6 +40,7 @@
 #include <vector>
 #include "../common/red.h"         // CanalTcp: la unica dependencia del SO
 #include "../common/telnet2217.h"  // CanalRfc2217: el protocolo, puro
+#include "../common/verbosidad.h"
 
 namespace stm32 {
 
@@ -148,7 +149,7 @@ public:
                 if (!avisado_) {
                     avisado_ = true;
                     std::fflush(stdout);        // que el aviso salga en su sitio
-                    std::fprintf(stderr, "  [serie] la cola hacia el MCU esta llena "
+                    ::stm32::avisa_consola("  [serie] la cola hacia el MCU esta llena "
                                  "(%zu bytes): lo que no cabe se tira\n", max_);
                 }
                 continue;
@@ -242,7 +243,7 @@ private:
                 if (!avisado_sust_) {
                     avisado_sust_ = true;
                     std::fflush(stdout);
-                    std::fprintf(stderr, "  [serie] localhost:%u: un cliente nuevo "
+                    ::stm32::avisa_consola("  [serie] localhost:%u: un cliente nuevo "
                                  "sustituye al anterior\n", puerto_);
                 }
             }
@@ -294,7 +295,7 @@ private:
         if (avisado_fallo_) return;
         avisado_fallo_ = true;
         std::fflush(stdout);
-        std::fprintf(stderr, "  [serie] %s:%u: %s; se reintenta cada %s\n",
+        ::stm32::avisa_consola("  [serie] %s:%u: %s; se reintenta cada %s\n",
                      host_.c_str(), puerto_, porque,
                      tras_s > REINTENTO_S ? "diez segundos" : "segundo");
     }

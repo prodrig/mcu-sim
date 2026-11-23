@@ -77,6 +77,7 @@
 #include <vector>
 #include "../otg.h"
 #include "../../common/analog_net.h"
+#include "../../common/verbosidad.h"
 
 namespace stm32 {
 
@@ -437,7 +438,7 @@ private:
         if (std::fabs(f - 48e6) > 0.01 * 48e6) {                      // USBOORIFG
             pllir_ |= 0x04; avisa();
             if (!avisado_pll_) { avisado_pll_ = true;
-                std::fprintf(stderr, "[usb] la PLL da %.4g MHz con %.4g MHz de referencia: hacen falta 48\n", f / 1e6, fr / 1e6); }
+                ::stm32::avisa_consola("[usb] la PLL da %.4g MHz con %.4g MHz de referencia: hacen falta 48\n", f / 1e6, fr / 1e6); }
             return;
         }
         pll_ok_ = true;
@@ -449,7 +450,7 @@ private:
         avisado_mudo_ = true;
         const char* q = !(cnf_ & USB_EN) ? "sin USB_EN" : !pll_ok_ ? "sin la PLL de 48 MHz" :
                         (pll_ & 0xC0) ? "con UCLKSEL distinto de PLLCLK" : "sin FEN";
-        std::fprintf(stderr, "[usb] el modulo no contesta: %s (aviso una vez)\n", q);
+        ::stm32::avisa_consola("[usb] el modulo no contesta: %s (aviso una vez)\n", q);
     }
     // La fuente de más prioridad [UG5, USBVECINT]
     uint8_t vector() const {

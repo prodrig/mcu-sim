@@ -75,6 +75,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <systemc>
+#include "../../common/verbosidad.h"
 
 namespace stm32 {
 
@@ -277,13 +278,13 @@ private:
                 puede = fhf >= 800e3;
                 if (puede && !en_margen_hf(hffreq, fhf, true) && !avisado_hffreq_) {
                     avisado_hffreq_ = true;
-                    std::fprintf(stderr, "[CS] HFXT en bypass a %.3f MHz con HFFREQ = %u: fuera de su margen [DS tabla 5-5]\n", fhf / 1e6, hffreq);
+                    ::stm32::avisa_consola("[CS] HFXT en bypass a %.3f MHz con HFFREQ = %u: fuera de su margen [DS tabla 5-5]\n", fhf / 1e6, hffreq);
                 }
             } else {
                 puede = fhf > 0.0 && en_margen_hf(hffreq, fhf, false);
                 if (!puede && fhf > 0.0 && !avisado_hffreq_) {
                     avisado_hffreq_ = true;
-                    std::fprintf(stderr, "[CS] cristal del HFXT de %.3f MHz con HFFREQ = %u: no oscila [de modelo; DS tabla 5-5]\n", fhf / 1e6, hffreq);
+                    ::stm32::avisa_consola("[CS] cristal del HFXT de %.3f MHz con HFFREQ = %u: no oscila [de modelo; DS tabla 5-5]\n", fhf / 1e6, hffreq);
                 }
             }
         }

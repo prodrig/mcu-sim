@@ -26,6 +26,7 @@
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include "../../common/verbosidad.h"
 
 namespace stm32 {
 
@@ -160,7 +161,7 @@ private:
             if (!(ctl0_ & ON) || !(ctl0_ & ENC)) continue;
             if (shs() != 0 && !avisado_shs_) {
                 avisado_shs_ = true;
-                std::fprintf(stderr, "[adc12_a] el disparo por el Timer (ADC12SHSx) no se modela; vale ADC12SC\n");
+                ::stm32::avisa_consola("[adc12_a] el disparo por el Timer (ADC12SHSx) no se modela; vale ADC12SC\n");
             }
             if (!dispara_) continue;
             dispara_ = false;

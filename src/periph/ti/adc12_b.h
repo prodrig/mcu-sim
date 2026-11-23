@@ -50,6 +50,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include "../../common/verbosidad.h"
 
 namespace stm32 {
 
@@ -208,7 +209,7 @@ private:
     void aviso(uint8_t b, const char* e, const char* q) {
         if (avisadas_ & b) return;
         avisadas_ = uint8_t(avisadas_ | b);
-        std::fprintf(stderr, "[adc12_b] errata %s: %s\n", e, q);
+        ::stm32::avisa_consola("[adc12_b] errata %s: %s\n", e, q);
     }
     // Un disparo con la conversión en curso: TOV; con ADC42 en secuencia o
     // repetición, el ADC se para

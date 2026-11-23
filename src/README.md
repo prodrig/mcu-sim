@@ -693,6 +693,21 @@ desconectado` es el que no le gustó al otro extremo**. Un `+$#00` —respuesta
 vacía— a un paquete que el cliente considere obligatorio es la forma habitual de
 que una sesión se caiga sin más explicación.
 
+**Los avisos, solo con `--verbose`.** Por omisión `mcu-sim` saca por stderr
+solo los **errores**. Los **avisos** —lo declarado y no modelado de cada MCU
+(`[ojo]`), las erratas que se disparan, un registro sin módulo, un conflicto
+eléctrico que no para la simulación (`[elec]`), un dibujo que no se encuentra,
+un puente por TCP sin `--tiempo-real`...— se callan, porque `mcu-sim-gui` pinta
+en rojo todo lo que llega por stderr y entre tantos avisos los errores no se
+veían. Con `--verbose` salen todos, como antes:
+
+```
+./build/mcu-sim placa.xml --verbose
+```
+
+La ventana recibe sus `T_AVISO` igual, con o sin `--verbose`: el interruptor es
+solo de la consola.
+
 **Varios MCUs.** Una placa puede declarar los chips que lleva, cada uno con su
 firmware, su modo de depuración y su puerto de GDB:
 

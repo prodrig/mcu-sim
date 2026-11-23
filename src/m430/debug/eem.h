@@ -30,6 +30,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include "../../common/verbosidad.h"
 
 namespace stm32 {
 
@@ -88,7 +89,7 @@ public:
         case 0x8A: modclkctrl0_ = uint16_t(v); break;
         case 0x8E: trigflag_ = uint16_t(trigflag_ & ~v); break;
         default:
-            if (!avisado_) { avisado_ = true; std::fprintf(stderr, "[eem] registro 0x%02X declarado (aviso una vez)\n", dir); }
+            if (!avisado_) { avisado_ = true; ::stm32::avisa_consola("[eem] registro 0x%02X declarado (aviso una vez)\n", dir); }
             break;
         }
     }

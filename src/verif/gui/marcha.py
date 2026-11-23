@@ -214,7 +214,11 @@ def m3_placa(sim):
             v = Ventana()
             # Una placa SIN MCU -no declara ninguno-: 10 ms van con --ms=, porque
             # un segundo posicional seria un firmware y sin chip se rechaza.
-            p = arranca(sim, [placa, "--ms=10"] + (["--valida"] if valida else []), v.puerto)
+            # Y la consola: con --verbose el aviso sale tambien por stderr, sin
+            # ella no. A la ventana llega igual en los dos casos. Una vez cada uno.
+            verbose = valida
+            p = arranca(sim, [placa, "--ms=10"] + (["--valida"] if valida else []) +
+                        (["--verbose"] if verbose else []), v.puerto)
             try:
                 v.acepta()
                 _, pl, cat, listo = saludo_hasta_listo(v, valida=valida)
@@ -236,8 +240,12 @@ def m3_placa(sim):
                 if not valida:
                     v.manda(ventana.T_PARA)
                 rc, out, err = termina(p)
-                check(rc == 0 and "conducen a la vez" in err,
-                      "y la consola lo sigue diciendo, como siempre")
+                if verbose:
+                    check(rc == 0 and "conducen a la vez" in err,
+                          "y con --verbose la consola lo sigue diciendo, como siempre")
+                else:
+                    check(rc == 0 and "conducen a la vez" not in err,
+                          "y sin --verbose la consola calla el aviso: solo va a la ventana")
             finally:
                 if p.poll() is None:
                     p.kill()

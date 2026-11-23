@@ -679,7 +679,7 @@ def c10_dibujos(sim, cp):
     for fich, que, texto in (("falta.xml", "no se encuentra su dibujo", "un fichero que no esta"),
                              ("texto.xml", "no parece un SVG", "uno que no es SVG"),
                              ("gordo.xml", "y el maximo es 2048", "uno de mas de 2 MiB")):
-        rc, out, placa, il, av = saludo_con_dibujos(sim, [os.path.join(cp.d, fich)])
+        rc, out, placa, il, av = saludo_con_dibujos(sim, [os.path.join(cp.d, fich), "--verbose"])
         check(rc == 0 and il == [] and any(que in a[3] for a in av) and "[dibujo]" in out,
               "%s: un aviso -en la consola y a la ventana- y no se manda" % texto)
     # Y los errores de la placa: no se monta
@@ -1171,7 +1171,7 @@ def c15_giro(sim, cp):
     cp.escribe("sin_vb.svg", '<svg xmlns="http://www.w3.org/2000/svg" width="10mm" '
                'height="10mm"><circle id="LD" cx="5" cy="5" r="2"/></svg>')
     sin = cp.escribe("sin_vb.xml", MODULO % (' ilustracion="sin_vb.svg" giro="90"', ""))
-    rc, out, placa, il, av = saludo_con_dibujos(sim, [sin])
+    rc, out, placa, il, av = saludo_con_dibujos(sim, [sin, "--verbose"])
     check(rc == 0 and "no se puede girar (la raiz <svg> no tiene viewBox): se manda como esta"
           in out and il and b"<g transform" not in il[0][1],
           "un dibujo sin viewBox no se puede girar: se dice, y se manda como esta")

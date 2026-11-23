@@ -58,6 +58,7 @@
 #include "part_base.h"
 #include "motor_uart.h"
 #include "canal_host.h"
+#include "../common/verbosidad.h"
 
 namespace stm32 {
 
@@ -422,7 +423,7 @@ private:
             if (!t.ok() && !avisado_err_) {
                 avisado_err_ = true;
                 std::fflush(stdout);        // que el aviso salga en su sitio
-                std::fprintf(stderr, "  [serie] %s: tramas con error desde el MCU; "
+                ::stm32::avisa_consola("  [serie] %s: tramas con error desde el MCU; "
                              "coinciden los baudios (%ld) y el formato (%s) con "
                              "los del firmware?\n", pieza().c_str(),
                              long(cfg_.baudios), como_texto(cfg_.formato).c_str());
@@ -543,7 +544,7 @@ private:
         if (avisado) return;
         avisado = true;
         std::fflush(stdout);
-        std::fprintf(stderr, "  [serie] %s: el terminal pide %s = %s, pero %s; se "
+        ::stm32::avisa_consola("  [serie] %s: el terminal pide %s = %s, pero %s; se "
                      "queda con %ld %s%s\n", pieza().c_str(), que, valor.c_str(),
                      cfg_.baudios_host ? "el puente no lo admite"
                                        : "el XML fija la linea (baudios=\"host\" "
