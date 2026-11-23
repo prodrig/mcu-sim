@@ -1,10 +1,11 @@
 # mcu-sim — modelo SystemC de microcontroladores
 
 Un simulador didáctico, pensado para quien desarrolla en el IDE de su
-microcontrolador —STM32CubeIDE, Code Composer Studio— y no tiene la tarjeta
-delante: se compila el firmware igual que para el chip y se ejecuta contra este
-modelo igual que contra una placa. Hoy hay **seis familias, de dos fabricantes,
-y 46 referencias** montables:
+microcontrolador —STM32CubeIDE, Code Composer Studio, ESP-IDF— y no tiene la
+tarjeta delante: se compila el firmware igual que para el chip y se ejecuta
+contra este modelo igual que contra una placa. Hoy hay **doce familias, de tres
+fabricantes y con tres núcleos (Cortex-M4F, RISC-V y MSP430), y 65
+referencias** montables:
 
 | Familia | Referencias | Dónde está |
 | :--- | :--- | :--- |
@@ -14,6 +15,12 @@ y 46 referencias** montables:
 | **STM32F302 / F303 / F358** | quince, del die 0x422, en LQFP48, LQFP64 y LQFP100 | `src/soc/stm32f3/` — `doc/analisis_stm32f303.md` |
 | **MSP432P401R** (Texas Instruments) | una, el LQFP100 de la LaunchPad | `src/soc/msp432p4/` — `doc/analisis_msp432.md`, T0 a T5 |
 | **MSP432E401Y** (Texas Instruments) | una, el TQFP128 de la LaunchPad | `src/soc/msp432e4/` — `doc/analisis_msp432.md`, T6 y T7 |
+| **ESP32-C3** (Espressif, RISC-V) | cinco: el chip y sus cuatro variantes con la Flash dentro | `src/soc/esp32c3/` sobre `src/rv/` — `doc/analisis_esp32_riscv.md`, E0 a E8 |
+| **ESP32-C6** (Espressif, RISC-V) | tres: el chip y sus dos variantes con Flash dentro | `src/soc/esp32c6/` — `doc/analisis_esp32_riscv.md`, E9 a E11 |
+| **MSP430G2553** (Texas Instruments, MSP430) | dos: el PDIP20 de la LaunchPad y el TSSOP28 | `src/soc/msp430/g2553/` sobre `src/m430/` — `doc/analisis_msp430.md`, M3 |
+| **MSP430F5529** | una, el LQFP80 de la LaunchPad (y el F5528 de la eZ-FET) | `src/soc/msp430/f5529/` y `ezfet/` — M4, M5 y M11 |
+| **MSP430FR2433 / FR4133 / FR2311 / FR2355 / FR2476** | cinco | `src/soc/msp430/fr2/` y una carpeta por chip — M6 y M7 |
+| **MSP430FR5969 / FR5994 / FR6989** | tres | `src/soc/msp430/fr5969/`, `fr5994/` y `fr6989/` — M8 |
 
 Que las diez del F415/F417 sean «el mismo netlist con otro descriptor» es
 exactamente lo que el proyecto quería poder decir: un chip nuevo de una familia
@@ -62,12 +69,15 @@ P1-P8 aplicadas; bus TLM-2.0 LT preparado para AT). Referencias en comentarios:
 | **F7** (ETH) | Ethernet 10/100: MII/RMII en los pines, MDIO, descriptores, filtrado, MMC y PTP | **completada** |
 | F7 (resto) | afinado AT | pendiente |
 
-**Hay SEIS bancos de chip, y son seis ejecutables distintos a propósito**:
-montar un segundo chip dentro de una simulación mueve su tiempo simulado, así
-que cada familia corre la suya. **Y dos más**, que van aparte por la misma
-razón —lo que prueban, dentro de `test407`, movería su invariante—:
+**Hay DIECIOCHO bancos de chip —dieciséis de chips y dos de núcleo, los
+laboratorios de RISC-V y de MSP430—, y son ejecutables distintos a
+propósito**: montar un segundo chip dentro de una simulación mueve su tiempo
+simulado, así que cada familia corre la suya. **Y dos más**, que van aparte por
+la misma razón —lo que prueban, dentro de `test407`, movería su invariante—:
 `testserie`, el del puente UART (P-14), y `testgui`, el de la frontera con
-`mcu-sim-gui` (P-12).
+`mcu-sim-gui` (P-12). Las cifras de la tabla son las de cuando se escribió
+cada fila; las que valen están en `verif/invariantes.txt`, con la historia de
+cada cambio.
 
 | Orden | Qué ejecuta | Comprobaciones | Tiempo simulado |
 | :--- | :--- | ---: | ---: |
@@ -78,6 +88,11 @@ razón —lo que prueban, dentro de `test407`, movería su invariante—:
 | `make testp4` | La del MSP432P401R (P-16, fases T0 a T5): las pruebas de T0 -nombres de pin por chip, catalogo comun, ELF/TI-TXT/HEX, integracion del nucleo-, el chip con `p4_demo` cargado como ELF y CoreMark; T2: el FLCTL, un firmware que reprograma su Flash y una sesion de GDB por los pines y por el DAP; T3: todos los perifericos, el bajo consumo, las piezas de la BOOSTXL-EDUMKII y los ejemplos de DriverLib; T4: la ROM de DriverLib, ejemplos del SDK sin modificar que usan `MAP_`, el TLV de fichero y FreeRTOS; y T5: el BSL con la Flash en blanco y desde una aplicacion | **406** | `22678579139423 ps` (`resto`: **`22456139139423 ps`**) |
 | `make teste4` | La del MSP432E401Y (P-17, fase T6): el chip con `e4_demo` (PIOSC, 120 MHz por las dos fuentes del PLL y los avisos de `MEMTIM0`, el GPIO de Tiva, los perros, CoreMark), la Flash y la EEPROM con DriverLib, GDB por los pines y por el DAP con `load`, los periféricos con DriverLib (`e4_t3`) y la ROM R1 con su cargador serie (`e4_rom` con `MAP_`, la Flash en blanco, `ROM_UpdateUART`, `BOOTCFG`); y desde T7, la conectividad y la criptografía: el CCM con todos sus vectores (`e4_t7`), CAN entre dos E4, el EMAC con lwIP, el cargador por Ethernet y el USB como CDC-ACM | **296** | `4702656025235 ps` (`resto`: **`4505148675235 ps`**) |
 | `make testf3` | La del STM32F303 (P-18, fases S0 a S9 de `doc/analisis_stm32f303.md`): el chip y la STM32F3DISCOVERY con la rosa; el FPEC y GDB; los periféricos de segunda generación (USART v2, DMA por canales, SPI v3, I2C, TIM v3, RTC); los sensores de la placa; lo analógico (ADC por parejas, DAC, comparadores, amplificadores); el USB y el CAN; el cargador de sistema propio, con el protocolo de AN3155; y las quince referencias del die 0x422 | **428** | `117644316504660 ps` (`resto`: **`116875480154660 ps`**) |
+| `make testrv` | El núcleo RISC-V sin ningún chip de Espressif (E1, E2): el SoC de laboratorio, las pruebas de arquitectura (ACT), CoreMark, el Debug Module y GDB por JTAG en los pines; y el núcleo HP del C6 con las mismas pruebas (V11) | **473** | `resto`: **`63207020000 ps`** |
+| `make testc3` | El ESP32-C3 (E3 a E8): el arranque desde su ROM, la Flash SPI con la caché y la MMU, ESP-IDF sin modificar, esptool por la UART0, la depuración por JTAG y por el USB-Serial-JTAG, y los periféricos de aula | **313** | `resto`: **`18846968240195 ps`** |
+| `make testc6` | El ESP32-C6 (E9 a E11): el núcleo HP, la ROM y ESP-IDF, el núcleo LP como segundo hart y sus periféricos, y los propios del C6 (MCPWM, PCNT, ETM, TWAI1…) | **202** | `resto`: **`53183701458348 ps`** |
+| `make test430` | El núcleo MSP430 sin chip (M1, M2): CPU, CPUX y CPUXv2 en el laboratorio, los programas diferenciales contra lo que dice la guía de TI, el TAP con JTAG y Spy-Bi-Wire, el EEM y GDB | **776** | `resto`: **`8295637000000 ps`** |
+| `make testg2`, `testf5`, `testfr2`, `testfr4`, `testfr2311`, `testfr2355`, `testfr2476`, `testfr5` | Cada MSP430 con su LaunchPad (M3 a M10): sus periféricos, la sonda por los pines, los ejemplos de TI y sus BSL; el último, el FR5969, el FR5994 y el FR6989 | **51**, **62**, **36**, **31**, **16**, **37**, **25** y **99** | `verif/invariantes.txt` |
 | `make testgui` | La de la frontera con `mcu-sim-gui`: lo que cada pieza deja ver y tocar, el catálogo, el muestreador, el aplicador y el enlace que atiende la conexión en marcha —instantáneas, avisos, órdenes con sus ecos, la pausa y los pasos—, sobre una placa mínima sin chip | **145** | `76450000000 ps` |
 
 **En una máquina nueva no hace falta nada más**: los 118 firmwares que
@@ -352,6 +367,66 @@ XDS110 de las LaunchPad, con su traza SWO, es una pieza más (`Xds110`,
 make testp4 teste4    # sus dos suites
 ```
 
+## Los ESP32-C3 y C6: el núcleo RISC-V
+
+Desde el plan de `doc/analisis_esp32_riscv.md` hay **un segundo núcleo**, y la
+condición que ordenó todo fue que quedara **separado del chip**: `rv/` es un
+RISC-V genérico —el hart RV32IMC/IMAC con sus CSR (`rv/hart/`), el Debug
+Module, los *triggers* y el DTM por JTAG (`rv/debug/`), el servidor GDB
+(`rv/gdb/`), un CLINT (`rv/irq/`) y un SoC de laboratorio (`rv/lab/`)—, que
+`testrv` verifica sin ningún chip de Espressif. Encima van dos:
+
+* **El ESP32-C3** (E3 a E8), en la ESP32-C3-DevKitM-1, la DevKitC-02 y una
+  SuperMini. Arranca de **su ROM** —reconstruida de la de Espressif—, lee la
+  Flash SPI por la MSPI con su caché y su MMU, y ejecuta **ESP-IDF sin
+  modificar**. Se carga con **esptool** por la UART0 o por el
+  **USB-Serial-JTAG**, y se depura por ese mismo USB o por JTAG en los
+  pines, con el OpenOCD de Espressif. Los periféricos de aula —GPIO, UART,
+  SPI, I²C, I²S, LEDC, RMT, TWAI, GDMA, temporizadores, SAR ADC y la
+  criptografía— están en `periph/esp/`.
+* **El ESP32-C6** (E9 a E11), en la ESP32-C6-DevKitC-1: el núcleo HP, el
+  **núcleo LP como segundo hart** con su SRAM y sus periféricos, y lo propio
+  del C6 —MCPWM, PCNT, ETM, el segundo TWAI—. Lo que no hay es **radio**: el
+  Wi-Fi y el Bluetooth están analizados (`doc/analisis_wifi_bl.md`), y E12
+  depende de ese análisis.
+
+```
+./build/mcu-sim placas/esp32c3_devkitc02.xml build/idf/v5.5/hello_world/flash_args --serie UART=memoria --ms=500
+make testrv testc3 testc6      # sus tres suites
+make esptool-c3 usb-c3         # esptool de verdad contra el C3
+```
+
+## Los MSP430 de Texas Instruments: el tercer núcleo
+
+Desde el plan de `doc/analisis_msp430.md` hay **un tercer núcleo**, el MSP430
+de 16 bits, también separado del chip: `m430/` tiene la CPU, la CPUX y la
+CPUXv2 con sus ciclos y sus erratas (`m430/cpu/`), el TAP con JTAG y
+**Spy-Bi-Wire**, el EEM y la protección (`m430/debug/`), el servidor GDB
+(`m430/gdb/`), la sonda de bancada que habla las macros de la HAL de TI
+(`m430/sonda/`) y un SoC de laboratorio (`m430/lab/`), que `test430` verifica
+contra la guía de TI. Encima van **diez chips de cuatro familias**, cada uno
+con su LaunchPad (`soc/msp430/`; los periféricos de TI, en `periph/ti/`):
+
+* el **MSP430G2553** (F2xx/G2xx), en la MSP-EXP430G2ET;
+* el **MSP430F5529** (F5xx/F6xx), con su **USB**, en la MSP-EXP430F5529LP;
+* el **FR2433**, el **FR4133** —con su LCD—, el **FR2311** y el **FR2355** —con
+  sus analógicos— y el **FR2476** (FR2xx/FR4xx), con la FRAM;
+* el **FR5969**, el **FR5994** —con el LEA— y el **FR6989** —con el ESI y el
+  LCD— (FR5xx/FR6xx), con la FRAM y su MPU.
+
+Se carga el `.out` de CCS o el `.elf` de `msp430-elf-gcc` tal cual, cada chip
+lleva **el BSL de TI** de su familia (`make g2-bsl-python` y compañía), y se
+depura con `--gdb-dap` o con `--gdb` por los pines. Y la sonda de las LaunchPad,
+la **eZ-FET**, corre **emulada**: un F5528 —el modelo del F5529— que ejecuta el
+firmware de TI de la MSP Debug Stack y habla Spy-Bi-Wire con el chip, contra la
+que `libmsp430` y `mspdebug tilib` funcionan como contra la de verdad
+(`make testezfet`, `ezfet-tilib`; las imágenes no se versionan).
+
+```
+./build/mcu-sim placas/msp_exp430g2et.xml verif/g2553/elf/ej_blink.elf --ms=500
+make test430 testg2 testf5 testfr2 testfr5     # el núcleo y algunos chips
+```
+
 ## Las tres plataformas
 
 **Un solo Makefile.** La plataforma se detecta sola —por `OS=Windows_NT` o por
@@ -402,13 +477,13 @@ validar una plataforma nueva antes de pelearse con la biblioteca.
 
 | Plataforma | Estado | Comprobado |
 | :--- | :--- | :--- |
-| Linux, g++ 13 | **verificado** | Las ocho suites: 2151/2151, 204/204 del F446, 165/165 del F417, 428/428 del F303, 406/406 del P4, 296/296 del E4, 189/189 de `testserie` y 145/145 de `testgui`; `make red` 13/13; ASan + UBSan limpio (`make asan407`, `asan446`, `asan417`, `asanp4`, `asane4`, `asanserie`) |
+| Linux, g++ 11 a 15 | **verificado** | Las veinte suites, con las cifras de `verif/invariantes.txt`; `make red` 13/13; ASan + UBSan limpio (`make asan407`, `asan446`, `asan417`, `asanp4`, `asane4`, `asanserie`; con `asanc6`, D10-D11 fallan sin explicar, V-12). En el CI, Ubuntu 22.04, 24.04 y 26.04, con las SystemC 2.3.3, 2.3.4 y 3.0.2 de sus paquetes: las mismas cifras en las tres |
 | Linux, clang | **verificado** | mismo resultado y mismo tiempo simulado al picosegundo |
-| Windows, MSYS2 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 con `resto` en `2240553274213 ps` antes de I-53 (huella `0x644FCE21`; antes de T-23, `2336217899213 ps` de total, igual que en Linux), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
+| Windows, MSYS2 UCRT64 / MinGW-w64 | **verificado** | **Los tres invariantes son los mismos que en Linux, al picosegundo**: 2118/2118 con `resto` en `2240553274213 ps` antes de I-53 (huella `0x644FCE21`; antes de T-23, `2336217899213 ps` de total, igual que en Linux), 204/204 en `1033367277932 ps` y 165/165 en `718988288 ps`. Antes el del F407 salía 2 ms por debajo, y era el binario y nada más (**T-22**). Para que el ejecutable corra FUERA de MSYS2 hace falta el `-static` del Makefile: `doc/compilacion.md` §5.6 |
 | macOS, clang, Apple Silicon e Intel | **verificado** | Por la integración continua, con la SystemC 3.0.2 de Homebrew: las mismas cifras que en Linux, al picosegundo |
 
 **Desde el 2026-09-23 las cuatro plataformas las verifica la integración
-continua en cada cambio**: las ocho suites y sus invariantes al picosegundo
+continua en cada cambio**: todas las suites y sus invariantes al picosegundo
 (`doc/integracion_continua.md`). Las cifras de la fila de Windows son las de
 cuando se verificó a mano.
 
@@ -825,7 +900,11 @@ La elección es un parámetro del núcleo, no una opción del banco:
 | `parts/` | LIBRERÍA DE COMPONENTES EXTERNOS al MCU. `part_factory.h` (el registro `cadena → creador y AYUDA`, con macro de auto-registro: el único sitio donde un nombre escrito por una persona se convierte en un objeto), `part_help.h` (la ficha de una pieza —qué hace, terminales, atributos del XML con su valor por omisión, notas y ejemplo— que imprime `sim --help COMPONENTE`; va PEGADA AL REGISTRO y no en una tabla aparte, porque una tabla aparte se queda vieja y una ayuda que miente es peor que ninguna, y la macro la EXIGE, de modo que una pieza nueva no se puede dar de alta sin explicarse), `xml_min.h` (lector de XML mínimo y ESTRICTO, sin dependencias: lo que no entiende es un error con línea y columna, nunca una suposición), `netlist_xml.h` (del árbol XML al netlist), `netlist.h` (el netlist en memoria: NODOS con nombre de esquemático —`PA5`, `VDD`, o creados para lo que no es un pin—, INSTANCIAS con tipo, identificador, parámetros y REFERENCIAS a otras instancias, y CONEXIONES nominales terminal→nodo; construye antes de `sc_start` porque la elaboración de SystemC es estática, valida la declaración sin simular y vuelca a XML), `netlist_parts.h` (el catálogo: una entrada de factoría por tipo —creador Y ficha de ayuda en la misma llamada—, más los ayudantes tipados con los que se monta una placa desde C++), `part_base.h` (`ExtPartBase`: terminales con NOMBRE —no por posición del constructor—, un único `set_enabled(bool)` para soldar y desoldar, inventario global de piezas y volcado del netlist en XML; véase `doc/stm32f4xx/stm32f407vg_parts_paso1.md`), `ext_parts.h` (circuitería externa de placa: cristal, reloj, LED, pulsador, resistencia, driver, pista entre pines, hilo de bus I2C con pull-up, EEPROM 24Cxx, maestro I2C externo, tarjeta SD a nivel de pin, el bus CAN completo —hilo cableado en Y con su terminador, transceptores y un nodo CAN externo que habla el protocolo—, una sonda SWD que habla el protocolo bit a bit por PA13/PA14, un analizador de traza SWO colgado de PB3 y un sensor de imagen CMOS que genera cuadros enteros sobre PIXCLK/HSYNC/VSYNC y doce hilos de datos, con sincronismo por hardware o embebido, una SRAM asíncrona de 64 K que se suelda al bus externo del FSMC —engancha la dirección baja de los propios hilos de datos con NL y guarda en el flanco de subida de NWE, byte a byte según NBL0/NBL1— y una NAND de 16 páginas que entiende mandatos, direcciones y datos por CLE/ALE, y los dos extremos de un cable USB —un PC que da los 5 V de VBUS, pone los dos 15 kohm a masa y hace el reset con un SE0 largo, y un aparato que declara su existencia con el 1,5 kohm de D+ y se entera del reset porque lo VE— y el PHY de Ethernet, que pone los relojes del camino de datos, habla MDIO bit a bit con sus registros de la norma y hace de buzon de tramas con su CRC-32) |
 | `soc/` | LO QUE ES «DE ESTE CHIP» Y NO «DE ESTA ARQUITECTURA», separado en la fase 1 del plan del F446. `f446_mapa_perif.h` (las siete direcciones y las trece posiciones de vector que solo tiene el F446, verificadas contra `stm32f446xx.h` y no contra la tabla de fronteras del RM, que se deja el FMPI2C1 sin nombrar), `stm32f446.h` (la clase **`Stm32F446`**, que la fase 2 añadió: el die de la familia con el descriptor del F446RE —512 KB, sin CCM, sin Ethernet, sin RNG, sin los bloques de extensión del I2S, LQFP64 propio, 97 posiciones de vector, siete maestros de matriz e IDCODE `0x1000 0421`— —y que desde la fase 4 declara y engancha sus siete periféricos propios, incluido el decodificador del puerto que el FMC y el QUADSPI COMPARTEN— y con un `limitaciones()` que enumera en voz alta lo que el modelo todavía NO hace, que `sim` imprime al montar la placa), `mcu_if.h` (la INTERFAZ de un MCU vista desde `sim` —registrar sus nodos, entregar el nodo de un pad, alimentarse, cargar firmware y los dos interruptores de traza— y `FabricaMcu`, el registro `familia → creador` que convierte el `tipo=` del XML en un objeto de verdad en vez de comprobarlo contra una lista. Se busca por FAMILIA y no por nombre de pieza, porque los once miembros del F405/407 son la misma clase con descriptores distintos; una familia sin modelo enlazado devuelve `nullptr` y `sim` lo dice con nombre, nunca monta otro chip en su lugar), `stm32f4_mcu.h` (el adaptador de la familia F405/407 a esa interfaz, que además guarda los cuatro índices de driver de la alimentación y el orden de arranque de una placa real), `f4_mapa_perif.h` (las bases de los periféricos, la tabla de sectores de la Flash, `N_IRQ`, `N_EXTI` y los topes de frecuencia) y `f4_mapa_af.h` (las 169 conexiones de la tabla de funciones alternativas, sacadas del cuerpo del top; el F446 resultó tener la MISMA tabla salvo los huecos del AF11 de Ethernet). Y una carpeta por cada familia que no es F4, con su clase, su descriptor, sus pines generados de la base de datos del fabricante y su programador de la Flash para el `load` de GDB: `stm32f3/` (el `Stm32F303` del die 0x422, sus quince descriptores y el cargador de sistema propio, `cargador/`), `msp432p4/` (el MSP432P401R, su ROM R1 y su BSL B1) y `msp432e4/` (el MSP432E401Y y su ROM R1 con el cargador serie) |
 | `verif/` | `bus_test_master.h` (maestro de bus de verificación), `image_loader.h` (carga de .bin/.hex y tabla de vectores), `decoder_vectors.h` (254 vectores generados desde `doc/stm32f4xx/valida_instrucciones.py` por `gen_decoder_vectors.py`), `swd_port.h` (el maestro SWD a nivel de bit, con el tratamiento de WAIT/FAULT y demás peculiaridades de ADIv5), `gdb_stub.h` (el servidor GDB/RSP de los pines: solo el transporte, porque el protocolo vive en `common/gdb_rsp.h`) y `gdb_client.h` (un GDB de mentira para verificarlo), `fw/` (firmware de autocomprobación, *port* bare-metal de CoreMark, CMSIS oficial, blinky de referencia y demostraciones del DMA, de los puertos serie, de los temporizadores, del EXTI, del SPI, del I2C, del ADC, del DAC, del SDIO, del CRC/RNG, del bxCAN y de la traza ITM/DWT) |
-| `top/` | `soc_f4.h` + `soc_f4_bind2.h` (el netlist de integración del DIE de la familia F4: se llamaba `stm32f407vg.h` y `Stm32F407VG`, y la fase 2 lo renombró porque nunca fue «del F407VG» —los once miembros del F405/407 y el F446 son este mismo netlist con otro descriptor—; `using Stm32F407VG = SocF4;` deja valer lo escrito), `sc_main_f446.cpp` (**la suite del F446**, un ejecutable APARTE: construir un segundo chip dentro del banco del F407 mueve su tiempo simulado, así que dos chips son dos simulaciones; `make test446`), `mcu_caps.h` (el DESCRIPTOR de un microcontrolador: junta los rasgos del núcleo, el mapa de memoria y los topes de reloj; su campo `familia` marca la frontera de lo recombinable —dos chips de la misma familia se distinguen con un descriptor, dos familias distintas necesitan modelo nuevo—), `sc_main.cpp` (suite de verificación acumulada del F407), y las suites de los demás, cada una su ejecutable: `sc_main_f417.cpp`, `sc_main_f3.cpp`, `sc_main_p4.cpp` (con sus partes de T3 a T5 en `sc_main_p4_t*.h`), `sc_main_e4.cpp`, `sc_main_serie.cpp` y `sc_main_gui.cpp`; y `sim_main.cpp`, el programa `mcu-sim` |
+| `rv/` | EL NÚCLEO RISC-V, separado del chip (E1, E2 de `doc/analisis_esp32_riscv.md`): `hart/` (el hart RV32IMC/IMAC, su decodificador, sus rasgos como dato y su bucle con el *quantum*), `debug/` (el Debug Module de la especificación 0.13, los *triggers*, el DTM y el JTAG en los pines), `gdb/` (el servidor GDB de RISC-V), `irq/` (el CLINT) y `lab/` (el SoC de laboratorio de `testrv`) |
+| `m430/` | EL NÚCLEO MSP430, separado del chip (M1, M2 de `doc/analisis_msp430.md`): `cpu/` (CPU, CPUX y CPUXv2: decodificador, ejecución, ciclos por instrucción, interrupciones y las erratas de CPU), `debug/` (el TAP con JTAG y Spy-Bi-Wire, el EEM y los pines de depuración), `gdb/` (su servidor GDB), `sonda/` (la sonda de bancada, con las *funclets* de TI para la Flash y la FRAM) y `lab/` (el SoC de laboratorio de `test430`) |
+| `periph/esp/`, `periph/ti/` | Los periféricos de Espressif (GPIO con su matriz, UART, SPI, I²C, I²S, LEDC, RMT, TWAI, GDMA, SYSTIMER, TIMG, SAR ADC, MCPWM, PCNT, ETM, USB-Serial-JTAG y la criptografía) y los de TI para MSP430 (UCS y CS, Timer_A, USCI y eUSCI, los ADC, los comparadores, REF_A, RTC, DMA, MPY32, LCD_E, LEA, ESI, AES256, CRC32 y el USB del F5529) |
+| `soc/esp/`, `soc/esp32c3/`, `soc/esp32c6/`, `soc/msp430/` | Lo común de Espressif (los controladores de interrupciones, la caché y la MMU, la ROM, el programador de la Flash) y cada ESP32 con su ROM reconstruida; y una carpeta por MSP430 —más `desc/` con los descriptores generados de las fuentes de TI y `ezfet/`, la sonda emulada— |
+| `top/` | `soc_f4.h` + `soc_f4_bind2.h` (el netlist de integración del DIE de la familia F4: se llamaba `stm32f407vg.h` y `Stm32F407VG`, y la fase 2 lo renombró porque nunca fue «del F407VG» —los once miembros del F405/407 y el F446 son este mismo netlist con otro descriptor—; `using Stm32F407VG = SocF4;` deja valer lo escrito), `sc_main_f446.cpp` (**la suite del F446**, un ejecutable APARTE: construir un segundo chip dentro del banco del F407 mueve su tiempo simulado, así que dos chips son dos simulaciones; `make test446`), `mcu_caps.h` (el DESCRIPTOR de un microcontrolador: junta los rasgos del núcleo, el mapa de memoria y los topes de reloj; su campo `familia` marca la frontera de lo recombinable —dos chips de la misma familia se distinguen con un descriptor, dos familias distintas necesitan modelo nuevo—), `sc_main.cpp` (suite de verificación acumulada del F407), y las suites de los demás, cada una su ejecutable: `sc_main_f417.cpp`, `sc_main_f3.cpp`, `sc_main_p4.cpp` (con sus partes de T3 a T5 en `sc_main_p4_t*.h`), `sc_main_e4.cpp`, `sc_main_rv.cpp`, `sc_main_c3.cpp`, `sc_main_c6.cpp`, `sc_main_430.cpp`, `sc_main_g2.cpp`, `sc_main_f5.cpp`, `sc_main_fr2.cpp`, `sc_main_fr4.cpp`, `sc_main_fr2311.cpp`, `sc_main_fr2355.cpp`, `sc_main_fr2476.cpp`, `sc_main_fr5.cpp`, `sc_main_ezfet.cpp`, `sc_main_serie.cpp` y `sc_main_gui.cpp`; y `sim_main.cpp`, el programa `mcu-sim` |
 
 ## Convenciones
 
