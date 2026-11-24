@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El perfil de conector boosterpack.j1 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<conector perfil="boosterpack.j1" version="1" filas="1" columnas="10" numeracion="zigzag" titulo="BoosterPack: J1 (1-10)" fuente="SLAA542, figuras 3 y 4 (LaunchPad y BoosterPack de 20 y 40 pines)">
+  <pin n="1" uso="+3V3" clase="alimentacion" estandar="1"/>
+  <pin n="2" uso="Analog In" clase="es" estandar="2"/>
+  <pin n="3" uso="UART_RX" clase="es" otros="LaunchPad In" estandar="3"/>
+  <pin n="4" uso="UART_TX" clase="es" otros="LaunchPad Out" estandar="4"/>
+  <pin n="5" uso="GPIO" clase="es" otros="interrupcion" estandar="5"/>
+  <pin n="6" uso="SPI_A_SCLK" clase="es" estandar="6"/>
+  <pin n="7" uso="SPI_B_SCLK" clase="es" estandar="7"/>
+  <pin n="8" uso="GPIO" clase="es" otros="Cap Touch" estandar="8"/>
+  <pin n="9" uso="GPIO" clase="es" otros="Cap Touch" estandar="9"/>
+  <pin n="10" uso="GPIO" clase="es" otros="Cap Touch" estandar="10"/>
+</conector>

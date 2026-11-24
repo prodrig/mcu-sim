@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ExtSram: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="ExtSram" version="1" svg="ExtSram.svg" ancho="253.6" alto="283.2">
+  <ancla terminal="d0" elemento="$.d0" lado="izquierda" x="28" y="46.4"/>
+  <ancla terminal="d1" elemento="$.d1" lado="izquierda" x="28" y="59"/>
+  <ancla terminal="d2" elemento="$.d2" lado="izquierda" x="28" y="71.8"/>
+  <ancla terminal="d3" elemento="$.d3" lado="izquierda" x="28" y="84.4"/>
+  <ancla terminal="d4" elemento="$.d4" lado="izquierda" x="28" y="97.2"/>
+  <ancla terminal="d5" elemento="$.d5" lado="izquierda" x="28" y="109.8"/>
+  <ancla terminal="d6" elemento="$.d6" lado="izquierda" x="28" y="122.5"/>
+  <ancla terminal="d7" elemento="$.d7" lado="izquierda" x="28" y="135.2"/>
+  <ancla terminal="d8" elemento="$.d8" lado="izquierda" x="28" y="147.9"/>
+  <ancla terminal="d9" elemento="$.d9" lado="izquierda" x="28" y="160.7"/>
+  <ancla terminal="d10" elemento="$.d10" lado="izquierda" x="28" y="173.3"/>
+  <ancla terminal="d11" elemento="$.d11" lado="izquierda" x="28" y="186"/>
+  <ancla terminal="d12" elemento="$.d12" lado="izquierda" x="28" y="198.7"/>
+  <ancla terminal="d13" elemento="$.d13" lado="izquierda" x="28" y="211.4"/>
+  <ancla terminal="d14" elemento="$.d14" lado="izquierda" x="28" y="224.1"/>
+  <ancla terminal="d15" elemento="$.d15" lado="izquierda" x="28" y="236.8"/>
+  <ancla terminal="nwait" elemento="$.nwait" lado="derecha" x="225.6" y="46.4"/>
+  <ancla terminal="nbl1" elemento="$.nbl1" lado="derecha" x="225.6" y="59"/>
+  <ancla terminal="nbl0" elemento="$.nbl0" lado="derecha" x="225.6" y="71.8"/>
+  <ancla terminal="nl" elemento="$.nl" lado="derecha" x="225.6" y="84.4"/>
+  <ancla terminal="nwe" elemento="$.nwe" lado="derecha" x="225.6" y="97.2"/>
+  <ancla terminal="noe" elemento="$.noe" lado="derecha" x="225.6" y="109.8"/>
+  <ancla terminal="ne" elemento="$.ne" lado="derecha" x="225.6" y="122.5"/>
+  <ancla terminal="a23" elemento="$.a23" lado="derecha" x="225.6" y="135.2"/>
+  <ancla terminal="a22" elemento="$.a22" lado="derecha" x="225.6" y="147.9"/>
+  <ancla terminal="a21" elemento="$.a21" lado="derecha" x="225.6" y="160.7"/>
+  <ancla terminal="a20" elemento="$.a20" lado="derecha" x="225.6" y="173.3"/>
+  <ancla terminal="a19" elemento="$.a19" lado="derecha" x="225.6" y="186"/>
+  <ancla terminal="a18" elemento="$.a18" lado="derecha" x="225.6" y="198.7"/>
+  <ancla terminal="a17" elemento="$.a17" lado="derecha" x="225.6" y="211.4"/>
+  <ancla terminal="a16" elemento="$.a16" lado="derecha" x="225.6" y="224.1"/>
+</forma>

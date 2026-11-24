@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El perfil de conector arduino_uno_r3.digital_alto (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<conector perfil="arduino_uno_r3.digital_alto" version="1" filas="1" columnas="10" numeracion="zigzag" titulo="Arduino UNO R3: D8..D15" fuente="UM1724 Rev 17, tabla 19 (Arduino UNO R3 en las Nucleo-64)">
+  <pin n="1" uso="D8" clase="es"/>
+  <pin n="2" uso="D9" clase="es" otros="PWM"/>
+  <pin n="3" uso="D10" clase="es" otros="SPI_CS PWM"/>
+  <pin n="4" uso="D11" clase="es" otros="SPI_MOSI PWM"/>
+  <pin n="5" uso="D12" clase="es" otros="SPI_MISO"/>
+  <pin n="6" uso="D13" clase="es" otros="SPI_SCK"/>
+  <pin n="7" uso="GND" clase="masa"/>
+  <pin n="8" uso="AREF" clase="referencia"/>
+  <pin n="9" uso="D14" clase="es" otros="I2C_SDA"/>
+  <pin n="10" uso="D15" clase="es" otros="I2C_SCL"/>
+</conector>

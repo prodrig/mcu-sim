@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 407.2 332.6" width="40.72mm" height="33.26mm">
+<!-- arduino_uno_r3: Arduino UNO R3 (los cuatro conectores de un shield). Despiezado; unidades de 0.1 mm; cada pin es $.TIRA.N (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<g id="$" transform="translate(20,50)" font-family="sans-serif">
+  <text x="0" y="-16" font-size="12" font-weight="bold" fill="#000">Arduino UNO R3 (los cuatro conectores de un shield)</text>
+  <g transform="translate(46.4,26)">
+    <rect id="$.CN5.1" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="3" font-size="9" text-anchor="end" fill="#1a5fb4">1 D8</text>
+    <rect id="$.CN5.2" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="28.4" font-size="9" text-anchor="end" fill="#1a5fb4">2 D9</text>
+    <rect id="$.CN5.3" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="53.8" font-size="9" text-anchor="end" fill="#1a5fb4">3 D10</text>
+    <rect id="$.CN5.4" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="79.2" font-size="9" text-anchor="end" fill="#1a5fb4">4 D11</text>
+    <rect id="$.CN5.5" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="104.6" font-size="9" text-anchor="end" fill="#1a5fb4">5 D12</text>
+    <rect id="$.CN5.6" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="130" font-size="9" text-anchor="end" fill="#1a5fb4">6 D13</text>
+    <rect id="$.CN5.7" x="-8" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="155.4" font-size="9" text-anchor="end" fill="#333333">7 GND</text>
+    <rect id="$.CN5.8" x="-8" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="180.8" font-size="9" text-anchor="end" fill="#9141ac">8 AREF</text>
+    <rect id="$.CN5.9" x="-8" y="195.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="206.2" font-size="9" text-anchor="end" fill="#1a5fb4">9 D14</text>
+    <rect id="$.CN5.10" x="-8" y="220.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="231.6" font-size="9" text-anchor="end" fill="#1a5fb4">10 D15</text>
+    <text x="-19.2" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">CN5</text>
+  </g>
+  <g transform="translate(146.2,26)">
+    <rect id="$.CN6.1" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="3" font-size="9" text-anchor="end" fill="#9a9996">1 NC</text>
+    <rect id="$.CN6.2" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="28.4" font-size="9" text-anchor="end" fill="#c01c28">2 IOREF</text>
+    <rect id="$.CN6.3" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="53.8" font-size="9" text-anchor="end" fill="#e66100">3 RESET</text>
+    <rect id="$.CN6.4" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="79.2" font-size="9" text-anchor="end" fill="#c01c28">4 +3V3</text>
+    <rect id="$.CN6.5" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="104.6" font-size="9" text-anchor="end" fill="#c01c28">5 +5V</text>
+    <rect id="$.CN6.6" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="130" font-size="9" text-anchor="end" fill="#333333">6 GND</text>
+    <rect id="$.CN6.7" x="-8" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="155.4" font-size="9" text-anchor="end" fill="#333333">7 GND</text>
+    <rect id="$.CN6.8" x="-8" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="180.8" font-size="9" text-anchor="end" fill="#c01c28">8 VIN</text>
+    <text x="-21.9" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">CN6</text>
+  </g>
+  <g transform="translate(202.2,26)">
+    <rect id="$.CN9.1" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="3" font-size="9" text-anchor="start" fill="#1a5fb4">1 D0</text>
+    <rect id="$.CN9.2" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="28.4" font-size="9" text-anchor="start" fill="#1a5fb4">2 D1</text>
+    <rect id="$.CN9.3" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="53.8" font-size="9" text-anchor="start" fill="#1a5fb4">3 D2</text>
+    <rect id="$.CN9.4" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="79.2" font-size="9" text-anchor="start" fill="#1a5fb4">4 D3</text>
+    <rect id="$.CN9.5" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="104.6" font-size="9" text-anchor="start" fill="#1a5fb4">5 D4</text>
+    <rect id="$.CN9.6" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="130" font-size="9" text-anchor="start" fill="#1a5fb4">6 D5</text>
+    <rect id="$.CN9.7" x="-8" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="155.4" font-size="9" text-anchor="start" fill="#1a5fb4">7 D6</text>
+    <rect id="$.CN9.8" x="-8" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="180.8" font-size="9" text-anchor="start" fill="#1a5fb4">8 D7</text>
+    <text x="13.8" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">CN9</text>
+  </g>
+  <g transform="translate(285.8,26)">
+    <rect id="$.CN8.1" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="3" font-size="9" text-anchor="start" fill="#1a5fb4">1 A0</text>
+    <rect id="$.CN8.2" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="28.4" font-size="9" text-anchor="start" fill="#1a5fb4">2 A1</text>
+    <rect id="$.CN8.3" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="53.8" font-size="9" text-anchor="start" fill="#1a5fb4">3 A2</text>
+    <rect id="$.CN8.4" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="79.2" font-size="9" text-anchor="start" fill="#1a5fb4">4 A3</text>
+    <rect id="$.CN8.5" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="104.6" font-size="9" text-anchor="start" fill="#1a5fb4">5 A4</text>
+    <rect id="$.CN8.6" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="130" font-size="9" text-anchor="start" fill="#1a5fb4">6 A5</text>
+    <text x="13.8" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">CN8</text>
+  </g>
+</g>
+</svg>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- I2cExtMaster: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="I2cExtMaster" version="1" svg="I2cExtMaster.svg" ancho="260" alto="155.8">
+  <ancla terminal="scl" elemento="$.scl" lado="abajo" x="117.3" y="113.8"/>
+  <ancla terminal="sda" elemento="$.sda" lado="abajo" x="142.7" y="113.8"/>
+</forma>

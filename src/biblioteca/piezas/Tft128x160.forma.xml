@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tft128x160: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Tft128x160" version="1" svg="Tft128x160.svg" ancho="380" alto="339">
+  <ancla terminal="vcc" elemento="$.vcc" lado="abajo" x="101.1" y="297"/>
+  <ancla terminal="gnd" elemento="$.gnd" lado="abajo" x="126.5" y="297"/>
+  <ancla terminal="cs" elemento="$.cs" lado="abajo" x="151.9" y="297"/>
+  <ancla terminal="reset" elemento="$.reset" lado="abajo" x="177.3" y="297"/>
+  <ancla terminal="ad" elemento="$.ad" lado="abajo" x="202.7" y="297"/>
+  <ancla terminal="sda" elemento="$.sda" lado="abajo" x="228.1" y="297"/>
+  <ancla terminal="sck" elemento="$.sck" lado="abajo" x="253.5" y="297"/>
+  <ancla terminal="led" elemento="$.led" lado="abajo" x="278.9" y="297"/>
+</forma>

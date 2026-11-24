@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El perfil de conector arduino_uno_r3.digital_bajo (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<conector perfil="arduino_uno_r3.digital_bajo" version="1" filas="1" columnas="8" numeracion="zigzag" titulo="Arduino UNO R3: D0..D7" fuente="UM1724 Rev 17, tabla 19 (Arduino UNO R3 en las Nucleo-64)">
+  <pin n="1" uso="D0" clase="es" otros="UART_RX"/>
+  <pin n="2" uso="D1" clase="es" otros="UART_TX"/>
+  <pin n="3" uso="D2" clase="es"/>
+  <pin n="4" uso="D3" clase="es" otros="PWM"/>
+  <pin n="5" uso="D4" clase="es"/>
+  <pin n="6" uso="D5" clase="es" otros="PWM"/>
+  <pin n="7" uso="D6" clase="es" otros="PWM"/>
+  <pin n="8" uso="D7" clase="es"/>
+</conector>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 160 215.3" width="16.00mm" height="21.53mm">
+<!-- ExtClock: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(80,70)" font-family="sans-serif">
+  <rect x="-60" y="-50" width="120" height="100" rx="8" fill="#c8c8c8" stroke="#888" stroke-width="1.5"/>
+  <path d="M-40 0L-30 0L-30 -20L-10 -20L-10 20L10 20L10 -20L30 -20L30 0L40 0" fill="none" stroke="#333" stroke-width="3"/>
+  <path d="M0 50L0 100" fill="none" stroke="#666" stroke-width="4" stroke-linecap="round"/>
+  <circle id="$.out" cx="0" cy="100" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="0" cy="100" r="3.2" fill="#3a2f0a"/>
+  <text x="0" y="122" font-size="11" text-anchor="middle" fill="#333">out</text>
+</g>
+</svg>

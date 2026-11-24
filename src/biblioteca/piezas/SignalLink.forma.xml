@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SignalLink: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="SignalLink" version="1" svg="SignalLink.svg" ancho="200" alto="195.3">
+  <ancla terminal="origen" elemento="$.origen" lado="abajo" x="74.6" y="150"/>
+  <ancla terminal="destino" elemento="$.destino" lado="abajo" x="125.4" y="150"/>
+</forma>

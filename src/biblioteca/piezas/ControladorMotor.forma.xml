@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ControladorMotor: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="ControladorMotor" version="1" svg="ControladorMotor.svg" ancho="334" alto="394.4">
+  <ancla terminal="vcc" elemento="$.vcc" lado="arriba" x="52.7" y="42"/>
+  <ancla terminal="gnd" elemento="$.gnd" lado="arriba" x="78.1" y="42"/>
+  <ancla terminal="u" elemento="$.u" lado="arriba" x="103.5" y="42"/>
+  <ancla terminal="v" elemento="$.v" lado="arriba" x="128.9" y="42"/>
+  <ancla terminal="w" elemento="$.w" lado="arriba" x="154.3" y="42"/>
+  <ancla terminal="step" elemento="$.step" lado="arriba" x="179.7" y="42"/>
+  <ancla terminal="dir" elemento="$.dir" lado="arriba" x="205.1" y="42"/>
+  <ancla terminal="en" elemento="$.en" lado="arriba" x="230.5" y="42"/>
+  <ancla terminal="can" elemento="$.can" lado="arriba" x="255.9" y="42"/>
+  <ancla terminal="fin_neg" elemento="$.fin_neg" lado="arriba" x="281.3" y="42"/>
+  <ancla terminal="fin_pos" elemento="$.fin_pos" lado="abajo" x="65.4" y="352.4"/>
+  <ancla terminal="v5" elemento="$.v5" lado="abajo" x="90.8" y="352.4"/>
+  <ancla terminal="h1" elemento="$.h1" lado="abajo" x="116.2" y="352.4"/>
+  <ancla terminal="h2" elemento="$.h2" lado="abajo" x="141.6" y="352.4"/>
+  <ancla terminal="h3" elemento="$.h3" lado="abajo" x="167" y="352.4"/>
+  <ancla terminal="enc_a" elemento="$.enc_a" lado="abajo" x="192.4" y="352.4"/>
+  <ancla terminal="enc_b" elemento="$.enc_b" lado="abajo" x="217.8" y="352.4"/>
+  <ancla terminal="freno" elemento="$.freno" lado="abajo" x="243.2" y="352.4"/>
+  <ancla terminal="error" elemento="$.error" lado="abajo" x="268.6" y="352.4"/>
+</forma>

@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 1065.2 429.2" width="106.52mm" height="42.92mm">
+<!-- LcdFh1138p: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(20,20)" font-family="sans-serif">
+  <rect x="0" y="0" width="1025.2" height="300" rx="6" fill="#c9d8c5" stroke="#8a9a86" stroke-width="2"/>
+  <rect x="30" y="30" width="965.2" height="200" fill="#e6efe2" stroke="#b3c2ae" stroke-width="1"/>
+  <text x="512.6" y="145" font-size="30" text-anchor="middle" fill="#55654f" font-weight="bold">LcdFh1138p</text>
+  <rect x="37.7" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.1" cx="42.7" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="42.7" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="46.7" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 46.7 376)">1</text>
+  <rect x="63.1" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.2" cx="68.1" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="68.1" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="72.1" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 72.1 376)">2</text>
+  <rect x="88.5" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.3" cx="93.5" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="93.5" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="97.5" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 97.5 376)">3</text>
+  <rect x="113.9" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.4" cx="118.9" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="118.9" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="122.9" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 122.9 376)">4</text>
+  <rect x="139.3" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.5" cx="144.3" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="144.3" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="148.3" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 148.3 376)">5</text>
+  <rect x="164.7" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.6" cx="169.7" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="169.7" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="173.7" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 173.7 376)">6</text>
+  <rect x="190.1" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.7" cx="195.1" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="195.1" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="199.1" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 199.1 376)">7</text>
+  <rect x="215.5" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.8" cx="220.5" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="220.5" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="224.5" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 224.5 376)">8</text>
+  <rect x="240.9" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.9" cx="245.9" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="245.9" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="249.9" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 249.9 376)">9</text>
+  <rect x="266.3" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.10" cx="271.3" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="271.3" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="275.3" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 275.3 376)">10</text>
+  <rect x="291.7" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.11" cx="296.7" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="296.7" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="300.7" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 300.7 376)">11</text>
+  <rect x="317.1" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.12" cx="322.1" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="322.1" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="326.1" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 326.1 376)">12</text>
+  <rect x="342.5" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.13" cx="347.5" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="347.5" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="351.5" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 351.5 376)">13</text>
+  <rect x="367.9" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.14" cx="372.9" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="372.9" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="376.9" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 376.9 376)">14</text>
+  <rect x="393.3" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.15" cx="398.3" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="398.3" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="402.3" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 402.3 376)">15</text>
+  <rect x="418.7" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.16" cx="423.7" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="423.7" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="427.7" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 427.7 376)">16</text>
+  <rect x="444.1" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.17" cx="449.1" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="449.1" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="453.1" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 453.1 376)">17</text>
+  <rect x="469.5" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.18" cx="474.5" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="474.5" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="478.5" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 478.5 376)">18</text>
+  <rect x="494.9" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.19" cx="499.9" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="499.9" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="503.9" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 503.9 376)">19</text>
+  <rect x="520.3" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.20" cx="525.3" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="525.3" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="529.3" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 529.3 376)">20</text>
+  <rect x="545.7" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.21" cx="550.7" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="550.7" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="554.7" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 554.7 376)">21</text>
+  <rect x="571.1" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.22" cx="576.1" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="576.1" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="580.1" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 580.1 376)">22</text>
+  <rect x="596.5" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.23" cx="601.5" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="601.5" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="605.5" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 605.5 376)">23</text>
+  <rect x="621.9" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.24" cx="626.9" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="626.9" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="630.9" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 630.9 376)">24</text>
+  <rect x="647.3" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.25" cx="652.3" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="652.3" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="656.3" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 656.3 376)">25</text>
+  <rect x="672.7" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.26" cx="677.7" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="677.7" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="681.7" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 681.7 376)">26</text>
+  <rect x="698.1" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.27" cx="703.1" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="703.1" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="707.1" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 707.1 376)">27</text>
+  <rect x="723.5" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.28" cx="728.5" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="728.5" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="732.5" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 732.5 376)">28</text>
+  <rect x="748.9" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.29" cx="753.9" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="753.9" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="757.9" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 757.9 376)">29</text>
+  <rect x="774.3" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.30" cx="779.3" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="779.3" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="783.3" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 783.3 376)">30</text>
+  <rect x="799.7" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.31" cx="804.7" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="804.7" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="808.7" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 808.7 376)">31</text>
+  <rect x="825.1" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.32" cx="830.1" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="830.1" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="834.1" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 834.1 376)">32</text>
+  <rect x="850.5" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.33" cx="855.5" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="855.5" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="859.5" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 859.5 376)">33</text>
+  <rect x="875.9" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.34" cx="880.9" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="880.9" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="884.9" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 884.9 376)">34</text>
+  <rect x="901.3" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.35" cx="906.3" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="906.3" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="910.3" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 910.3 376)">35</text>
+  <rect x="926.7" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.36" cx="931.7" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="931.7" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="935.7" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 935.7 376)">36</text>
+  <rect x="952.1" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.37" cx="957.1" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="957.1" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="961.1" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 961.1 376)">37</text>
+  <rect x="977.5" y="300" width="10" height="60" fill="#bbb"/>
+  <circle id="$.38" cx="982.5" cy="360" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="982.5" cy="360" r="3.2" fill="#3a2f0a"/>
+  <text x="986.5" y="376" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 986.5 376)">38</text>
+</g>
+</svg>

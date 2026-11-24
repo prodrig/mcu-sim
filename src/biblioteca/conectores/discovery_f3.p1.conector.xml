@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El perfil de conector discovery_f3.p1 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<conector perfil="discovery_f3.p1" version="1" filas="2" columnas="25" numeracion="zigzag" titulo="STM32F3DISCOVERY: EXP1" fuente="UM1570 Rev 7, tabla 7, como la transcribe placas/stm32f3discovery.xml">
+  <pin n="1" uso="3V" clase="alimentacion"/>
+  <pin n="2" uso="3V" clase="alimentacion"/>
+  <pin n="3" uso="VSS" clase="masa"/>
+  <pin n="4" uso="NRST" clase="reset"/>
+  <pin n="5" uso="PC1" clase="es"/>
+  <pin n="6" uso="PC0" clase="es"/>
+  <pin n="7" uso="PC3" clase="es"/>
+  <pin n="8" uso="PC2" clase="es"/>
+  <pin n="9" uso="PA1" clase="es"/>
+  <pin n="10" uso="PF2" clase="es"/>
+  <pin n="11" uso="PA3" clase="es"/>
+  <pin n="12" uso="PA0" clase="es"/>
+  <pin n="13" uso="PF4" clase="es"/>
+  <pin n="14" uso="PA2" clase="es"/>
+  <pin n="15" uso="PA5" clase="es"/>
+  <pin n="16" uso="PA4" clase="es"/>
+  <pin n="17" uso="PA7" clase="es"/>
+  <pin n="18" uso="PA6" clase="es"/>
+  <pin n="19" uso="PC5" clase="es"/>
+  <pin n="20" uso="PC4" clase="es"/>
+  <pin n="21" uso="PB1" clase="es"/>
+  <pin n="22" uso="PB0" clase="es"/>
+  <pin n="23" uso="PE7" clase="es"/>
+  <pin n="24" uso="PB2" clase="es"/>
+  <pin n="25" uso="PE9" clase="es"/>
+  <pin n="26" uso="PE8" clase="es"/>
+  <pin n="27" uso="PE11" clase="es"/>
+  <pin n="28" uso="PE10" clase="es"/>
+  <pin n="29" uso="PE13" clase="es"/>
+  <pin n="30" uso="PE12" clase="es"/>
+  <pin n="31" uso="PE15" clase="es"/>
+  <pin n="32" uso="PE14" clase="es"/>
+  <pin n="33" uso="PB11" clase="es"/>
+  <pin n="34" uso="PB10" clase="es"/>
+  <pin n="35" uso="PB13" clase="es"/>
+  <pin n="36" uso="PB12" clase="es"/>
+  <pin n="37" uso="PB15" clase="es"/>
+  <pin n="38" uso="PB14" clase="es"/>
+  <pin n="39" uso="PD9" clase="es"/>
+  <pin n="40" uso="PD8" clase="es"/>
+  <pin n="41" uso="PD11" clase="es"/>
+  <pin n="42" uso="PD10" clase="es"/>
+  <pin n="43" uso="PD13" clase="es"/>
+  <pin n="44" uso="PD12" clase="es"/>
+  <pin n="45" uso="PD15" clase="es"/>
+  <pin n="46" uso="PD14" clase="es"/>
+  <pin n="47" uso="PC6" clase="es"/>
+  <pin n="48" uso="PC7" clase="es"/>
+  <pin n="49" uso="VSS" clase="masa"/>
+  <pin n="50" uso="VSS" clase="masa"/>
+</conector>

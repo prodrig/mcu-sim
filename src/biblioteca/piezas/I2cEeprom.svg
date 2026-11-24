@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 233.6 105.4" width="23.36mm" height="10.54mm">
+<!-- I2cEeprom: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(46.8,20)" font-family="sans-serif">
+  <rect x="0" y="0" width="140" height="65.4" rx="4" fill="#262626" stroke="#111" stroke-width="1"/>
+  <circle cx="14" cy="14" r="5" fill="#555"/>
+  <text x="70" y="37.7" font-size="13" text-anchor="middle" fill="#ddd">EEPROM</text>
+  <rect x="-14" y="29.7" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.scl" cx="-18.8" cy="32.7" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="32.7" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="36.7" font-size="10" text-anchor="start" fill="#9cf">scl</text>
+  <rect x="140" y="29.7" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.sda" cx="158.8" cy="32.7" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="158.8" cy="32.7" r="3.2" fill="#3a2f0a"/>
+  <text x="132" y="36.7" font-size="10" text-anchor="end" fill="#9cf">sda</text>
+</g>
+</svg>

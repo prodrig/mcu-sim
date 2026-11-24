@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Regulador: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Regulador" version="1" svg="Regulador.svg" ancho="144" alto="342.2">
+  <ancla terminal="entrada" elemento="$.entrada" lado="abajo" x="46.6" y="260"/>
+  <ancla terminal="gnd" elemento="$.gnd" lado="abajo" x="72" y="260"/>
+  <ancla terminal="salida" elemento="$.salida" lado="abajo" x="97.4" y="260"/>
+</forma>

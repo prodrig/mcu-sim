@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El perfil de conector esp32c6_devkitc1.j3 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<conector perfil="esp32c6_devkitc1.j3" version="1" filas="1" columnas="16" numeracion="zigzag" titulo="ESP32-C6-DevKitC-1: J3" fuente="la guía de la ESP32-C6-DevKitC-1, como la transcribe placas/esp32c6_devkitc1.xml">
+  <pin n="1" uso="GND" clase="masa"/>
+  <pin n="2" uso="GPIO16" clase="es"/>
+  <pin n="3" uso="GPIO17" clase="es"/>
+  <pin n="4" uso="GPIO15" clase="es"/>
+  <pin n="5" uso="GPIO23" clase="es"/>
+  <pin n="6" uso="GPIO22" clase="es"/>
+  <pin n="7" uso="GPIO21" clase="es"/>
+  <pin n="8" uso="GPIO20" clase="es"/>
+  <pin n="9" uso="GPIO19" clase="es"/>
+  <pin n="10" uso="GPIO18" clase="es"/>
+  <pin n="11" uso="GPIO9" clase="es"/>
+  <pin n="12" uso="GND" clase="masa"/>
+  <pin n="13" uso="GPIO13" clase="es"/>
+  <pin n="14" uso="GPIO12" clase="es"/>
+  <pin n="15" uso="GND" clase="masa"/>
+  <pin n="16" uso="NC" clase="nc"/>
+</conector>

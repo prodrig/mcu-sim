@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fotodiodo: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Fotodiodo" version="1" svg="Fotodiodo.svg" ancho="100" alto="205.6">
+  <ancla terminal="anodo" elemento="$.anodo" lado="abajo" x="37.3" y="130"/>
+  <ancla terminal="catodo" elemento="$.catodo" lado="abajo" x="62.7" y="130"/>
+</forma>

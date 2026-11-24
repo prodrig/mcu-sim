@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CanTransceiver: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="CanTransceiver" version="1" svg="CanTransceiver.svg" ancho="295" alto="275.8">
+  <ancla terminal="txd" elemento="$.txd" lado="abajo" x="122.1" y="233.8"/>
+  <ancla terminal="rxd" elemento="$.rxd" lado="abajo" x="147.5" y="233.8"/>
+  <ancla terminal="bus" elemento="$.bus" lado="abajo" x="172.9" y="233.8"/>
+</forma>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tmp235: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Tmp235" version="1" svg="Tmp235.svg" ancho="130" alto="202.4">
+  <ancla terminal="vdd" elemento="$.vdd" lado="abajo" x="52.3" y="140"/>
+  <ancla terminal="vout" elemento="$.vout" lado="abajo" x="77.7" y="140"/>
+</forma>

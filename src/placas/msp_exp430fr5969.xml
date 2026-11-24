@@ -72,8 +72,11 @@
   </componente>
 
   <!-- Los conectores BoosterPack de 20 pines [SLAU535B figura 15]: J1 (1-10,
-       a la izquierda) y J2 (11-20, aquí 1-10); el 13 (aquí 3) es P3.0 y el 14,
-       sin conectar -->
+       a la izquierda) y J2 (11-20, aquí 1-10, como en las demás LaunchPad:
+       J2.1 es el 11, abajo, y J2.10 el 20, GND, arriba). El 18 (aquí 8) es
+       P3.0 y el 17 (aquí 7), sin conectar. Hasta B6 de doc/analisis_build.md
+       J2 estaba numerado al revés (J2.1 era GND): lo encontró el contraste
+       de los conectores con la norma BoosterPack -->
   <componente tipo="Conector" id="J1" filas="1" columnas="10">
     <pin nombre="1" nodo="DVCC"/>  <pin nombre="2" nodo="P4.2"/>  <pin nombre="3" nodo="P2.6"/>
     <pin nombre="4" nodo="P2.5"/>  <pin nombre="5" nodo="P4.3"/>  <pin nombre="6" nodo="P2.4"/>
@@ -81,8 +84,8 @@
     <pin nombre="10" nodo="P3.6"/>
   </componente>
   <componente tipo="Conector" id="J2" filas="1" columnas="10">
-    <pin nombre="1" nodo="DVSS"/>  <pin nombre="2" nodo="P1.2"/>  <pin nombre="3" nodo="P3.0"/>
-    <pin nombre="5" nodo="RST"/>   <pin nombre="6" nodo="P1.6"/>  <pin nombre="7" nodo="P1.7"/>
-    <pin nombre="8" nodo="P1.5"/>  <pin nombre="9" nodo="P1.4"/>  <pin nombre="10" nodo="P1.3"/>
+    <pin nombre="1" nodo="P1.3"/>  <pin nombre="2" nodo="P1.4"/>  <pin nombre="3" nodo="P1.5"/>
+    <pin nombre="4" nodo="P1.7"/>  <pin nombre="5" nodo="P1.6"/>  <pin nombre="6" nodo="RST"/>
+    <pin nombre="8" nodo="P3.0"/>  <pin nombre="9" nodo="P1.2"/>  <pin nombre="10" nodo="DVSS"/>
   </componente>
 </placa>

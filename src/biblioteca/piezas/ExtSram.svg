@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 253.6 283.2" width="25.36mm" height="28.32mm">
+<!-- ExtSram: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(46.8,20)" font-family="sans-serif">
+  <rect x="0" y="0" width="160" height="243.2" rx="4" fill="#262626" stroke="#111" stroke-width="1"/>
+  <circle cx="14" cy="14" r="5" fill="#555"/>
+  <text x="80" y="126.6" font-size="13" text-anchor="middle" fill="#ddd" transform="rotate(-90 80 126.6)">SRAM</text>
+  <rect x="-14" y="23.4" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d0" cx="-18.8" cy="26.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="26.4" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="30.4" font-size="10" text-anchor="start" fill="#9cf">d0</text>
+  <rect x="-14" y="36" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d1" cx="-18.8" cy="39" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="39" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="43" font-size="10" text-anchor="start" fill="#9cf">d1</text>
+  <rect x="-14" y="48.8" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d2" cx="-18.8" cy="51.8" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="51.8" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="55.8" font-size="10" text-anchor="start" fill="#9cf">d2</text>
+  <rect x="-14" y="61.4" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d3" cx="-18.8" cy="64.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="64.4" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="68.4" font-size="10" text-anchor="start" fill="#9cf">d3</text>
+  <rect x="-14" y="74.2" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d4" cx="-18.8" cy="77.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="77.2" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="81.2" font-size="10" text-anchor="start" fill="#9cf">d4</text>
+  <rect x="-14" y="86.8" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d5" cx="-18.8" cy="89.8" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="89.8" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="93.8" font-size="10" text-anchor="start" fill="#9cf">d5</text>
+  <rect x="-14" y="99.5" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d6" cx="-18.8" cy="102.5" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="102.5" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="106.5" font-size="10" text-anchor="start" fill="#9cf">d6</text>
+  <rect x="-14" y="112.2" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d7" cx="-18.8" cy="115.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="115.2" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="119.2" font-size="10" text-anchor="start" fill="#9cf">d7</text>
+  <rect x="-14" y="124.9" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d8" cx="-18.8" cy="127.9" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="127.9" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="131.9" font-size="10" text-anchor="start" fill="#9cf">d8</text>
+  <rect x="-14" y="137.7" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d9" cx="-18.8" cy="140.7" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="140.7" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="144.7" font-size="10" text-anchor="start" fill="#9cf">d9</text>
+  <rect x="-14" y="150.3" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d10" cx="-18.8" cy="153.3" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="153.3" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="157.3" font-size="10" text-anchor="start" fill="#9cf">d10</text>
+  <rect x="-14" y="163" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d11" cx="-18.8" cy="166" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="166" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="170" font-size="10" text-anchor="start" fill="#9cf">d11</text>
+  <rect x="-14" y="175.7" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d12" cx="-18.8" cy="178.7" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="178.7" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="182.7" font-size="10" text-anchor="start" fill="#9cf">d12</text>
+  <rect x="-14" y="188.4" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d13" cx="-18.8" cy="191.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="191.4" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="195.4" font-size="10" text-anchor="start" fill="#9cf">d13</text>
+  <rect x="-14" y="201.1" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d14" cx="-18.8" cy="204.1" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="204.1" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="208.1" font-size="10" text-anchor="start" fill="#9cf">d14</text>
+  <rect x="-14" y="213.8" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.d15" cx="-18.8" cy="216.8" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="216.8" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="220.8" font-size="10" text-anchor="start" fill="#9cf">d15</text>
+  <rect x="160" y="23.4" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.nwait" cx="178.8" cy="26.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="26.4" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="30.4" font-size="10" text-anchor="end" fill="#9cf">nwait</text>
+  <rect x="160" y="36" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.nbl1" cx="178.8" cy="39" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="39" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="43" font-size="10" text-anchor="end" fill="#9cf">nbl1</text>
+  <rect x="160" y="48.8" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.nbl0" cx="178.8" cy="51.8" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="51.8" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="55.8" font-size="10" text-anchor="end" fill="#9cf">nbl0</text>
+  <rect x="160" y="61.4" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.nl" cx="178.8" cy="64.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="64.4" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="68.4" font-size="10" text-anchor="end" fill="#9cf">nl</text>
+  <rect x="160" y="74.2" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.nwe" cx="178.8" cy="77.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="77.2" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="81.2" font-size="10" text-anchor="end" fill="#9cf">nwe</text>
+  <rect x="160" y="86.8" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.noe" cx="178.8" cy="89.8" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="89.8" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="93.8" font-size="10" text-anchor="end" fill="#9cf">noe</text>
+  <rect x="160" y="99.5" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.ne" cx="178.8" cy="102.5" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="102.5" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="106.5" font-size="10" text-anchor="end" fill="#9cf">ne</text>
+  <rect x="160" y="112.2" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.a23" cx="178.8" cy="115.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="115.2" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="119.2" font-size="10" text-anchor="end" fill="#9cf">a23</text>
+  <rect x="160" y="124.9" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.a22" cx="178.8" cy="127.9" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="127.9" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="131.9" font-size="10" text-anchor="end" fill="#9cf">a22</text>
+  <rect x="160" y="137.7" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.a21" cx="178.8" cy="140.7" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="140.7" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="144.7" font-size="10" text-anchor="end" fill="#9cf">a21</text>
+  <rect x="160" y="150.3" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.a20" cx="178.8" cy="153.3" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="153.3" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="157.3" font-size="10" text-anchor="end" fill="#9cf">a20</text>
+  <rect x="160" y="163" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.a19" cx="178.8" cy="166" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="166" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="170" font-size="10" text-anchor="end" fill="#9cf">a19</text>
+  <rect x="160" y="175.7" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.a18" cx="178.8" cy="178.7" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="178.7" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="182.7" font-size="10" text-anchor="end" fill="#9cf">a18</text>
+  <rect x="160" y="188.4" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.a17" cx="178.8" cy="191.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="191.4" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="195.4" font-size="10" text-anchor="end" fill="#9cf">a17</text>
+  <rect x="160" y="201.1" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.a16" cx="178.8" cy="204.1" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="204.1" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="208.1" font-size="10" text-anchor="end" fill="#9cf">a16</text>
+</g>
+</svg>

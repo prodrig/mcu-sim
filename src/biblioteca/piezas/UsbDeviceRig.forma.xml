@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- UsbDeviceRig: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="UsbDeviceRig" version="1" svg="UsbDeviceRig.svg" ancho="295" alto="282.4">
+  <ancla terminal="dm" elemento="$.dm" lado="abajo" x="122.1" y="240.4"/>
+  <ancla terminal="dp" elemento="$.dp" lado="abajo" x="147.5" y="240.4"/>
+  <ancla terminal="vbus" elemento="$.vbus" lado="abajo" x="172.9" y="240.4"/>
+</forma>

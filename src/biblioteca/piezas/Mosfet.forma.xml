@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Mosfet: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Mosfet" version="1" svg="Mosfet.svg" ancho="183.2" alto="348.8">
+  <ancla terminal="puerta" elemento="$.puerta" lado="abajo" x="46.6" y="260"/>
+  <ancla terminal="drenador" elemento="$.drenador" lado="abajo" x="72" y="260"/>
+  <ancla terminal="fuente" elemento="$.fuente" lado="abajo" x="97.4" y="260"/>
+  <ancla terminal="libre" elemento="$.libre" lado="abajo" x="148.2" y="260"/>
+</forma>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El perfil de conector boosterpack.j3 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<conector perfil="boosterpack.j3" version="1" filas="1" columnas="10" numeracion="zigzag" titulo="BoosterPack: J3 (21-30)" fuente="SLAA542, figuras 3 y 4 (LaunchPad y BoosterPack de 20 y 40 pines)">
+  <pin n="1" uso="+5V" clase="alimentacion" estandar="21"/>
+  <pin n="2" uso="GND" clase="masa" estandar="22"/>
+  <pin n="3" uso="Analog" clase="es" estandar="23"/>
+  <pin n="4" uso="Analog" clase="es" estandar="24"/>
+  <pin n="5" uso="Analog" clase="es" estandar="25"/>
+  <pin n="6" uso="Analog" clase="es" estandar="26"/>
+  <pin n="7" uso="Analog" clase="es" estandar="27"/>
+  <pin n="8" uso="Analog" clase="es" estandar="28"/>
+  <pin n="9" uso="Analog" clase="es" estandar="29"/>
+  <pin n="10" uso="Analog" clase="es" estandar="30"/>
+</conector>

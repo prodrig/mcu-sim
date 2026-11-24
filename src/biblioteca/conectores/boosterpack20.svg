@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 364 332.6" width="36.40mm" height="33.26mm">
+<!-- boosterpack20: LaunchPad / BoosterPack de 20 pines (J1 y J2). Despiezado; unidades de 0.1 mm; cada pin es $.TIRA.N (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<g id="$" transform="translate(20,50)" font-family="sans-serif">
+  <text x="0" y="-16" font-size="12" font-weight="bold" fill="#000">LaunchPad / BoosterPack de 20 pines (J1 y J2)</text>
+  <g transform="translate(78.8,26)">
+    <rect id="$.J1.1" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="3" font-size="9" text-anchor="end" fill="#c01c28">1 +3V3</text>
+    <rect id="$.J1.2" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="28.4" font-size="9" text-anchor="end" fill="#1a5fb4">2 Analog In</text>
+    <rect id="$.J1.3" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="53.8" font-size="9" text-anchor="end" fill="#1a5fb4">3 UART_RX</text>
+    <rect id="$.J1.4" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="79.2" font-size="9" text-anchor="end" fill="#1a5fb4">4 UART_TX</text>
+    <rect id="$.J1.5" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="104.6" font-size="9" text-anchor="end" fill="#1a5fb4">5 GPIO</text>
+    <rect id="$.J1.6" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="130" font-size="9" text-anchor="end" fill="#1a5fb4">6 SPI_A_SCLK</text>
+    <rect id="$.J1.7" x="-8" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="155.4" font-size="9" text-anchor="end" fill="#1a5fb4">7 SPI_B_SCLK</text>
+    <rect id="$.J1.8" x="-8" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="180.8" font-size="9" text-anchor="end" fill="#1a5fb4">8 GPIO</text>
+    <rect id="$.J1.9" x="-8" y="195.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="206.2" font-size="9" text-anchor="end" fill="#1a5fb4">9 GPIO</text>
+    <rect id="$.J1.10" x="-8" y="220.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="231.6" font-size="9" text-anchor="end" fill="#1a5fb4">10 GPIO</text>
+    <text x="-35.4" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">J1</text>
+  </g>
+  <g transform="translate(134.8,26)">
+    <rect id="$.J2.1" x="-8" y="220.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="231.6" font-size="9" text-anchor="start" fill="#1a5fb4">1 GPIO</text>
+    <rect id="$.J2.2" x="-8" y="195.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="206.2" font-size="9" text-anchor="start" fill="#1a5fb4">2 GPIO</text>
+    <rect id="$.J2.3" x="-8" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="180.8" font-size="9" text-anchor="start" fill="#1a5fb4">3 GPIO</text>
+    <rect id="$.J2.4" x="-8" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="155.4" font-size="9" text-anchor="start" fill="#1a5fb4">4 SPI_B_SOMI</text>
+    <rect id="$.J2.5" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="130" font-size="9" text-anchor="start" fill="#1a5fb4">5 SPI_B_SIMO</text>
+    <rect id="$.J2.6" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="104.6" font-size="9" text-anchor="start" fill="#e66100">6 RESET</text>
+    <rect id="$.J2.7" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="79.2" font-size="9" text-anchor="start" fill="#986a44">7 TEST</text>
+    <rect id="$.J2.8" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="53.8" font-size="9" text-anchor="start" fill="#1a5fb4">8 GPIO</text>
+    <rect id="$.J2.9" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="28.4" font-size="9" text-anchor="start" fill="#1a5fb4">9 Timer Out</text>
+    <rect id="$.J2.10" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="3" font-size="9" text-anchor="start" fill="#333333">10 GND</text>
+    <text x="35.4" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">J2</text>
+  </g>
+</g>
+</svg>

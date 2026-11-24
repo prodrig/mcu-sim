@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 260 282.4" width="26.00mm" height="28.24mm">
+<!-- L3gd20: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(20,20)" font-family="sans-serif">
+  <rect x="0" y="0" width="220" height="242.4" rx="12" fill="#5b3e8a" stroke="#0c2c4a" stroke-width="1.5"/>
+  <circle cx="14" cy="14" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="206" cy="14" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="14" cy="228.4" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="206" cy="228.4" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <text x="110" y="34" font-size="13" text-anchor="middle" fill="#fff" font-weight="bold">L3gd20</text>
+  <rect x="90" y="92" width="40" height="40" rx="3" fill="#1d1d1d"/>
+  <rect x="84" y="100" width="6" height="3" fill="#aaa"/>
+  <rect x="130" y="100" width="6" height="3" fill="#aaa"/>
+  <rect x="84" y="108" width="6" height="3" fill="#aaa"/>
+  <rect x="130" y="108" width="6" height="3" fill="#aaa"/>
+  <rect x="84" y="116" width="6" height="3" fill="#aaa"/>
+  <rect x="130" y="116" width="6" height="3" fill="#aaa"/>
+  <rect x="84" y="124" width="6" height="3" fill="#aaa"/>
+  <rect x="130" y="124" width="6" height="3" fill="#aaa"/>
+  <rect x="33.8" y="207.7" width="152.4" height="25.4" rx="2" fill="#1a1a1a"/>
+  <rect id="$.spc" x="38.5" y="212.4" width="16" height="16" fill="#c9a227"/>
+  <circle id="$.sdi" cx="71.9" cy="220.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="71.9" cy="220.4" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.sdo" cx="97.3" cy="220.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="97.3" cy="220.4" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.cs" cx="122.7" cy="220.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="122.7" cy="220.4" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.int1" cx="148.1" cy="220.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="148.1" cy="220.4" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.drdy" cx="173.5" cy="220.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="173.5" cy="220.4" r="3.2" fill="#3a2f0a"/>
+  <text x="50.5" y="206.4" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 50.5 206.4)">spc</text>
+  <text x="75.9" y="206.4" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 75.9 206.4)">sdi</text>
+  <text x="101.3" y="206.4" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 101.3 206.4)">sdo</text>
+  <text x="126.7" y="206.4" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 126.7 206.4)">cs</text>
+  <text x="152.1" y="206.4" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 152.1 206.4)">int1</text>
+  <text x="177.5" y="206.4" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 177.5 206.4)">drdy</text>
+</g>
+</svg>

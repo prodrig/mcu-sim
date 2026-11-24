@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El perfil de conector boosterpack.j4 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<conector perfil="boosterpack.j4" version="1" filas="1" columnas="10" numeracion="zigzag" titulo="BoosterPack: J4 (31-40)" fuente="SLAA542, figuras 3 y 4 (LaunchPad y BoosterPack de 20 y 40 pines)">
+  <pin n="1" uso="Timer" clase="es" estandar="31"/>
+  <pin n="2" uso="Timer" clase="es" estandar="32"/>
+  <pin n="3" uso="Timer" clase="es" estandar="33"/>
+  <pin n="4" uso="Timer" clase="es" estandar="34"/>
+  <pin n="5" uso="Timer" clase="es" estandar="35"/>
+  <pin n="6" uso="Timer" clase="es" estandar="36"/>
+  <pin n="7" uso="Timer" clase="es" estandar="37"/>
+  <pin n="8" uso="Timer" clase="es" estandar="38"/>
+  <pin n="9" uso="Timer" clase="es" estandar="39"/>
+  <pin n="10" uso="Timer" clase="es" estandar="40"/>
+</conector>

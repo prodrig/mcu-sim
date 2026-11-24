@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- RGBLed: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="RGBLed" version="1" svg="RGBLed.svg" ancho="143.1" alto="219">
+  <ancla terminal="r" elemento="$.r" lado="abajo" x="31.9" y="150"/>
+  <ancla terminal="g" elemento="$.g" lado="abajo" x="57.3" y="150"/>
+  <ancla terminal="b" elemento="$.b" lado="abajo" x="82.7" y="150"/>
+  <ancla terminal="comun" elemento="$.comun" lado="abajo" x="108.1" y="150"/>
+</forma>

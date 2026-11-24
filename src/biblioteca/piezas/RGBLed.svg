@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 143.1 219" width="14.31mm" height="21.90mm">
+<!-- RGBLed: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(70,70)" font-family="sans-serif">
+  <circle cx="0" cy="0" r="50" fill="#f4f4f4" stroke="#777" stroke-width="2"/>
+  <circle cx="-18" cy="-8" r="10" fill="#e33"/>
+  <circle cx="2" cy="-18" r="10" fill="#3c3"/>
+  <circle cx="14" cy="8" r="10" fill="#36e"/>
+  <path d="M-38.1 20L-38.1 80" fill="none" stroke="#9a9a9a" stroke-width="5" stroke-linecap="round"/>
+  <circle id="$.r" cx="-38.1" cy="80" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-38.1" cy="80" r="3.2" fill="#3a2f0a"/>
+  <text x="-34.1" y="96" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 -34.1 96)">r</text>
+  <path d="M-12.7 20L-12.7 80" fill="none" stroke="#9a9a9a" stroke-width="5" stroke-linecap="round"/>
+  <circle id="$.g" cx="-12.7" cy="80" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-12.7" cy="80" r="3.2" fill="#3a2f0a"/>
+  <text x="-8.7" y="96" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 -8.7 96)">g</text>
+  <path d="M12.7 20L12.7 80" fill="none" stroke="#9a9a9a" stroke-width="5" stroke-linecap="round"/>
+  <circle id="$.b" cx="12.7" cy="80" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="12.7" cy="80" r="3.2" fill="#3a2f0a"/>
+  <text x="16.7" y="96" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 16.7 96)">b</text>
+  <path d="M38.1 20L38.1 80" fill="none" stroke="#9a9a9a" stroke-width="5" stroke-linecap="round"/>
+  <circle id="$.comun" cx="38.1" cy="80" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="38.1" cy="80" r="3.2" fill="#3a2f0a"/>
+  <text x="42.1" y="96" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 42.1 96)">comun</text>
+</g>
+</svg>

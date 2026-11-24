@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El conjunto de conectores arduino_uno_r3 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<!-- x, y: el pin 1 de cada tira, en mm; dx, dy: el paso a la columna
+     siguiente; fx, fy: el paso a la otra fila. De placas/cnc_shield_v3.svg. -->
+<conjunto nombre="arduino_uno_r3" version="1" titulo="Arduino UNO R3 (los cuatro conectores de un shield)">
+  <miembro id="CN5" perfil="arduino_uno_r3.digital_alto" x="0" y="0" dx="2.54" dy="0" fx="0" fy="0"/>
+  <miembro id="CN6" perfil="arduino_uno_r3.alimentacion" x="9" y="50.4" dx="2.54" dy="0" fx="0" fy="0"/>
+  <miembro id="CN8" perfil="arduino_uno_r3.analogico" x="37" y="50.4" dx="2.54" dy="0" fx="0" fy="0"/>
+  <miembro id="CN9" perfil="arduino_uno_r3.digital_bajo" x="30" y="0" dx="2.54" dy="0" fx="0" fy="0"/>
+  <cableado placa="placas/cnc_shield_v3.xml">
+    <pin p="CN5.1" nodo="EN"/>
+    <pin p="CN5.2" nodo="FIN.XMIN"/>
+    <pin p="CN5.3" nodo="FIN.YMIN"/>
+    <pin p="CN5.4" nodo="FIN.ZMIN"/>
+    <pin p="CN5.5" nodo="SPN.EN"/>
+    <pin p="CN5.6" nodo="SPN.DIR"/>
+    <pin p="CN5.7" nodo="GND"/>
+    <pin p="CN6.3" nodo="CTL.ESTOP"/>
+    <pin p="CN6.5" nodo="CINCO"/>
+    <pin p="CN6.6" nodo="GND"/>
+    <pin p="CN6.7" nodo="GND"/>
+    <pin p="CN8.1" nodo="CTL.ABORT"/>
+    <pin p="CN8.2" nodo="CTL.HOLD"/>
+    <pin p="CN8.3" nodo="CTL.RESUME"/>
+    <pin p="CN8.4" nodo="COOL.EN"/>
+    <pin p="CN8.5" nodo="CTL.SDA"/>
+    <pin p="CN8.6" nodo="CTL.SCL"/>
+    <pin p="CN9.3" nodo="STEP_X"/>
+    <pin p="CN9.4" nodo="STEP_Y"/>
+    <pin p="CN9.5" nodo="STEP_Z"/>
+    <pin p="CN9.6" nodo="DIR_X"/>
+    <pin p="CN9.7" nodo="DIR_Y"/>
+    <pin p="CN9.8" nodo="DIR_Z"/>
+  </cableado>
+  <cableado placa="placas/shield_leds.xml">
+  </cableado>
+  <cableado placa="placas/nucleo_f446re.xml" mcu="STM32F446RE">
+    <pin p="CN5.1" nodo="PA9"/>
+    <pin p="CN5.2" nodo="PC7"/>
+    <pin p="CN5.3" nodo="PB6"/>
+    <pin p="CN5.4" nodo="PA7"/>
+    <pin p="CN5.5" nodo="PA6"/>
+    <pin p="CN5.6" nodo="PA5"/>
+    <pin p="CN5.7" nodo="VSS"/>
+    <pin p="CN5.9" nodo="PB9"/>
+    <pin p="CN5.10" nodo="PB8"/>
+    <pin p="CN6.2" nodo="VDD"/>
+    <pin p="CN6.3" nodo="NRST"/>
+    <pin p="CN6.4" nodo="VDD"/>
+    <pin p="CN6.5" nodo="U5V"/>
+    <pin p="CN6.6" nodo="VSS"/>
+    <pin p="CN6.7" nodo="VSS"/>
+    <pin p="CN8.1" nodo="PA0"/>
+    <pin p="CN8.2" nodo="PA1"/>
+    <pin p="CN8.3" nodo="PA4"/>
+    <pin p="CN8.4" nodo="PB0"/>
+    <pin p="CN8.5" nodo="PC1"/>
+    <pin p="CN8.6" nodo="PC0"/>
+    <pin p="CN9.3" nodo="PA10"/>
+    <pin p="CN9.4" nodo="PB3"/>
+    <pin p="CN9.5" nodo="PB5"/>
+    <pin p="CN9.6" nodo="PB4"/>
+    <pin p="CN9.7" nodo="PB10"/>
+    <pin p="CN9.8" nodo="PA8"/>
+  </cableado>
+</conjunto>

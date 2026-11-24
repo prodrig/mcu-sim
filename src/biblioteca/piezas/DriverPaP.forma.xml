@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DriverPaP: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="DriverPaP" version="1" svg="DriverPaP.svg" ancho="283.2" alto="368">
+  <ancla terminal="vmot" elemento="$.vmot" lado="arriba" x="52.7" y="42"/>
+  <ancla terminal="gnd" elemento="$.gnd" lado="arriba" x="78.1" y="42"/>
+  <ancla terminal="vdd" elemento="$.vdd" lado="arriba" x="103.5" y="42"/>
+  <ancla terminal="en" elemento="$.en" lado="arriba" x="128.9" y="42"/>
+  <ancla terminal="ms1" elemento="$.ms1" lado="arriba" x="154.3" y="42"/>
+  <ancla terminal="ms2" elemento="$.ms2" lado="arriba" x="179.7" y="42"/>
+  <ancla terminal="ms3" elemento="$.ms3" lado="arriba" x="205.1" y="42"/>
+  <ancla terminal="rst" elemento="$.rst" lado="arriba" x="230.5" y="42"/>
+  <ancla terminal="slp" elemento="$.slp" lado="abajo" x="65.4" y="326"/>
+  <ancla terminal="step" elemento="$.step" lado="abajo" x="90.8" y="326"/>
+  <ancla terminal="dir" elemento="$.dir" lado="abajo" x="116.2" y="326"/>
+  <ancla terminal="out1a" elemento="$.out1a" lado="abajo" x="141.6" y="326"/>
+  <ancla terminal="out1b" elemento="$.out1b" lado="abajo" x="167" y="326"/>
+  <ancla terminal="out2a" elemento="$.out2a" lado="abajo" x="192.4" y="326"/>
+  <ancla terminal="out2b" elemento="$.out2b" lado="abajo" x="217.8" y="326"/>
+</forma>

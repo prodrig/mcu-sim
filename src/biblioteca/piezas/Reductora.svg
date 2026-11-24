@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 300 180" width="30.00mm" height="18.00mm">
+<!-- Reductora: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(20,20)" font-family="sans-serif">
+  <rect x="0" y="0" width="260" height="140" rx="14" fill="#eef1f4" stroke="#7a8794" stroke-width="2"/>
+  <circle cx="130" cy="60" r="36" fill="#9aa3ab" stroke="#5c656d" stroke-width="3"/>
+  <circle cx="130" cy="60" r="12" fill="#eef1f4"/>
+  <text x="130" y="125" font-size="15" text-anchor="middle" fill="#2b3a48" font-weight="bold">Reductora</text>
+</g>
+</svg>

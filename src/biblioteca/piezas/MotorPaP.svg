@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 460 559.2" width="46.00mm" height="55.92mm">
+<!-- MotorPaP: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(230,230)" font-family="sans-serif">
+  <rect x="-210" y="-210" width="420" height="420" rx="30" fill="#2d2d2d" stroke="#111" stroke-width="2"/>
+  <circle cx="-155" cy="-155" r="16" fill="#bbb"/>
+  <circle cx="155" cy="-155" r="16" fill="#bbb"/>
+  <circle cx="-155" cy="155" r="16" fill="#bbb"/>
+  <circle cx="155" cy="155" r="16" fill="#bbb"/>
+  <circle cx="0" cy="0" r="110" fill="#555" stroke="#777" stroke-width="3"/>
+  <circle cx="0" cy="0" r="25" fill="#ddd" stroke="#666" stroke-width="2"/>
+  <text x="0" y="-170" font-size="22" text-anchor="middle" fill="#fff" font-weight="bold">MotorPaP</text>
+  <rect x="-56.8" y="261.3" width="113.6" height="37.4" rx="3" fill="#f2f2f2" stroke="#999" stroke-width="1"/>
+  <path d="M-38.1 180L-38.1 272" fill="none" stroke="#c62828" stroke-width="4" stroke-linecap="round"/>
+  <circle id="$.a1" cx="-38.1" cy="280" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-38.1" cy="280" r="3.2" fill="#3a2f0a"/>
+  <text x="-34.1" y="296" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 -34.1 296)">a1</text>
+  <path d="M-12.7 180L-12.7 272" fill="none" stroke="#444" stroke-width="4" stroke-linecap="round"/>
+  <circle id="$.a2" cx="-12.7" cy="280" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-12.7" cy="280" r="3.2" fill="#3a2f0a"/>
+  <text x="-8.7" y="296" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 -8.7 296)">a2</text>
+  <path d="M12.7 180L12.7 272" fill="none" stroke="#444" stroke-width="4" stroke-linecap="round"/>
+  <circle id="$.b1" cx="12.7" cy="280" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="12.7" cy="280" r="3.2" fill="#3a2f0a"/>
+  <text x="16.7" y="296" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 16.7 296)">b1</text>
+  <path d="M38.1 180L38.1 272" fill="none" stroke="#444" stroke-width="4" stroke-linecap="round"/>
+  <circle id="$.b2" cx="38.1" cy="280" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="38.1" cy="280" r="3.2" fill="#3a2f0a"/>
+  <text x="42.1" y="296" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 42.1 296)">b2</text>
+</g>
+</svg>

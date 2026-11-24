@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SdCard: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="SdCard" version="1" svg="SdCard.svg" ancho="260" alto="282.4">
+  <ancla terminal="ck" elemento="$.ck" lado="abajo" x="66.5" y="240.4"/>
+  <ancla terminal="cmd" elemento="$.cmd" lado="abajo" x="91.9" y="240.4"/>
+  <ancla terminal="dat0" elemento="$.dat0" lado="abajo" x="117.3" y="240.4"/>
+  <ancla terminal="dat1" elemento="$.dat1" lado="abajo" x="142.7" y="240.4"/>
+  <ancla terminal="dat2" elemento="$.dat2" lado="abajo" x="168.1" y="240.4"/>
+  <ancla terminal="dat3" elemento="$.dat3" lado="abajo" x="193.5" y="240.4"/>
+</forma>

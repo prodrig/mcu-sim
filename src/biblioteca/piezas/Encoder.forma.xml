@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Encoder: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Encoder" version="1" svg="Encoder.svg" ancho="260" alto="262.6">
+  <ancla terminal="a" elemento="$.a" lado="abajo" x="104.6" y="220.6"/>
+  <ancla terminal="b" elemento="$.b" lado="abajo" x="130" y="220.6"/>
+  <ancla terminal="c" elemento="$.c" lado="abajo" x="155.4" y="220.6"/>
+</forma>

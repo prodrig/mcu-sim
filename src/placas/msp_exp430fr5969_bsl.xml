@@ -13,5 +13,5 @@
   <hilo a="A/P1.RXD" b="LP/J13.7"/>   <!-- de P2.0, UCA0TXD -->
   <hilo a="A/P1.RST" b="LP/J13.9"/>
   <hilo a="A/P1.TEST" b="LP/J13.11"/>
-  <hilo a="A/P1.GND" b="LP/J2.1"/>
+  <hilo a="A/P1.GND" b="LP/J2.10"/>
 </sistema>

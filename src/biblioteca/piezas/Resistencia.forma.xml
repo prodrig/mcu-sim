@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Resistencia: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Resistencia" version="1" svg="Resistencia.svg" ancho="256" alto="91.3">
+  <ancla terminal="a" elemento="$.a" lado="izquierda" x="28" y="42"/>
+  <ancla terminal="b" elemento="$.b" lado="derecha" x="228" y="42"/>
+</forma>

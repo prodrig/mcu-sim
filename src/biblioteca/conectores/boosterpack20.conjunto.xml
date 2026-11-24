@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El conjunto de conectores boosterpack20 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<!-- x, y: el pin 1 de cada tira, en mm; dx, dy: el paso a la columna
+     siguiente; fx, fy: el paso a la otra fila. De placas/msp_exp430g2et.svg. -->
+<conjunto nombre="boosterpack20" version="1" titulo="LaunchPad / BoosterPack de 20 pines (J1 y J2)">
+  <miembro id="J1" perfil="boosterpack.j1" x="0" y="0" dx="0" dy="2.54" fx="0" fy="0"/>
+  <miembro id="J2" perfil="boosterpack.j2" x="41.72" y="22.86" dx="0" dy="-2.54" fx="0" fy="0"/>
+  <cableado placa="placas/msp_exp430g2et.xml" mcu="MSP430G2553">
+    <pin p="J1.1" nodo="DVCC"/>
+    <pin p="J1.2" nodo="P1.0"/>
+    <pin p="J1.3" nodo="P1.1"/>
+    <pin p="J1.4" nodo="P1.2"/>
+    <pin p="J1.5" nodo="P1.3"/>
+    <pin p="J1.6" nodo="P1.4"/>
+    <pin p="J1.7" nodo="P1.5"/>
+    <pin p="J1.8" nodo="P2.0"/>
+    <pin p="J1.9" nodo="P2.1"/>
+    <pin p="J1.10" nodo="P2.2"/>
+    <pin p="J2.1" nodo="P2.3"/>
+    <pin p="J2.2" nodo="P2.4"/>
+    <pin p="J2.3" nodo="P2.5"/>
+    <pin p="J2.4" nodo="P1.6"/>
+    <pin p="J2.5" nodo="P1.7"/>
+    <pin p="J2.6" nodo="RST"/>
+    <pin p="J2.7" nodo="TEST"/>
+    <pin p="J2.8" nodo="P2.7"/>
+    <pin p="J2.9" nodo="P2.6"/>
+    <pin p="J2.10" nodo="DVSS"/>
+  </cableado>
+  <cableado placa="placas/msp_exp430fr2311.xml" mcu="MSP430FR2311">
+    <pin p="J1.1" nodo="DVCC"/>
+    <pin p="J1.2" nodo="P1.4"/>
+    <pin p="J1.3" nodo="P1.6"/>
+    <pin p="J1.4" nodo="P1.7"/>
+    <pin p="J1.5" nodo="P1.0"/>
+    <pin p="J1.6" nodo="P1.5"/>
+    <pin p="J1.7" nodo="P2.3"/>
+    <pin p="J1.8" nodo="P2.1"/>
+    <pin p="J1.9" nodo="P1.3"/>
+    <pin p="J1.10" nodo="P1.2"/>
+    <pin p="J2.1" nodo="P1.1"/>
+    <pin p="J2.2" nodo="P2.6"/>
+    <pin p="J2.3" nodo="P2.7"/>
+    <pin p="J2.4" nodo="P2.5"/>
+    <pin p="J2.5" nodo="P2.4"/>
+    <pin p="J2.6" nodo="RST"/>
+    <pin p="J2.8" nodo="P2.2"/>
+    <pin p="J2.9" nodo="P2.0"/>
+    <pin p="J2.10" nodo="DVSS"/>
+  </cableado>
+  <cableado placa="placas/msp_exp430fr2433.xml" mcu="MSP430FR2433">
+    <pin p="J1.1" nodo="DVCC"/>
+    <pin p="J1.2" nodo="P1.0"/>
+    <pin p="J1.3" nodo="P1.5"/>
+    <pin p="J1.4" nodo="P1.4"/>
+    <pin p="J1.5" nodo="P1.6"/>
+    <pin p="J1.6" nodo="P1.7"/>
+    <pin p="J1.7" nodo="P2.4"/>
+    <pin p="J1.8" nodo="P2.7"/>
+    <pin p="J1.9" nodo="P1.3"/>
+    <pin p="J1.10" nodo="P1.2"/>
+    <pin p="J2.1" nodo="P2.0"/>
+    <pin p="J2.2" nodo="P2.1"/>
+    <pin p="J2.3" nodo="P3.1"/>
+    <pin p="J2.4" nodo="P2.5"/>
+    <pin p="J2.5" nodo="P2.6"/>
+    <pin p="J2.6" nodo="RST"/>
+    <pin p="J2.7" nodo="P3.2"/>
+    <pin p="J2.8" nodo="P2.2"/>
+    <pin p="J2.9" nodo="P1.1"/>
+    <pin p="J2.10" nodo="DVSS"/>
+  </cableado>
+  <cableado placa="placas/msp_exp430fr4133.xml" mcu="MSP430FR4133">
+    <pin p="J1.1" nodo="DVCC"/>
+    <pin p="J1.2" nodo="P8.1"/>
+    <pin p="J1.3" nodo="P1.1"/>
+    <pin p="J1.4" nodo="P1.0"/>
+    <pin p="J1.5" nodo="P2.7"/>
+    <pin p="J1.6" nodo="P8.0"/>
+    <pin p="J1.7" nodo="P5.1"/>
+    <pin p="J1.8" nodo="P2.5"/>
+    <pin p="J1.9" nodo="P8.2"/>
+    <pin p="J1.10" nodo="P8.3"/>
+    <pin p="J2.1" nodo="P1.5"/>
+    <pin p="J2.2" nodo="P1.4"/>
+    <pin p="J2.3" nodo="P1.3"/>
+    <pin p="J2.4" nodo="P5.3"/>
+    <pin p="J2.5" nodo="P5.2"/>
+    <pin p="J2.6" nodo="RST"/>
+    <pin p="J2.7" nodo="P5.0"/>
+    <pin p="J2.8" nodo="P1.6"/>
+    <pin p="J2.9" nodo="P1.7"/>
+    <pin p="J2.10" nodo="DVSS"/>
+  </cableado>
+  <cableado placa="placas/msp_exp430fr5969.xml" mcu="MSP430FR5969">
+    <pin p="J1.1" nodo="DVCC"/>
+    <pin p="J1.2" nodo="P4.2"/>
+    <pin p="J1.3" nodo="P2.6"/>
+    <pin p="J1.4" nodo="P2.5"/>
+    <pin p="J1.5" nodo="P4.3"/>
+    <pin p="J1.6" nodo="P2.4"/>
+    <pin p="J1.7" nodo="P2.2"/>
+    <pin p="J1.8" nodo="P3.4"/>
+    <pin p="J1.9" nodo="P3.5"/>
+    <pin p="J1.10" nodo="P3.6"/>
+    <pin p="J2.1" nodo="P1.3"/>
+    <pin p="J2.2" nodo="P1.4"/>
+    <pin p="J2.3" nodo="P1.5"/>
+    <pin p="J2.4" nodo="P1.7"/>
+    <pin p="J2.5" nodo="P1.6"/>
+    <pin p="J2.6" nodo="RST"/>
+    <pin p="J2.8" nodo="P3.0"/>
+    <pin p="J2.9" nodo="P1.2"/>
+    <pin p="J2.10" nodo="DVSS"/>
+  </cableado>
+</conjunto>

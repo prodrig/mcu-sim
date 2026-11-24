@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Servo: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Servo" version="1" svg="Servo.svg" ancho="440" alto="375.8">
+  <ancla terminal="vcc" elemento="$.vcc" lado="abajo" x="294.6" y="320"/>
+  <ancla terminal="gnd" elemento="$.gnd" lado="abajo" x="320" y="320"/>
+  <ancla terminal="pwm" elemento="$.pwm" lado="abajo" x="345.4" y="320"/>
+</forma>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El perfil de conector arduino_uno_r3.alimentacion (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<conector perfil="arduino_uno_r3.alimentacion" version="1" filas="1" columnas="8" numeracion="zigzag" titulo="Arduino UNO R3: alimentacion" fuente="UM1724 Rev 17, tabla 19 (Arduino UNO R3 en las Nucleo-64)">
+  <pin n="1" uso="NC" clase="nc"/>
+  <pin n="2" uso="IOREF" clase="alimentacion"/>
+  <pin n="3" uso="RESET" clase="reset"/>
+  <pin n="4" uso="+3V3" clase="alimentacion"/>
+  <pin n="5" uso="+5V" clase="alimentacion"/>
+  <pin n="6" uso="GND" clase="masa"/>
+  <pin n="7" uso="GND" clase="masa"/>
+  <pin n="8" uso="VIN" clase="alimentacion"/>
+</conector>

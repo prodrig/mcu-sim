@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LcdFh1138p: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="LcdFh1138p" version="1" svg="LcdFh1138p.svg" ancho="1065.2" alto="429.2">
+  <ancla terminal="1" elemento="$.1" lado="abajo" x="62.7" y="380"/>
+  <ancla terminal="2" elemento="$.2" lado="abajo" x="88.1" y="380"/>
+  <ancla terminal="3" elemento="$.3" lado="abajo" x="113.5" y="380"/>
+  <ancla terminal="4" elemento="$.4" lado="abajo" x="138.9" y="380"/>
+  <ancla terminal="5" elemento="$.5" lado="abajo" x="164.3" y="380"/>
+  <ancla terminal="6" elemento="$.6" lado="abajo" x="189.7" y="380"/>
+  <ancla terminal="7" elemento="$.7" lado="abajo" x="215.1" y="380"/>
+  <ancla terminal="8" elemento="$.8" lado="abajo" x="240.5" y="380"/>
+  <ancla terminal="9" elemento="$.9" lado="abajo" x="265.9" y="380"/>
+  <ancla terminal="10" elemento="$.10" lado="abajo" x="291.3" y="380"/>
+  <ancla terminal="11" elemento="$.11" lado="abajo" x="316.7" y="380"/>
+  <ancla terminal="12" elemento="$.12" lado="abajo" x="342.1" y="380"/>
+  <ancla terminal="13" elemento="$.13" lado="abajo" x="367.5" y="380"/>
+  <ancla terminal="14" elemento="$.14" lado="abajo" x="392.9" y="380"/>
+  <ancla terminal="15" elemento="$.15" lado="abajo" x="418.3" y="380"/>
+  <ancla terminal="16" elemento="$.16" lado="abajo" x="443.7" y="380"/>
+  <ancla terminal="17" elemento="$.17" lado="abajo" x="469.1" y="380"/>
+  <ancla terminal="18" elemento="$.18" lado="abajo" x="494.5" y="380"/>
+  <ancla terminal="19" elemento="$.19" lado="abajo" x="519.9" y="380"/>
+  <ancla terminal="20" elemento="$.20" lado="abajo" x="545.3" y="380"/>
+  <ancla terminal="21" elemento="$.21" lado="abajo" x="570.7" y="380"/>
+  <ancla terminal="22" elemento="$.22" lado="abajo" x="596.1" y="380"/>
+  <ancla terminal="23" elemento="$.23" lado="abajo" x="621.5" y="380"/>
+  <ancla terminal="24" elemento="$.24" lado="abajo" x="646.9" y="380"/>
+  <ancla terminal="25" elemento="$.25" lado="abajo" x="672.3" y="380"/>
+  <ancla terminal="26" elemento="$.26" lado="abajo" x="697.7" y="380"/>
+  <ancla terminal="27" elemento="$.27" lado="abajo" x="723.1" y="380"/>
+  <ancla terminal="28" elemento="$.28" lado="abajo" x="748.5" y="380"/>
+  <ancla terminal="29" elemento="$.29" lado="abajo" x="773.9" y="380"/>
+  <ancla terminal="30" elemento="$.30" lado="abajo" x="799.3" y="380"/>
+  <ancla terminal="31" elemento="$.31" lado="abajo" x="824.7" y="380"/>
+  <ancla terminal="32" elemento="$.32" lado="abajo" x="850.1" y="380"/>
+  <ancla terminal="33" elemento="$.33" lado="abajo" x="875.5" y="380"/>
+  <ancla terminal="34" elemento="$.34" lado="abajo" x="900.9" y="380"/>
+  <ancla terminal="35" elemento="$.35" lado="abajo" x="926.3" y="380"/>
+  <ancla terminal="36" elemento="$.36" lado="abajo" x="951.7" y="380"/>
+  <ancla terminal="37" elemento="$.37" lado="abajo" x="977.1" y="380"/>
+  <ancla terminal="38" elemento="$.38" lado="abajo" x="1002.5" y="380"/>
+</forma>

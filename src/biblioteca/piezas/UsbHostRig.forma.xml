@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- UsbHostRig: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="UsbHostRig" version="1" svg="UsbHostRig.svg" ancho="269" alto="282.4">
+  <ancla terminal="dm" elemento="$.dm" lado="abajo" x="96.4" y="240.4"/>
+  <ancla terminal="dp" elemento="$.dp" lado="abajo" x="121.8" y="240.4"/>
+  <ancla terminal="vbus" elemento="$.vbus" lado="abajo" x="147.2" y="240.4"/>
+  <ancla terminal="id" elemento="$.id" lado="abajo" x="172.6" y="240.4"/>
+</forma>

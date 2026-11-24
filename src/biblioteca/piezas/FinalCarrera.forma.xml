@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FinalCarrera: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="FinalCarrera" version="1" svg="FinalCarrera.svg" ancho="308" alto="275.8">
+  <ancla terminal="com" elemento="$.com" lado="abajo" x="128.6" y="233.8"/>
+  <ancla terminal="no" elemento="$.no" lado="abajo" x="154" y="233.8"/>
+  <ancla terminal="nc" elemento="$.nc" lado="abajo" x="179.4" y="233.8"/>
+</forma>

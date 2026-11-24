@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 198.4 231" width="19.84mm" height="23.10mm">
+<!-- arduino_uno_r3.analogico: Arduino UNO R3: A0..A5. Despiezado; unidades de 0.1 mm; cada pin es $.TIRA.N (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<g id="$" transform="translate(20,50)" font-family="sans-serif">
+  <text x="0" y="-16" font-size="12" font-weight="bold" fill="#000">Arduino UNO R3: A0..A5</text>
+  <g transform="translate(8,26)">
+    <rect id="$.ANALOGICO.1" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="3" font-size="9" text-anchor="start" fill="#1a5fb4">1 A0</text>
+    <rect id="$.ANALOGICO.2" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="28.4" font-size="9" text-anchor="start" fill="#1a5fb4">2 A1</text>
+    <rect id="$.ANALOGICO.3" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="53.8" font-size="9" text-anchor="start" fill="#1a5fb4">3 A2</text>
+    <rect id="$.ANALOGICO.4" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="79.2" font-size="9" text-anchor="start" fill="#1a5fb4">4 A3</text>
+    <rect id="$.ANALOGICO.5" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="104.6" font-size="9" text-anchor="start" fill="#1a5fb4">5 A4</text>
+    <rect id="$.ANALOGICO.6" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="130" font-size="9" text-anchor="start" fill="#1a5fb4">6 A5</text>
+    <text x="13.8" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">ANALOGICO</text>
+  </g>
+</g>
+</svg>

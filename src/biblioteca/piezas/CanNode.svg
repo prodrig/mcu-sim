@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 260 155.8" width="26.00mm" height="15.58mm">
+<!-- CanNode: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(20,20)" font-family="sans-serif">
+  <rect x="0" y="0" width="220" height="115.8" rx="12" fill="#59626b" stroke="#0c2c4a" stroke-width="1.5"/>
+  <circle cx="14" cy="14" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="206" cy="14" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="14" cy="101.8" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="206" cy="101.8" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <text x="110" y="34" font-size="13" text-anchor="middle" fill="#fff" font-weight="bold">Nodo CAN</text>
+  <rect x="97.3" y="81.1" width="25.4" height="25.4" rx="2" fill="#1a1a1a"/>
+  <rect id="$.bus" x="102" y="85.8" width="16" height="16" fill="#c9a227"/>
+  <text x="114" y="79.8" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 114 79.8)">bus</text>
+</g>
+</svg>

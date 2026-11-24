@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MotorPaP: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="MotorPaP" version="1" svg="MotorPaP.svg" ancho="460" alto="559.2">
+  <ancla terminal="a1" elemento="$.a1" lado="abajo" x="191.9" y="510"/>
+  <ancla terminal="a2" elemento="$.a2" lado="abajo" x="217.3" y="510"/>
+  <ancla terminal="b1" elemento="$.b1" lado="abajo" x="242.7" y="510"/>
+  <ancla terminal="b2" elemento="$.b2" lado="abajo" x="268.1" y="510"/>
+</forma>

@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 308 381.2" width="30.80mm" height="38.12mm">
+<!-- PuenteTrifasico: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(20,20)" font-family="sans-serif">
+  <rect x="0" y="0" width="268" height="341.2" rx="12" fill="#9c2b2b" stroke="#0c2c4a" stroke-width="1.5"/>
+  <circle cx="14" cy="14" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="254" cy="14" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="14" cy="327.2" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="254" cy="327.2" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <text x="134" y="119.6" font-size="13" text-anchor="middle" fill="#fff" font-weight="bold">Puente trifasico</text>
+  <rect x="74" y="149.6" width="8" height="80" fill="#9aa3ab"/>
+  <rect x="92" y="149.6" width="8" height="80" fill="#9aa3ab"/>
+  <rect x="110" y="149.6" width="8" height="80" fill="#9aa3ab"/>
+  <rect x="128" y="149.6" width="8" height="80" fill="#9aa3ab"/>
+  <rect x="146" y="149.6" width="8" height="80" fill="#9aa3ab"/>
+  <rect x="164" y="149.6" width="8" height="80" fill="#9aa3ab"/>
+  <rect x="182" y="149.6" width="8" height="80" fill="#9aa3ab"/>
+  <rect x="32.4" y="9.3" width="203.2" height="25.4" rx="2" fill="#1a1a1a"/>
+  <rect id="$.vs" x="37.1" y="14" width="16" height="16" fill="#c9a227"/>
+  <circle id="$.gnd" cx="70.5" cy="22" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="70.5" cy="22" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.in1" cx="95.9" cy="22" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="95.9" cy="22" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.in2" cx="121.3" cy="22" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="121.3" cy="22" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.in3" cx="146.7" cy="22" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="146.7" cy="22" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.en1" cx="172.1" cy="22" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="172.1" cy="22" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.en2" cx="197.5" cy="22" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="197.5" cy="22" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.en3" cx="222.9" cy="22" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="222.9" cy="22" r="3.2" fill="#3a2f0a"/>
+  <text x="49.1" y="36" font-size="11" text-anchor="start" fill="#fff" transform="rotate(90 49.1 36)">vs</text>
+  <text x="74.5" y="36" font-size="11" text-anchor="start" fill="#fff" transform="rotate(90 74.5 36)">gnd</text>
+  <text x="99.9" y="36" font-size="11" text-anchor="start" fill="#fff" transform="rotate(90 99.9 36)">in1</text>
+  <text x="125.3" y="36" font-size="11" text-anchor="start" fill="#fff" transform="rotate(90 125.3 36)">in2</text>
+  <text x="150.7" y="36" font-size="11" text-anchor="start" fill="#fff" transform="rotate(90 150.7 36)">in3</text>
+  <text x="176.1" y="36" font-size="11" text-anchor="start" fill="#fff" transform="rotate(90 176.1 36)">en1</text>
+  <text x="201.5" y="36" font-size="11" text-anchor="start" fill="#fff" transform="rotate(90 201.5 36)">en2</text>
+  <text x="226.9" y="36" font-size="11" text-anchor="start" fill="#fff" transform="rotate(90 226.9 36)">en3</text>
+  <rect x="45.1" y="306.5" width="177.8" height="25.4" rx="2" fill="#1a1a1a"/>
+  <rect id="$.out1" x="49.8" y="311.2" width="16" height="16" fill="#c9a227"/>
+  <circle id="$.out2" cx="83.2" cy="319.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="83.2" cy="319.2" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.out3" cx="108.6" cy="319.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="108.6" cy="319.2" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.diag" cx="134" cy="319.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="134" cy="319.2" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.sense1" cx="159.4" cy="319.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="159.4" cy="319.2" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.sense2" cx="184.8" cy="319.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="184.8" cy="319.2" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.sense3" cx="210.2" cy="319.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="210.2" cy="319.2" r="3.2" fill="#3a2f0a"/>
+  <text x="61.8" y="305.2" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 61.8 305.2)">out1</text>
+  <text x="87.2" y="305.2" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 87.2 305.2)">out2</text>
+  <text x="112.6" y="305.2" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 112.6 305.2)">out3</text>
+  <text x="138" y="305.2" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 138 305.2)">diag</text>
+  <text x="163.4" y="305.2" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 163.4 305.2)">sense1</text>
+  <text x="188.8" y="305.2" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 188.8 305.2)">sense2</text>
+  <text x="214.2" y="305.2" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 214.2 305.2)">sense3</text>
+</g>
+</svg>

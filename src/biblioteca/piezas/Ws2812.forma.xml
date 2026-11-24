@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Ws2812: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Ws2812" version="1" svg="Ws2812.svg" ancho="140" alto="215.3">
+  <ancla terminal="din" elemento="$.din" lado="abajo" x="70" y="170"/>
+</forma>

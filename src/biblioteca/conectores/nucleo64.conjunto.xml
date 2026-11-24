@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El conjunto de conectores nucleo64 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<!-- x, y: el pin 1 de cada tira, en mm; dx, dy: el paso a la columna
+     siguiente; fx, fy: el paso a la otra fila. De placas/nucleo_f446re.svg. -->
+<conjunto nombre="nucleo64" version="1" titulo="Nucleo-64: Arduino UNO R3 + ST morpho">
+  <miembro id="CN5" perfil="arduino_uno_r3.digital_alto" x="56.38" y="25.4" dx="0" dy="-2.54" fx="0" fy="0"/>
+  <miembro id="CN6" perfil="arduino_uno_r3.alimentacion" x="7.62" y="10.16" dx="0" dy="2.54" fx="0" fy="0"/>
+  <miembro id="CN8" perfil="arduino_uno_r3.analogico" x="7.62" y="33.02" dx="0" dy="2.54" fx="0" fy="0"/>
+  <miembro id="CN9" perfil="arduino_uno_r3.digital_bajo" x="56.38" y="45.72" dx="0" dy="-2.54" fx="0" fy="0"/>
+  <miembro id="CN7" perfil="st_morpho.cn7" x="0" y="0" dx="0" dy="2.54" fx="2.54" fy="0"/>
+  <miembro id="CN10" perfil="st_morpho.cn10" x="61.46" y="0" dx="0" dy="2.54" fx="2.54" fy="0"/>
+  <cableado placa="placas/nucleo_f446re.xml" mcu="STM32F446RE">
+    <pin p="CN5.1" nodo="PA9"/>
+    <pin p="CN5.2" nodo="PC7"/>
+    <pin p="CN5.3" nodo="PB6"/>
+    <pin p="CN5.4" nodo="PA7"/>
+    <pin p="CN5.5" nodo="PA6"/>
+    <pin p="CN5.6" nodo="PA5"/>
+    <pin p="CN5.7" nodo="VSS"/>
+    <pin p="CN5.9" nodo="PB9"/>
+    <pin p="CN5.10" nodo="PB8"/>
+    <pin p="CN6.2" nodo="VDD"/>
+    <pin p="CN6.3" nodo="NRST"/>
+    <pin p="CN6.4" nodo="VDD"/>
+    <pin p="CN6.5" nodo="U5V"/>
+    <pin p="CN6.6" nodo="VSS"/>
+    <pin p="CN6.7" nodo="VSS"/>
+    <pin p="CN8.1" nodo="PA0"/>
+    <pin p="CN8.2" nodo="PA1"/>
+    <pin p="CN8.3" nodo="PA4"/>
+    <pin p="CN8.4" nodo="PB0"/>
+    <pin p="CN8.5" nodo="PC1"/>
+    <pin p="CN8.6" nodo="PC0"/>
+    <pin p="CN9.3" nodo="PA10"/>
+    <pin p="CN9.4" nodo="PB3"/>
+    <pin p="CN9.5" nodo="PB5"/>
+    <pin p="CN9.6" nodo="PB4"/>
+    <pin p="CN9.7" nodo="PB10"/>
+    <pin p="CN9.8" nodo="PA8"/>
+    <pin p="CN7.1" nodo="PC10"/>
+    <pin p="CN7.2" nodo="PC11"/>
+    <pin p="CN7.3" nodo="PC12"/>
+    <pin p="CN7.4" nodo="PD2"/>
+    <pin p="CN7.5" nodo="VDD"/>
+    <pin p="CN7.7" nodo="BOOT0"/>
+    <pin p="CN7.8" nodo="VSS"/>
+    <pin p="CN7.12" nodo="VDD"/>
+    <pin p="CN7.13" nodo="PA13"/>
+    <pin p="CN7.14" nodo="NRST"/>
+    <pin p="CN7.15" nodo="PA14"/>
+    <pin p="CN7.16" nodo="VDD"/>
+    <pin p="CN7.17" nodo="PA15"/>
+    <pin p="CN7.18" nodo="U5V"/>
+    <pin p="CN7.19" nodo="VSS"/>
+    <pin p="CN7.20" nodo="VSS"/>
+    <pin p="CN7.21" nodo="PB7"/>
+    <pin p="CN7.22" nodo="VSS"/>
+    <pin p="CN7.23" nodo="PC13"/>
+    <pin p="CN7.25" nodo="PC14"/>
+    <pin p="CN7.27" nodo="PC15"/>
+    <pin p="CN7.28" nodo="PA0"/>
+    <pin p="CN7.29" nodo="PH0"/>
+    <pin p="CN7.30" nodo="PA1"/>
+    <pin p="CN7.31" nodo="PH1"/>
+    <pin p="CN7.32" nodo="PA4"/>
+    <pin p="CN7.33" nodo="VBAT"/>
+    <pin p="CN7.34" nodo="PB0"/>
+    <pin p="CN7.35" nodo="PC2"/>
+    <pin p="CN7.36" nodo="PC1"/>
+    <pin p="CN7.37" nodo="PC3"/>
+    <pin p="CN7.38" nodo="PC0"/>
+    <pin p="CN10.1" nodo="PC9"/>
+    <pin p="CN10.2" nodo="PC8"/>
+    <pin p="CN10.3" nodo="PB8"/>
+    <pin p="CN10.4" nodo="PC6"/>
+    <pin p="CN10.5" nodo="PB9"/>
+    <pin p="CN10.6" nodo="PC5"/>
+    <pin p="CN10.7" nodo="VDDA"/>
+    <pin p="CN10.8" nodo="U5V"/>
+    <pin p="CN10.9" nodo="VSS"/>
+    <pin p="CN10.11" nodo="PA5"/>
+    <pin p="CN10.12" nodo="PA12"/>
+    <pin p="CN10.13" nodo="PA6"/>
+    <pin p="CN10.14" nodo="PA11"/>
+    <pin p="CN10.15" nodo="PA7"/>
+    <pin p="CN10.16" nodo="PB12"/>
+    <pin p="CN10.17" nodo="PB6"/>
+    <pin p="CN10.19" nodo="PC7"/>
+    <pin p="CN10.20" nodo="VSS"/>
+    <pin p="CN10.21" nodo="PA9"/>
+    <pin p="CN10.22" nodo="PB2"/>
+    <pin p="CN10.23" nodo="PA8"/>
+    <pin p="CN10.24" nodo="PB1"/>
+    <pin p="CN10.25" nodo="PB10"/>
+    <pin p="CN10.26" nodo="PB15"/>
+    <pin p="CN10.27" nodo="PB4"/>
+    <pin p="CN10.28" nodo="PB14"/>
+    <pin p="CN10.29" nodo="PB5"/>
+    <pin p="CN10.30" nodo="PB13"/>
+    <pin p="CN10.31" nodo="PB3"/>
+    <pin p="CN10.32" nodo="VSSA"/>
+    <pin p="CN10.33" nodo="PA10"/>
+    <pin p="CN10.34" nodo="PC4"/>
+    <pin p="CN10.35" nodo="PA2"/>
+    <pin p="CN10.37" nodo="PA3"/>
+  </cableado>
+  <cableado placa="placas/x_nucleo_ihm07m1.xml">
+    <pin p="CN7.1" nodo="EN1"/>
+    <pin p="CN7.2" nodo="EN2"/>
+    <pin p="CN7.3" nodo="EN3"/>
+    <pin p="CN7.16" nodo="V33"/>
+    <pin p="CN7.17" nodo="H1"/>
+    <pin p="CN7.18" nodo="V5"/>
+    <pin p="CN7.19" nodo="GND"/>
+    <pin p="CN7.20" nodo="GND"/>
+    <pin p="CN7.22" nodo="GND"/>
+    <pin p="CN7.28" nodo="CUR_A"/>
+    <pin p="CN7.36" nodo="CUR_B"/>
+    <pin p="CN7.38" nodo="CUR_C"/>
+    <pin p="CN10.9" nodo="GND"/>
+    <pin p="CN10.13" nodo="DIAG"/>
+    <pin p="CN10.20" nodo="GND"/>
+    <pin p="CN10.21" nodo="IN2"/>
+    <pin p="CN10.22" nodo="LED"/>
+    <pin p="CN10.23" nodo="IN1"/>
+    <pin p="CN10.25" nodo="H3"/>
+    <pin p="CN10.31" nodo="H2"/>
+    <pin p="CN10.33" nodo="IN3"/>
+  </cableado>
+</conjunto>

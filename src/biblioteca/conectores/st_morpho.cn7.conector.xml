@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El perfil de conector st_morpho.cn7 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<conector perfil="st_morpho.cn7" version="1" filas="2" columnas="19" numeracion="zigzag" titulo="ST morpho: CN7" fuente="UM1724 Rev 17, tabla 29 (ST morpho en las Nucleo-64)">
+  <pin n="1" uso="E/S" clase="es"/>
+  <pin n="2" uso="E/S" clase="es"/>
+  <pin n="3" uso="E/S" clase="es"/>
+  <pin n="4" uso="E/S" clase="es"/>
+  <pin n="5" uso="VDD" clase="alimentacion"/>
+  <pin n="6" uso="E5V" clase="alimentacion"/>
+  <pin n="7" uso="BOOT0" clase="control"/>
+  <pin n="8" uso="GND" clase="masa"/>
+  <pin n="9" uso="NC" clase="nc"/>
+  <pin n="10" uso="NC" clase="nc"/>
+  <pin n="11" uso="NC" clase="nc"/>
+  <pin n="12" uso="IOREF" clase="alimentacion"/>
+  <pin n="13" uso="E/S" clase="es"/>
+  <pin n="14" uso="RESET" clase="reset"/>
+  <pin n="15" uso="E/S" clase="es"/>
+  <pin n="16" uso="+3V3" clase="alimentacion"/>
+  <pin n="17" uso="E/S" clase="es"/>
+  <pin n="18" uso="+5V" clase="alimentacion"/>
+  <pin n="19" uso="GND" clase="masa"/>
+  <pin n="20" uso="GND" clase="masa"/>
+  <pin n="21" uso="E/S" clase="es"/>
+  <pin n="22" uso="GND" clase="masa"/>
+  <pin n="23" uso="E/S" clase="es"/>
+  <pin n="24" uso="VIN" clase="alimentacion"/>
+  <pin n="25" uso="E/S" clase="es"/>
+  <pin n="26" uso="NC" clase="nc"/>
+  <pin n="27" uso="E/S" clase="es"/>
+  <pin n="28" uso="E/S" clase="es"/>
+  <pin n="29" uso="E/S" clase="es"/>
+  <pin n="30" uso="E/S" clase="es"/>
+  <pin n="31" uso="E/S" clase="es"/>
+  <pin n="32" uso="E/S" clase="es"/>
+  <pin n="33" uso="VBAT" clase="alimentacion"/>
+  <pin n="34" uso="E/S" clase="es"/>
+  <pin n="35" uso="E/S" clase="es"/>
+  <pin n="36" uso="E/S" clase="es"/>
+  <pin n="37" uso="E/S" clase="es"/>
+  <pin n="38" uso="E/S" clase="es"/>
+</conector>

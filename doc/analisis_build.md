@@ -255,6 +255,15 @@ Ninguna de las cuatro mueve las suites (`test407`, `test417`, `test446` y
 `testf3`, al picosegundo). Lo que la familia tiene y un encapsulado no saca
 (el FSMC en un LQFP64) queda como aviso, no como error.
 
+**Lo que dio B6**: el contraste de los conectores con la norma BoosterPack
+encontró que la **J2 de la MSP-EXP430FR5969 estaba numerada al revés**. J2.1
+era GND y J2.10, P1.3. Las demás LaunchPad, su SVG y la norma (J2.1 es el 11,
+abajo) dicen lo contrario: es la figura 15 de SLAU535B. Su comentario lo
+contaba bien, pero ponía P3.0 en el 13, cuando es el 18. No afectaba a la
+simulación de la placa sola. Pero un `<acopla>` con un BoosterPack de 20
+pines habría unido GND con P1.3. Ya está corregida, y también el hilo de
+masa de `msp_exp430fr5969_bsl.xml`, que usaba J2.1.
+
 **Lo que dio B4b**: el contraste con los datasheets de TI y Espressif
 encontró **dos errores del modelo** que cambian lo que se simula, y varios
 nombres mal puestos en su inventario, ya corregidos:
@@ -419,6 +428,13 @@ esa pieza es paramétrica (D5).
 </pieza>
 ```
 
+**Como quedó en B5.** La `<forma>` va en `TIPO.forma.xml` y no dentro del
+`.pieza.xml`, para que regenerar las fichas no la toque. Se genera junto al
+SVG desde `herramientas/dibuja_piezas.py`, así que no es «de mano». Cada
+`<ancla>` lleva además su `x`, `y` (0,1 mm) en el dibujo. Las paramétricas
+son `Conector`, `Jumper` (`generador="conector"`), `I2cWire` (`bus`) y
+`CameraSensor` (`modulo`, por su serie `d0..d(bits-1)`).
+
 **El convenio de ids del SVG de pieza.** La raíz de la pieza es `id="$"`, cada
 patilla es `$.<terminal>` y las variantes son `$.cuerpo@azul`. Al componer la
 placa, `$` pasa a ser el id que dé el usuario (`LD2`). Así se obtienen,
@@ -526,21 +542,35 @@ pinouts de ST que ya usa `nucleo_f446re.svg` (azul el pin del chip, rojo la
 alimentación, morado el nombre Arduino…). Con un `<cableado>`, el rótulo
 lleva también el pad.
 
-La primera tanda de perfiles, la que ya usan las placas del repositorio:
+La primera tanda, **hecha en B6**: la que ya usan las placas del repositorio.
 
-| Conjunto | Miembros | Para |
+| Conjunto | Miembros (perfil) | Cableados |
 | :--- | :--- | :--- |
-| `nucleo64` | Arduino CN5, CN6, CN8 y CN9; morpho CN7 y CN10 | NUCLEO-F446RE |
-| `boosterpack40` | J1 a J4 (40 pines) | MSP-EXP432P401R, MSP-EXP432E401Y, MSP430 de 40 pines, BOOSTXL-EDUMKII |
-| `boosterpack20` | J1 y J2 (20 pines) | LaunchPad MSP430 de 20 pines |
-| `arduino_uno_r3` | Los cuatro Arduino, sin morpho | Shields (X-NUCLEO-IHM07M1, CNC Shield V3) |
-| `discovery_f4`, `discovery_f3` | P1 y P2 | STM32F4DISCOVERY y STM32F3DISCOVERY |
-| `pc104` | J1 | `pila_pc104.xml` |
+| `nucleo64` | CN5, CN6, CN8 y CN9 (los cuatro `arduino_uno_r3.*`); CN7 y CN10 (`st_morpho.cn7`, `.cn10`) | NUCLEO-F446RE; el lado morpho de la X-NUCLEO-IHM07M1 |
+| `arduino_uno_r3` | Los cuatro Arduino, sin morpho | CNC Shield V3, `shield_leds`, la parte Arduino de la NUCLEO-F446RE |
+| `boosterpack40` | J1 a J4 (`boosterpack.j1` a `.j4`) | MSP-EXP432P401R, MSP-EXP432E401Y, MSP-EXP430F5529LP, FR2355, LP-MSP430FR2476, BOOSTXL-EDUMKII |
+| `boosterpack20` | J1 y J2 | MSP-EXP430G2ET, FR2311, FR2433, FR4133, FR5969 |
+| `discovery_f3` | P1 y P2 (`EXP1`, `EXP2` en el XML) | STM32F3DISCOVERY |
+| `esp32c3_devkitm1`, `esp32c6_devkitc1` | J1 y J3 | Las dos DevKit |
 
-Los `<cableado>` de las placas que ya existen **se extraen de su XML**, que
-es la verdad del simulador. Los `<pin nombre="k" nodo="…">` de sus conectores
-ya dicen exactamente eso. Se contrastan con el `.ioc` de Open Pin Data
-(`boards/…NUCLEO-F446RE…ioc`).
+Lo que cambió respecto a lo previsto:
+* Los perfiles se nombran por su **función en la norma**
+  (`arduino_uno_r3.digital_alto`), no por la referencia de una placa
+  (`.cn5`). Un shield los llama J5, J6, J8 y J9, y la Nucleo, CN5 a CN9.
+* `discovery_f4` no está: ninguna placa del repositorio tiene las P1/P2 de la
+  STM32F4DISCOVERY. `pc104` tampoco: la pila del repositorio es un ejemplo
+  sin norma detrás.
+* Las tiras propias de una placa (las de la STM32F3DISCOVERY y las DevKit) no
+  tienen norma, y su uso es el nodo que les da su XML. El contraste no les
+  añade nada, pero así están en la biblioteca para montar sistemas.
+* El contraste no es con el `.ioc`, sino con la norma y con `biblioteca/mcus`.
+  Un pin de masa del perfil va a una masa, uno de alimentación a una
+  alimentación, uno de reset a un reset y uno NC no se usa. Una E/S de una
+  placa con MCU va a un pad de ese MCU.
+* La geometría de cada conjunto sale del SVG de una placa de referencia, y
+  se comprueba que la reconstruida cae en cada pin del dibujo. Los SVG del
+  conjunto van **despiezados**: a escala real, los rótulos de dos tiras a
+  2,54 mm no caben.
 
 **¿Lo sabe el simulador?** Con D4-A, no: el XML que se escribe lleva un
 `Conector` normal, y el perfil solo existe en `mcu-sim-build`. Con D4-B, el
@@ -830,7 +860,7 @@ En una placa, como **último hijo** de la raíz:
     <marco x="0" y="0" ancho="70" alto="45"/>                      <!-- mm -->
     <instancia id="u0"  fuente="mcus/STM32F446RE" x="20" y="10" dibujo="simple"/>
     <instancia id="LD2" fuente="piezas/Led" x="5" y="30" giro="90"/>
-    <instancia id="CN5" fuente="conectores/arduino_uno_r3.cn5" x="40" y="2"/>
+    <instancia id="CN5" fuente="conectores/arduino_uno_r3.digital_alto" x="40" y="2"/>
     <conexion a="LD2.anodo" b="u0.PA5" trazado="curva"/>
     <conexion a="CN5.6" b="u0.PA5" trazado="tramos" eje="h" codos="31 12" visible="no"/>
   </build>
@@ -903,8 +933,8 @@ orden sea claro.
 | **B3** ✔ | mcu-sim | Datos de ST: `herramientas/exporta_mcus_st.py` sobre Open Pin Data (commit fijado) + B2 | `mcus/STM32*.mcu.xml` y `*.detalle.svg`/`*.simple.svg` de los 46 | **Contraste**: toda función simulada existe en Open Pin Data con el mismo AF, y todo pad soldado tiene patilla |
 | **B4a** ✔ | mcu-sim | La tabla de funciones de cada modelo MSP430 y la de la matriz de los ESP32, **usadas por el modelo** (decisión del autor, 24-11-2026) | Las tablas, y `--exporta-mcu` sin ninguna familia «sin inventario» | Las suites del G2553, el F5529, los C3/C6, `test430` y `testfr2`, al picosegundo |
 | **B4b** ✔ | mcu-sim | Las fuentes de TI y Espressif: el **datasheet** de cada chip (tablas de patillas y «Pin Functions», con el número que elige cada función), el PMAP y la matriz de ESP-IDF. Contraste **estricto**: pad, número y nombre (decisión del autor, 24-11-2026: «tan estricto como el propio hardware»; SysConfig no es obligatorio en un programa y su `mode` no es el PxSEL) | `fuentes/ti/*.pines`, `fuentes/esp/*.pines` y `gpio_sig_map.h`; los `.mcu.xml` y SVG de los 21 | `genera_mcus.py`: los 65 MCU cuadran. Las suites de las familias tocadas, al picosegundo |
-| **B5** | mcu-sim | SVG de las piezas no paramétricas y `<forma>` de todas | `piezas/*.svg` y `<forma>` en cada `.pieza.xml` | Prueba: cada `<ancla>` existe en su SVG, y el SVG cumple el perfil de autor (sin filtros ni máscaras, con viewBox y mm) |
-| **B6** | mcu-sim | Perfiles y conjuntos de conectores, con los `<cableado>` extraídos de las placas | `conectores/*` | Prueba: el `<cableado>` de cada conjunto coincide con el XML de su placa |
+| **B5** ✔ | mcu-sim | SVG de las piezas no paramétricas y `<forma>` de todas, de plantillas (`herramientas/dibuja_piezas.py`) | `piezas/*.svg` (72) y `piezas/*.forma.xml` (76: cuatro son paramétricas, con `generador=`) | `comprueba_piezas.py`: las anclas son exactamente los terminales de la ficha, cada una existe en su SVG, y el SVG cumple el perfil de autor (sin filtros ni máscaras, con viewBox y mm). Lo versionado es lo regenerado |
+| **B6** ✔ | mcu-sim | Perfiles y conjuntos de conectores, con los `<cableado>` extraídos de las placas (`herramientas/genera_conectores.py`) | `conectores/*`: 16 perfiles, 7 conjuntos, 21 cableados | El contraste con la norma y con `biblioteca/mcus` (§4.4), la geometría contra el SVG de la placa y lo versionado contra lo regenerado |
 | **B7** ✔ | mcu-sim | **`<build>` en placas y sistemas** (D2-B, §7): se admite, se comprueba y no sale en `T_PLACA` ni en el SVG. `doc/parts.md` §2 lo documenta | El parser, con su prueba (T134) y la de `mcu-sim-gui` | Una placa con `<build>` valida y simula igual que sin él. `T_PLACA` no lo lleva. Un `<build>` repetido, mal colocado o con `version` desconocida es un error. Una `<instancia>` que no está es un aviso. «Guardar en el XML» de la ventana lo deja intacto |
 | **G8** | gui | Biblioteca `trazado` (D7), sin cambio de comportamiento | Refactorización | Todas las pruebas actuales de `mcu-sim-gui`, sin tocar |
 | **G9** | gui | `mcu-sim-build`: esqueleto y biblioteca persistente (D6) | El ejecutable abre, importa carpetas y enseña piezas y tarjetas con su miniatura y su ficha | `prueba_biblioteca`: importar, cachear, cambiar un fichero y refrescar |

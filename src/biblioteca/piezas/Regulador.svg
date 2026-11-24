@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 144 342.2" width="14.40mm" height="34.22mm">
+<!-- Regulador: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(72,170)" font-family="sans-serif">
+  <rect x="-52" y="-150" width="104" height="60" fill="#b8b8b8" stroke="#888" stroke-width="1"/>
+  <circle cx="0" cy="-120" r="18" fill="#fff" stroke="#888" stroke-width="1"/>
+  <rect x="-52" y="-90" width="104" height="90" rx="3" fill="#222"/>
+  <text x="0" y="-38" font-size="13" text-anchor="middle" fill="#ddd">Regulador</text>
+  <path d="M-25.4 0L-25.4 90" fill="none" stroke="#b8b8b8" stroke-width="8" stroke-linecap="round"/>
+  <circle id="$.entrada" cx="-25.4" cy="90" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-25.4" cy="90" r="3.2" fill="#3a2f0a"/>
+  <text x="-21.4" y="106" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 -21.4 106)">entrada</text>
+  <path d="M0 0L0 90" fill="none" stroke="#b8b8b8" stroke-width="8" stroke-linecap="round"/>
+  <circle id="$.gnd" cx="0" cy="90" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="0" cy="90" r="3.2" fill="#3a2f0a"/>
+  <text x="4" y="106" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 4 106)">gnd</text>
+  <path d="M25.4 0L25.4 90" fill="none" stroke="#b8b8b8" stroke-width="8" stroke-linecap="round"/>
+  <circle id="$.salida" cx="25.4" cy="90" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="25.4" cy="90" r="3.2" fill="#3a2f0a"/>
+  <text x="29.4" y="106" font-size="11" text-anchor="start" fill="#333" transform="rotate(90 29.4 106)">salida</text>
+</g>
+</svg>

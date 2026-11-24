@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 300 180" width="30.00mm" height="18.00mm">
+<!-- Postura: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(20,20)" font-family="sans-serif">
+  <rect x="0" y="0" width="260" height="140" rx="14" fill="#eef1f4" stroke="#7a8794" stroke-width="2"/>
+  <path d="M90 40L150 25L190 45L130 60Z" fill="#c9d3dc" stroke="#5c656d" stroke-width="2"/>
+  <path d="M90 40L130 60L130 100L90 80Z" fill="#9aa9b6" stroke="#5c656d" stroke-width="2"/>
+  <path d="M130 60L190 45L190 85L130 100Z" fill="#b5c2cd" stroke="#5c656d" stroke-width="2"/>
+  <text x="130" y="125" font-size="15" text-anchor="middle" fill="#2b3a48" font-weight="bold">Postura</text>
+</g>
+</svg>

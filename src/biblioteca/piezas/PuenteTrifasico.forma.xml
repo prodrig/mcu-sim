@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PuenteTrifasico: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="PuenteTrifasico" version="1" svg="PuenteTrifasico.svg" ancho="308" alto="381.2">
+  <ancla terminal="vs" elemento="$.vs" lado="arriba" x="65.1" y="42"/>
+  <ancla terminal="gnd" elemento="$.gnd" lado="arriba" x="90.5" y="42"/>
+  <ancla terminal="in1" elemento="$.in1" lado="arriba" x="115.9" y="42"/>
+  <ancla terminal="in2" elemento="$.in2" lado="arriba" x="141.3" y="42"/>
+  <ancla terminal="in3" elemento="$.in3" lado="arriba" x="166.7" y="42"/>
+  <ancla terminal="en1" elemento="$.en1" lado="arriba" x="192.1" y="42"/>
+  <ancla terminal="en2" elemento="$.en2" lado="arriba" x="217.5" y="42"/>
+  <ancla terminal="en3" elemento="$.en3" lado="arriba" x="242.9" y="42"/>
+  <ancla terminal="out1" elemento="$.out1" lado="abajo" x="77.8" y="339.2"/>
+  <ancla terminal="out2" elemento="$.out2" lado="abajo" x="103.2" y="339.2"/>
+  <ancla terminal="out3" elemento="$.out3" lado="abajo" x="128.6" y="339.2"/>
+  <ancla terminal="diag" elemento="$.diag" lado="abajo" x="154" y="339.2"/>
+  <ancla terminal="sense1" elemento="$.sense1" lado="abajo" x="179.4" y="339.2"/>
+  <ancla terminal="sense2" elemento="$.sense2" lado="abajo" x="204.8" y="339.2"/>
+  <ancla terminal="sense3" elemento="$.sense3" lado="abajo" x="230.2" y="339.2"/>
+</forma>

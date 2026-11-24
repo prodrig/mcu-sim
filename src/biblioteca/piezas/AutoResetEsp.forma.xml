@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AutoResetEsp: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="AutoResetEsp" version="1" svg="AutoResetEsp.svg" ancho="282" alto="155.8">
+  <ancla terminal="dtr" elemento="$.dtr" lado="abajo" x="102.9" y="113.8"/>
+  <ancla terminal="rts" elemento="$.rts" lado="abajo" x="128.3" y="113.8"/>
+  <ancla terminal="en" elemento="$.en" lado="abajo" x="153.7" y="113.8"/>
+  <ancla terminal="io0" elemento="$.io0" lado="abajo" x="179.1" y="113.8"/>
+</forma>

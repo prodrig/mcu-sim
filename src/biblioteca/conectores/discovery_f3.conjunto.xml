@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El conjunto de conectores discovery_f3 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<!-- x, y: el pin 1 de cada tira, en mm; dx, dy: el paso a la columna
+     siguiente; fx, fy: el paso a la otra fila. De placas/stm32f3discovery.svg. -->
+<conjunto nombre="discovery_f3" version="1" titulo="STM32F3DISCOVERY: P1 y P2">
+  <miembro id="EXP1" perfil="discovery_f3.p1" x="0" y="0" dx="0" dy="2.54" fx="2.54" fy="0"/>
+  <miembro id="EXP2" perfil="discovery_f3.p2" x="59.2" y="0" dx="0" dy="2.54" fx="-2.54" fy="0"/>
+  <cableado placa="placas/stm32f3discovery.xml" mcu="STM32F303VC">
+    <pin p="EXP1.1" nodo="3V"/>
+    <pin p="EXP1.2" nodo="3V"/>
+    <pin p="EXP1.3" nodo="VSS"/>
+    <pin p="EXP1.4" nodo="NRST"/>
+    <pin p="EXP1.5" nodo="PC1"/>
+    <pin p="EXP1.6" nodo="PC0"/>
+    <pin p="EXP1.7" nodo="PC3"/>
+    <pin p="EXP1.8" nodo="PC2"/>
+    <pin p="EXP1.9" nodo="PA1"/>
+    <pin p="EXP1.10" nodo="PF2"/>
+    <pin p="EXP1.11" nodo="PA3"/>
+    <pin p="EXP1.12" nodo="PA0"/>
+    <pin p="EXP1.13" nodo="PF4"/>
+    <pin p="EXP1.14" nodo="PA2"/>
+    <pin p="EXP1.15" nodo="PA5"/>
+    <pin p="EXP1.16" nodo="PA4"/>
+    <pin p="EXP1.17" nodo="PA7"/>
+    <pin p="EXP1.18" nodo="PA6"/>
+    <pin p="EXP1.19" nodo="PC5"/>
+    <pin p="EXP1.20" nodo="PC4"/>
+    <pin p="EXP1.21" nodo="PB1"/>
+    <pin p="EXP1.22" nodo="PB0"/>
+    <pin p="EXP1.23" nodo="PE7"/>
+    <pin p="EXP1.24" nodo="PB2"/>
+    <pin p="EXP1.25" nodo="PE9"/>
+    <pin p="EXP1.26" nodo="PE8"/>
+    <pin p="EXP1.27" nodo="PE11"/>
+    <pin p="EXP1.28" nodo="PE10"/>
+    <pin p="EXP1.29" nodo="PE13"/>
+    <pin p="EXP1.30" nodo="PE12"/>
+    <pin p="EXP1.31" nodo="PE15"/>
+    <pin p="EXP1.32" nodo="PE14"/>
+    <pin p="EXP1.33" nodo="PB11"/>
+    <pin p="EXP1.34" nodo="PB10"/>
+    <pin p="EXP1.35" nodo="PB13"/>
+    <pin p="EXP1.36" nodo="PB12"/>
+    <pin p="EXP1.37" nodo="PB15"/>
+    <pin p="EXP1.38" nodo="PB14"/>
+    <pin p="EXP1.39" nodo="PD9"/>
+    <pin p="EXP1.40" nodo="PD8"/>
+    <pin p="EXP1.41" nodo="PD11"/>
+    <pin p="EXP1.42" nodo="PD10"/>
+    <pin p="EXP1.43" nodo="PD13"/>
+    <pin p="EXP1.44" nodo="PD12"/>
+    <pin p="EXP1.45" nodo="PD15"/>
+    <pin p="EXP1.46" nodo="PD14"/>
+    <pin p="EXP1.47" nodo="PC6"/>
+    <pin p="EXP1.48" nodo="PC7"/>
+    <pin p="EXP1.49" nodo="VSS"/>
+    <pin p="EXP1.50" nodo="VSS"/>
+    <pin p="EXP2.1" nodo="5V"/>
+    <pin p="EXP2.2" nodo="5V"/>
+    <pin p="EXP2.3" nodo="PF9"/>
+    <pin p="EXP2.4" nodo="PF10"/>
+    <pin p="EXP2.7" nodo="PC14"/>
+    <pin p="EXP2.8" nodo="PC15"/>
+    <pin p="EXP2.9" nodo="PE6"/>
+    <pin p="EXP2.10" nodo="PC13"/>
+    <pin p="EXP2.11" nodo="PE4"/>
+    <pin p="EXP2.12" nodo="PE5"/>
+    <pin p="EXP2.13" nodo="PE2"/>
+    <pin p="EXP2.14" nodo="PE3"/>
+    <pin p="EXP2.15" nodo="PE0"/>
+    <pin p="EXP2.16" nodo="PE1"/>
+    <pin p="EXP2.17" nodo="PB8"/>
+    <pin p="EXP2.18" nodo="PB9"/>
+    <pin p="EXP2.19" nodo="BOOT0"/>
+    <pin p="EXP2.20" nodo="VDD"/>
+    <pin p="EXP2.21" nodo="PB6"/>
+    <pin p="EXP2.22" nodo="PB7"/>
+    <pin p="EXP2.23" nodo="PB4"/>
+    <pin p="EXP2.24" nodo="PB5"/>
+    <pin p="EXP2.25" nodo="PD7"/>
+    <pin p="EXP2.26" nodo="PB3"/>
+    <pin p="EXP2.27" nodo="PD5"/>
+    <pin p="EXP2.28" nodo="PD6"/>
+    <pin p="EXP2.29" nodo="PD3"/>
+    <pin p="EXP2.30" nodo="PD4"/>
+    <pin p="EXP2.31" nodo="PD1"/>
+    <pin p="EXP2.32" nodo="PD2"/>
+    <pin p="EXP2.33" nodo="PC12"/>
+    <pin p="EXP2.34" nodo="PD0"/>
+    <pin p="EXP2.35" nodo="PC10"/>
+    <pin p="EXP2.36" nodo="PC11"/>
+    <pin p="EXP2.37" nodo="PA14"/>
+    <pin p="EXP2.38" nodo="PA15"/>
+    <pin p="EXP2.39" nodo="PF6"/>
+    <pin p="EXP2.40" nodo="PA13"/>
+    <pin p="EXP2.43" nodo="PA10"/>
+    <pin p="EXP2.44" nodo="PA9"/>
+    <pin p="EXP2.45" nodo="PA8"/>
+    <pin p="EXP2.46" nodo="PC9"/>
+    <pin p="EXP2.47" nodo="PC8"/>
+    <pin p="EXP2.49" nodo="VSS"/>
+    <pin p="EXP2.50" nodo="VSS"/>
+  </cableado>
+</conjunto>

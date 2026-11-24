@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fuente: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Fuente" version="1" svg="Fuente.svg" ancho="180" alto="225.3">
+  <ancla terminal="pin" elemento="$.pin" lado="abajo" x="90" y="180"/>
+</forma>

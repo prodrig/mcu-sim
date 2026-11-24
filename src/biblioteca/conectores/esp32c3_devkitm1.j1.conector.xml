@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El perfil de conector esp32c3_devkitm1.j1 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<conector perfil="esp32c3_devkitm1.j1" version="1" filas="1" columnas="15" numeracion="zigzag" titulo="ESP32-C3-DevKitM-1: J1" fuente="la guía de la ESP32-C3-DevKitM-1, como la transcribe placas/esp32c3_devkitm1.xml">
+  <pin n="1" uso="GND" clase="masa"/>
+  <pin n="2" uso="VDD3P3" clase="alimentacion"/>
+  <pin n="3" uso="VDD3P3" clase="alimentacion"/>
+  <pin n="4" uso="GPIO2" clase="es"/>
+  <pin n="5" uso="GPIO3" clase="es"/>
+  <pin n="6" uso="GND" clase="masa"/>
+  <pin n="7" uso="CHIP_PU" clase="reset"/>
+  <pin n="8" uso="GND" clase="masa"/>
+  <pin n="9" uso="GPIO0" clase="es"/>
+  <pin n="10" uso="GPIO1" clase="es"/>
+  <pin n="11" uso="GPIO10" clase="es"/>
+  <pin n="12" uso="GND" clase="masa"/>
+  <pin n="13" uso="5V" clase="alimentacion"/>
+  <pin n="14" uso="5V" clase="alimentacion"/>
+  <pin n="15" uso="GND" clase="masa"/>
+</conector>

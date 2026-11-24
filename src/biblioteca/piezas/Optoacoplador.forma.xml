@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Optoacoplador: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Optoacoplador" version="1" svg="Optoacoplador.svg" ancho="243.6" alto="130.8">
+  <ancla terminal="anodo" elemento="$.anodo" lado="izquierda" x="28" y="52.7"/>
+  <ancla terminal="catodo" elemento="$.catodo" lado="izquierda" x="28" y="78.1"/>
+  <ancla terminal="colector" elemento="$.colector" lado="derecha" x="215.6" y="52.7"/>
+  <ancla terminal="emisor" elemento="$.emisor" lado="derecha" x="215.6" y="78.1"/>
+</forma>

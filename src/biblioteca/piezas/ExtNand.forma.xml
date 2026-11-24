@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ExtNand: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="ExtNand" version="1" svg="ExtNand.svg" ancho="253.6" alto="168.9">
+  <ancla terminal="d0" elemento="$.d0" lado="izquierda" x="28" y="46.4"/>
+  <ancla terminal="d1" elemento="$.d1" lado="izquierda" x="28" y="59"/>
+  <ancla terminal="d2" elemento="$.d2" lado="izquierda" x="28" y="71.8"/>
+  <ancla terminal="d3" elemento="$.d3" lado="izquierda" x="28" y="84.4"/>
+  <ancla terminal="d4" elemento="$.d4" lado="izquierda" x="28" y="97.2"/>
+  <ancla terminal="d5" elemento="$.d5" lado="izquierda" x="28" y="109.8"/>
+  <ancla terminal="d6" elemento="$.d6" lado="izquierda" x="28" y="122.5"/>
+  <ancla terminal="rb" elemento="$.rb" lado="derecha" x="225.6" y="46.4"/>
+  <ancla terminal="nwe" elemento="$.nwe" lado="derecha" x="225.6" y="59"/>
+  <ancla terminal="noe" elemento="$.noe" lado="derecha" x="225.6" y="71.8"/>
+  <ancla terminal="nce" elemento="$.nce" lado="derecha" x="225.6" y="84.4"/>
+  <ancla terminal="ale" elemento="$.ale" lado="derecha" x="225.6" y="97.2"/>
+  <ancla terminal="cle" elemento="$.cle" lado="derecha" x="225.6" y="109.8"/>
+  <ancla terminal="d7" elemento="$.d7" lado="derecha" x="225.6" y="122.5"/>
+</forma>

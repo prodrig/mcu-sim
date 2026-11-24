@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Freno: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Freno" version="1" svg="Freno.svg" ancho="400" alto="522.6">
+  <ancla terminal="a" elemento="$.a" lado="abajo" x="187.3" y="480"/>
+  <ancla terminal="b" elemento="$.b" lado="abajo" x="212.7" y="480"/>
+</forma>

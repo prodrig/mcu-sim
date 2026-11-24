@@ -1,0 +1,241 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 613.2 574.4" width="61.32mm" height="57.44mm">
+<!-- nucleo64.x_nucleo_ihm07m1: Nucleo-64: Arduino UNO R3 + ST morpho en x_nucleo_ihm07m1. Despiezado; unidades de 0.1 mm; cada pin es $.TIRA.N (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<g id="$" transform="translate(20,50)" font-family="sans-serif">
+  <text x="0" y="-16" font-size="12" font-weight="bold" fill="#000">Nucleo-64: Arduino UNO R3 + ST morpho en x_nucleo_ihm07m1</text>
+  <g transform="translate(68,26)">
+    <rect id="$.CN7.1" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="3" font-size="9" text-anchor="end" fill="#1a5fb4">1 E/S EN1</text>
+    <rect id="$.CN7.2" x="17.4" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="3" font-size="9" text-anchor="start" fill="#1a5fb4">2 E/S EN2</text>
+    <rect id="$.CN7.3" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="28.4" font-size="9" text-anchor="end" fill="#1a5fb4">3 E/S EN3</text>
+    <rect id="$.CN7.4" x="17.4" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="28.4" font-size="9" text-anchor="start" fill="#1a5fb4">4 E/S</text>
+    <rect id="$.CN7.5" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="53.8" font-size="9" text-anchor="end" fill="#c01c28">5 VDD</text>
+    <rect id="$.CN7.6" x="17.4" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="53.8" font-size="9" text-anchor="start" fill="#c01c28">6 E5V</text>
+    <rect id="$.CN7.7" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="79.2" font-size="9" text-anchor="end" fill="#986a44">7 BOOT0</text>
+    <rect id="$.CN7.8" x="17.4" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="79.2" font-size="9" text-anchor="start" fill="#333333">8 GND</text>
+    <rect id="$.CN7.9" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="104.6" font-size="9" text-anchor="end" fill="#9a9996">9 NC</text>
+    <rect id="$.CN7.10" x="17.4" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="104.6" font-size="9" text-anchor="start" fill="#9a9996">10 NC</text>
+    <rect id="$.CN7.11" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="130" font-size="9" text-anchor="end" fill="#9a9996">11 NC</text>
+    <rect id="$.CN7.12" x="17.4" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="130" font-size="9" text-anchor="start" fill="#c01c28">12 IOREF</text>
+    <rect id="$.CN7.13" x="-8" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="155.4" font-size="9" text-anchor="end" fill="#1a5fb4">13 E/S</text>
+    <rect id="$.CN7.14" x="17.4" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="155.4" font-size="9" text-anchor="start" fill="#e66100">14 RESET</text>
+    <rect id="$.CN7.15" x="-8" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="180.8" font-size="9" text-anchor="end" fill="#1a5fb4">15 E/S</text>
+    <rect id="$.CN7.16" x="17.4" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="180.8" font-size="9" text-anchor="start" fill="#c01c28">16 +3V3 V33</text>
+    <rect id="$.CN7.17" x="-8" y="195.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="206.2" font-size="9" text-anchor="end" fill="#1a5fb4">17 E/S H1</text>
+    <rect id="$.CN7.18" x="17.4" y="195.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="206.2" font-size="9" text-anchor="start" fill="#c01c28">18 +5V V5</text>
+    <rect id="$.CN7.19" x="-8" y="220.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="231.6" font-size="9" text-anchor="end" fill="#333333">19 GND GND</text>
+    <rect id="$.CN7.20" x="17.4" y="220.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="231.6" font-size="9" text-anchor="start" fill="#333333">20 GND GND</text>
+    <rect id="$.CN7.21" x="-8" y="246" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="257" font-size="9" text-anchor="end" fill="#1a5fb4">21 E/S</text>
+    <rect id="$.CN7.22" x="17.4" y="246" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="257" font-size="9" text-anchor="start" fill="#333333">22 GND GND</text>
+    <rect id="$.CN7.23" x="-8" y="271.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="282.4" font-size="9" text-anchor="end" fill="#1a5fb4">23 E/S</text>
+    <rect id="$.CN7.24" x="17.4" y="271.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="282.4" font-size="9" text-anchor="start" fill="#c01c28">24 VIN</text>
+    <rect id="$.CN7.25" x="-8" y="296.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="307.8" font-size="9" text-anchor="end" fill="#1a5fb4">25 E/S</text>
+    <rect id="$.CN7.26" x="17.4" y="296.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="307.8" font-size="9" text-anchor="start" fill="#9a9996">26 NC</text>
+    <rect id="$.CN7.27" x="-8" y="322.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="333.2" font-size="9" text-anchor="end" fill="#1a5fb4">27 E/S</text>
+    <rect id="$.CN7.28" x="17.4" y="322.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="333.2" font-size="9" text-anchor="start" fill="#1a5fb4">28 E/S CUR_A</text>
+    <rect id="$.CN7.29" x="-8" y="347.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="358.6" font-size="9" text-anchor="end" fill="#1a5fb4">29 E/S</text>
+    <rect id="$.CN7.30" x="17.4" y="347.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="358.6" font-size="9" text-anchor="start" fill="#1a5fb4">30 E/S</text>
+    <rect id="$.CN7.31" x="-8" y="373" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="384" font-size="9" text-anchor="end" fill="#1a5fb4">31 E/S</text>
+    <rect id="$.CN7.32" x="17.4" y="373" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="384" font-size="9" text-anchor="start" fill="#1a5fb4">32 E/S</text>
+    <rect id="$.CN7.33" x="-8" y="398.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="409.4" font-size="9" text-anchor="end" fill="#c01c28">33 VBAT</text>
+    <rect id="$.CN7.34" x="17.4" y="398.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="409.4" font-size="9" text-anchor="start" fill="#1a5fb4">34 E/S</text>
+    <rect id="$.CN7.35" x="-8" y="423.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="434.8" font-size="9" text-anchor="end" fill="#1a5fb4">35 E/S</text>
+    <rect id="$.CN7.36" x="17.4" y="423.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="434.8" font-size="9" text-anchor="start" fill="#1a5fb4">36 E/S CUR_B</text>
+    <rect id="$.CN7.37" x="-8" y="449.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="460.2" font-size="9" text-anchor="end" fill="#1a5fb4">37 E/S</text>
+    <rect id="$.CN7.38" x="17.4" y="449.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="460.2" font-size="9" text-anchor="start" fill="#1a5fb4">38 E/S CUR_C</text>
+    <text x="18.1" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">CN7</text>
+  </g>
+  <g transform="translate(264,26)">
+    <rect id="$.CN6.1" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="3" font-size="9" text-anchor="end" fill="#9a9996">1 NC</text>
+    <rect id="$.CN6.2" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="28.4" font-size="9" text-anchor="end" fill="#c01c28">2 IOREF</text>
+    <rect id="$.CN6.3" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="53.8" font-size="9" text-anchor="end" fill="#e66100">3 RESET</text>
+    <rect id="$.CN6.4" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="79.2" font-size="9" text-anchor="end" fill="#c01c28">4 +3V3</text>
+    <rect id="$.CN6.5" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="104.6" font-size="9" text-anchor="end" fill="#c01c28">5 +5V</text>
+    <rect id="$.CN6.6" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="130" font-size="9" text-anchor="end" fill="#333333">6 GND</text>
+    <rect id="$.CN6.7" x="-8" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="155.4" font-size="9" text-anchor="end" fill="#333333">7 GND</text>
+    <rect id="$.CN6.8" x="-8" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="180.8" font-size="9" text-anchor="end" fill="#c01c28">8 VIN</text>
+    <text x="-21.9" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">CN6</text>
+  </g>
+  <g transform="translate(247.8,267.8)">
+    <rect id="$.CN8.1" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="3" font-size="9" text-anchor="end" fill="#1a5fb4">1 A0</text>
+    <rect id="$.CN8.2" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="28.4" font-size="9" text-anchor="end" fill="#1a5fb4">2 A1</text>
+    <rect id="$.CN8.3" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="53.8" font-size="9" text-anchor="end" fill="#1a5fb4">3 A2</text>
+    <rect id="$.CN8.4" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="79.2" font-size="9" text-anchor="end" fill="#1a5fb4">4 A3</text>
+    <rect id="$.CN8.5" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="104.6" font-size="9" text-anchor="end" fill="#1a5fb4">5 A4</text>
+    <rect id="$.CN8.6" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="130" font-size="9" text-anchor="end" fill="#1a5fb4">6 A5</text>
+    <text x="-13.8" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">CN8</text>
+  </g>
+  <g transform="translate(320,26)">
+    <rect id="$.CN5.1" x="-8" y="220.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="231.6" font-size="9" text-anchor="start" fill="#1a5fb4">1 D8</text>
+    <rect id="$.CN5.2" x="-8" y="195.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="206.2" font-size="9" text-anchor="start" fill="#1a5fb4">2 D9</text>
+    <rect id="$.CN5.3" x="-8" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="180.8" font-size="9" text-anchor="start" fill="#1a5fb4">3 D10</text>
+    <rect id="$.CN5.4" x="-8" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="155.4" font-size="9" text-anchor="start" fill="#1a5fb4">4 D11</text>
+    <rect id="$.CN5.5" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="130" font-size="9" text-anchor="start" fill="#1a5fb4">5 D12</text>
+    <rect id="$.CN5.6" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="104.6" font-size="9" text-anchor="start" fill="#1a5fb4">6 D13</text>
+    <rect id="$.CN5.7" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="79.2" font-size="9" text-anchor="start" fill="#333333">7 GND</text>
+    <rect id="$.CN5.8" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="53.8" font-size="9" text-anchor="start" fill="#9141ac">8 AREF</text>
+    <rect id="$.CN5.9" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="28.4" font-size="9" text-anchor="start" fill="#1a5fb4">9 D14</text>
+    <rect id="$.CN5.10" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="3" font-size="9" text-anchor="start" fill="#1a5fb4">10 D15</text>
+    <text x="19.2" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">CN5</text>
+  </g>
+  <g transform="translate(320,318.6)">
+    <rect id="$.CN9.1" x="-8" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="180.8" font-size="9" text-anchor="start" fill="#1a5fb4">1 D0</text>
+    <rect id="$.CN9.2" x="-8" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="155.4" font-size="9" text-anchor="start" fill="#1a5fb4">2 D1</text>
+    <rect id="$.CN9.3" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="130" font-size="9" text-anchor="start" fill="#1a5fb4">3 D2</text>
+    <rect id="$.CN9.4" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="104.6" font-size="9" text-anchor="start" fill="#1a5fb4">4 D3</text>
+    <rect id="$.CN9.5" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="79.2" font-size="9" text-anchor="start" fill="#1a5fb4">5 D4</text>
+    <rect id="$.CN9.6" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="53.8" font-size="9" text-anchor="start" fill="#1a5fb4">6 D5</text>
+    <rect id="$.CN9.7" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="28.4" font-size="9" text-anchor="start" fill="#1a5fb4">7 D6</text>
+    <rect id="$.CN9.8" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="14" y="3" font-size="9" text-anchor="start" fill="#1a5fb4">8 D7</text>
+    <text x="13.8" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">CN9</text>
+  </g>
+  <g transform="translate(479.8,26)">
+    <rect id="$.CN10.1" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="3" font-size="9" text-anchor="end" fill="#1a5fb4">1 E/S</text>
+    <rect id="$.CN10.2" x="17.4" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="3" font-size="9" text-anchor="start" fill="#1a5fb4">2 E/S</text>
+    <rect id="$.CN10.3" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="28.4" font-size="9" text-anchor="end" fill="#1a5fb4">3 E/S</text>
+    <rect id="$.CN10.4" x="17.4" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="28.4" font-size="9" text-anchor="start" fill="#1a5fb4">4 E/S</text>
+    <rect id="$.CN10.5" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="53.8" font-size="9" text-anchor="end" fill="#1a5fb4">5 E/S</text>
+    <rect id="$.CN10.6" x="17.4" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="53.8" font-size="9" text-anchor="start" fill="#1a5fb4">6 E/S</text>
+    <rect id="$.CN10.7" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="79.2" font-size="9" text-anchor="end" fill="#c01c28">7 AVDD</text>
+    <rect id="$.CN10.8" x="17.4" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="79.2" font-size="9" text-anchor="start" fill="#c01c28">8 U5V</text>
+    <rect id="$.CN10.9" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="104.6" font-size="9" text-anchor="end" fill="#333333">9 GND GND</text>
+    <rect id="$.CN10.10" x="17.4" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="104.6" font-size="9" text-anchor="start" fill="#9a9996">10 NC</text>
+    <rect id="$.CN10.11" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="130" font-size="9" text-anchor="end" fill="#1a5fb4">11 E/S</text>
+    <rect id="$.CN10.12" x="17.4" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="130" font-size="9" text-anchor="start" fill="#1a5fb4">12 E/S</text>
+    <rect id="$.CN10.13" x="-8" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="155.4" font-size="9" text-anchor="end" fill="#1a5fb4">13 E/S DIAG</text>
+    <rect id="$.CN10.14" x="17.4" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="155.4" font-size="9" text-anchor="start" fill="#1a5fb4">14 E/S</text>
+    <rect id="$.CN10.15" x="-8" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="180.8" font-size="9" text-anchor="end" fill="#1a5fb4">15 E/S</text>
+    <rect id="$.CN10.16" x="17.4" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="180.8" font-size="9" text-anchor="start" fill="#1a5fb4">16 E/S</text>
+    <rect id="$.CN10.17" x="-8" y="195.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="206.2" font-size="9" text-anchor="end" fill="#1a5fb4">17 E/S</text>
+    <rect id="$.CN10.18" x="17.4" y="195.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="206.2" font-size="9" text-anchor="start" fill="#9a9996">18 NC</text>
+    <rect id="$.CN10.19" x="-8" y="220.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="231.6" font-size="9" text-anchor="end" fill="#1a5fb4">19 E/S</text>
+    <rect id="$.CN10.20" x="17.4" y="220.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="231.6" font-size="9" text-anchor="start" fill="#333333">20 GND GND</text>
+    <rect id="$.CN10.21" x="-8" y="246" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="257" font-size="9" text-anchor="end" fill="#1a5fb4">21 E/S IN2</text>
+    <rect id="$.CN10.22" x="17.4" y="246" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="257" font-size="9" text-anchor="start" fill="#1a5fb4">22 E/S LED</text>
+    <rect id="$.CN10.23" x="-8" y="271.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="282.4" font-size="9" text-anchor="end" fill="#1a5fb4">23 E/S IN1</text>
+    <rect id="$.CN10.24" x="17.4" y="271.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="282.4" font-size="9" text-anchor="start" fill="#1a5fb4">24 E/S</text>
+    <rect id="$.CN10.25" x="-8" y="296.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="307.8" font-size="9" text-anchor="end" fill="#1a5fb4">25 E/S H3</text>
+    <rect id="$.CN10.26" x="17.4" y="296.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="307.8" font-size="9" text-anchor="start" fill="#1a5fb4">26 E/S</text>
+    <rect id="$.CN10.27" x="-8" y="322.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="333.2" font-size="9" text-anchor="end" fill="#1a5fb4">27 E/S</text>
+    <rect id="$.CN10.28" x="17.4" y="322.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="333.2" font-size="9" text-anchor="start" fill="#1a5fb4">28 E/S</text>
+    <rect id="$.CN10.29" x="-8" y="347.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="358.6" font-size="9" text-anchor="end" fill="#1a5fb4">29 E/S</text>
+    <rect id="$.CN10.30" x="17.4" y="347.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="358.6" font-size="9" text-anchor="start" fill="#1a5fb4">30 E/S</text>
+    <rect id="$.CN10.31" x="-8" y="373" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="384" font-size="9" text-anchor="end" fill="#1a5fb4">31 E/S H2</text>
+    <rect id="$.CN10.32" x="17.4" y="373" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="384" font-size="9" text-anchor="start" fill="#333333">32 AGND</text>
+    <rect id="$.CN10.33" x="-8" y="398.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="409.4" font-size="9" text-anchor="end" fill="#1a5fb4">33 E/S IN3</text>
+    <rect id="$.CN10.34" x="17.4" y="398.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="409.4" font-size="9" text-anchor="start" fill="#1a5fb4">34 E/S</text>
+    <rect id="$.CN10.35" x="-8" y="423.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="434.8" font-size="9" text-anchor="end" fill="#1a5fb4">35 E/S</text>
+    <rect id="$.CN10.36" x="17.4" y="423.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="434.8" font-size="9" text-anchor="start" fill="#9a9996">36 NC</text>
+    <rect id="$.CN10.37" x="-8" y="449.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="460.2" font-size="9" text-anchor="end" fill="#1a5fb4">37 E/S</text>
+    <rect id="$.CN10.38" x="17.4" y="449.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="460.2" font-size="9" text-anchor="start" fill="#9a9996">38 NC</text>
+    <text x="10" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">CN10</text>
+  </g>
+</g>
+</svg>

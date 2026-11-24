@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El perfil de conector arduino_uno_r3.analogico (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<conector perfil="arduino_uno_r3.analogico" version="1" filas="1" columnas="6" numeracion="zigzag" titulo="Arduino UNO R3: A0..A5" fuente="UM1724 Rev 17, tabla 19 (Arduino UNO R3 en las Nucleo-64)">
+  <pin n="1" uso="A0" clase="es" otros="ADC"/>
+  <pin n="2" uso="A1" clase="es" otros="ADC"/>
+  <pin n="3" uso="A2" clase="es" otros="ADC"/>
+  <pin n="4" uso="A3" clase="es" otros="ADC"/>
+  <pin n="5" uso="A4" clase="es" otros="ADC I2C_SDA"/>
+  <pin n="6" uso="A5" clase="es" otros="ADC I2C_SCL"/>
+</conector>

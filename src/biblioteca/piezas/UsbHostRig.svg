@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 269 282.4" width="26.90mm" height="28.24mm">
+<!-- UsbHostRig: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(20,20)" font-family="sans-serif">
+  <rect x="0" y="0" width="229" height="242.4" rx="12" fill="#59626b" stroke="#0c2c4a" stroke-width="1.5"/>
+  <circle cx="14" cy="14" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="215" cy="14" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="14" cy="228.4" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <circle cx="215" cy="228.4" r="6" fill="#e8e8e8" stroke="#888" stroke-width="1"/>
+  <text x="114.5" y="34" font-size="13" text-anchor="middle" fill="#fff" font-weight="bold">USB anfitrion</text>
+  <rect x="74.5" y="82" width="80" height="44" rx="3" fill="#c8c8c8" stroke="#888" stroke-width="1"/>
+  <rect x="84.5" y="96" width="60" height="16" fill="#333"/>
+  <rect x="63.7" y="207.7" width="101.6" height="25.4" rx="2" fill="#1a1a1a"/>
+  <rect id="$.dm" x="68.4" y="212.4" width="16" height="16" fill="#c9a227"/>
+  <circle id="$.dp" cx="101.8" cy="220.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="101.8" cy="220.4" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.vbus" cx="127.2" cy="220.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="127.2" cy="220.4" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.id" cx="152.6" cy="220.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="152.6" cy="220.4" r="3.2" fill="#3a2f0a"/>
+  <text x="80.4" y="206.4" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 80.4 206.4)">dm</text>
+  <text x="105.8" y="206.4" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 105.8 206.4)">dp</text>
+  <text x="131.2" y="206.4" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 131.2 206.4)">vbus</text>
+  <text x="156.6" y="206.4" font-size="11" text-anchor="start" fill="#fff" transform="rotate(-90 156.6 206.4)">id</text>
+</g>
+</svg>

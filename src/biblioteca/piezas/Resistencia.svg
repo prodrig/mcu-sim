@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 256 91.3" width="25.60mm" height="9.13mm">
+<!-- Resistencia: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(128,42)" font-family="sans-serif">
+  <path d="M-100 0L100 0" fill="none" stroke="#9a9a9a" stroke-width="5" stroke-linecap="round"/>
+  <rect x="-60" y="-22" width="120" height="44" rx="18" fill="#d8b98a" stroke="#8a6a3a" stroke-width="1.2"/>
+  <rect x="-40" y="-22" width="9" height="44" fill="#8b4513"/>
+  <rect x="-18" y="-22" width="9" height="44" fill="#000"/>
+  <rect x="4" y="-22" width="9" height="44" fill="#8b4513"/>
+  <rect x="26" y="-22" width="9" height="44" fill="#d4af37"/>
+  <circle id="$.a" cx="-100" cy="0" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-100" cy="0" r="3.2" fill="#3a2f0a"/>
+  <circle id="$.b" cx="100" cy="0" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="100" cy="0" r="3.2" fill="#3a2f0a"/>
+  <text x="-100" y="26" font-size="11" text-anchor="middle" fill="#333">a</text>
+  <text x="100" y="26" font-size="11" text-anchor="middle" fill="#333">b</text>
+</g>
+</svg>

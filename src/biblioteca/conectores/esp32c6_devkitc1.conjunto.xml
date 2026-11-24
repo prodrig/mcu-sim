@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El conjunto de conectores esp32c6_devkitc1 (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<!-- x, y: el pin 1 de cada tira, en mm; dx, dy: el paso a la columna
+     siguiente; fx, fy: el paso a la otra fila. De placas/esp32c6_devkitc1.svg. -->
+<conjunto nombre="esp32c6_devkitc1" version="1" titulo="ESP32-C6-DevKitC-1: J1 y J3">
+  <miembro id="J1" perfil="esp32c6_devkitc1.j1" x="0" y="0" dx="0" dy="2.54" fx="0" fy="0"/>
+  <miembro id="J3" perfil="esp32c6_devkitc1.j3" x="25.6" y="0" dx="0" dy="2.54" fx="0" fy="0"/>
+  <cableado placa="placas/esp32c6_devkitc1.xml" mcu="ESP32-C6">
+    <pin p="J1.1" nodo="VDDA3P3"/>
+    <pin p="J1.2" nodo="CHIP_PU"/>
+    <pin p="J1.3" nodo="GPIO4"/>
+    <pin p="J1.4" nodo="GPIO5"/>
+    <pin p="J1.5" nodo="GPIO6"/>
+    <pin p="J1.6" nodo="GPIO7"/>
+    <pin p="J1.7" nodo="GPIO0"/>
+    <pin p="J1.8" nodo="GPIO1"/>
+    <pin p="J1.9" nodo="GPIO8"/>
+    <pin p="J1.10" nodo="GPIO10"/>
+    <pin p="J1.11" nodo="GPIO11"/>
+    <pin p="J1.12" nodo="GPIO2"/>
+    <pin p="J1.13" nodo="GPIO3"/>
+    <pin p="J1.14" nodo="5V"/>
+    <pin p="J1.15" nodo="GND"/>
+    <pin p="J3.1" nodo="GND"/>
+    <pin p="J3.2" nodo="GPIO16"/>
+    <pin p="J3.3" nodo="GPIO17"/>
+    <pin p="J3.4" nodo="GPIO15"/>
+    <pin p="J3.5" nodo="GPIO23"/>
+    <pin p="J3.6" nodo="GPIO22"/>
+    <pin p="J3.7" nodo="GPIO21"/>
+    <pin p="J3.8" nodo="GPIO20"/>
+    <pin p="J3.9" nodo="GPIO19"/>
+    <pin p="J3.10" nodo="GPIO18"/>
+    <pin p="J3.11" nodo="GPIO9"/>
+    <pin p="J3.12" nodo="GND"/>
+    <pin p="J3.13" nodo="GPIO13"/>
+    <pin p="J3.14" nodo="GPIO12"/>
+    <pin p="J3.15" nodo="GND"/>
+  </cableado>
+</conjunto>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- L298: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="L298" version="1" svg="L298.svg" ancho="260" alto="354.8">
+  <ancla terminal="vs" elemento="$.vs" lado="arriba" x="53.8" y="42"/>
+  <ancla terminal="vss" elemento="$.vss" lado="arriba" x="79.2" y="42"/>
+  <ancla terminal="gnd" elemento="$.gnd" lado="arriba" x="104.6" y="42"/>
+  <ancla terminal="ena" elemento="$.ena" lado="arriba" x="130" y="42"/>
+  <ancla terminal="enb" elemento="$.enb" lado="arriba" x="155.4" y="42"/>
+  <ancla terminal="in1" elemento="$.in1" lado="arriba" x="180.8" y="42"/>
+  <ancla terminal="in2" elemento="$.in2" lado="arriba" x="206.2" y="42"/>
+  <ancla terminal="in3" elemento="$.in3" lado="abajo" x="66.5" y="312.8"/>
+  <ancla terminal="in4" elemento="$.in4" lado="abajo" x="91.9" y="312.8"/>
+  <ancla terminal="out1" elemento="$.out1" lado="abajo" x="117.3" y="312.8"/>
+  <ancla terminal="out2" elemento="$.out2" lado="abajo" x="142.7" y="312.8"/>
+  <ancla terminal="out3" elemento="$.out3" lado="abajo" x="168.1" y="312.8"/>
+  <ancla terminal="out4" elemento="$.out4" lado="abajo" x="193.5" y="312.8"/>
+</forma>

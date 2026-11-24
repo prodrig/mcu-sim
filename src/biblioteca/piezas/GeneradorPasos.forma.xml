@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- GeneradorPasos: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="GeneradorPasos" version="1" svg="GeneradorPasos.svg" ancho="334" alto="162.4">
+  <ancla terminal="step" elemento="$.step" lado="abajo" x="154.3" y="120.4"/>
+  <ancla terminal="dir" elemento="$.dir" lado="abajo" x="179.7" y="120.4"/>
+</forma>

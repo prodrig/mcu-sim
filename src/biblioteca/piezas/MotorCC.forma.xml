@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MotorCC: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="MotorCC" version="1" svg="MotorCC.svg" ancho="400" alto="562.2">
+  <ancla terminal="a" elemento="$.a" lado="abajo" x="136.5" y="480"/>
+  <ancla terminal="b" elemento="$.b" lado="abajo" x="161.9" y="480"/>
+  <ancla terminal="enc_vcc" elemento="$.enc_vcc" lado="abajo" x="187.3" y="480"/>
+  <ancla terminal="enc_gnd" elemento="$.enc_gnd" lado="abajo" x="212.7" y="480"/>
+  <ancla terminal="enc_a" elemento="$.enc_a" lado="abajo" x="238.1" y="480"/>
+  <ancla terminal="enc_b" elemento="$.enc_b" lado="abajo" x="263.5" y="480"/>
+</forma>

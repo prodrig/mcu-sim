@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- EthPhy: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="EthPhy" version="1" svg="EthPhy.svg" ancho="253.6" alto="194.3">
+  <ancla terminal="mdc" elemento="$.mdc" lado="izquierda" x="28" y="46.4"/>
+  <ancla terminal="mdio" elemento="$.mdio" lado="izquierda" x="28" y="59"/>
+  <ancla terminal="tx_clk" elemento="$.tx_clk" lado="izquierda" x="28" y="71.8"/>
+  <ancla terminal="rx_clk" elemento="$.rx_clk" lado="izquierda" x="28" y="84.4"/>
+  <ancla terminal="tx_en" elemento="$.tx_en" lado="izquierda" x="28" y="97.2"/>
+  <ancla terminal="txd0" elemento="$.txd0" lado="izquierda" x="28" y="109.8"/>
+  <ancla terminal="txd1" elemento="$.txd1" lado="izquierda" x="28" y="122.5"/>
+  <ancla terminal="txd2" elemento="$.txd2" lado="izquierda" x="28" y="135.2"/>
+  <ancla terminal="txd3" elemento="$.txd3" lado="izquierda" x="28" y="147.9"/>
+  <ancla terminal="col" elemento="$.col" lado="derecha" x="225.6" y="46.4"/>
+  <ancla terminal="crs" elemento="$.crs" lado="derecha" x="225.6" y="59"/>
+  <ancla terminal="rx_er" elemento="$.rx_er" lado="derecha" x="225.6" y="71.8"/>
+  <ancla terminal="rx_dv" elemento="$.rx_dv" lado="derecha" x="225.6" y="84.4"/>
+  <ancla terminal="rxd3" elemento="$.rxd3" lado="derecha" x="225.6" y="97.2"/>
+  <ancla terminal="rxd2" elemento="$.rxd2" lado="derecha" x="225.6" y="109.8"/>
+  <ancla terminal="rxd1" elemento="$.rxd1" lado="derecha" x="225.6" y="122.5"/>
+  <ancla terminal="rxd0" elemento="$.rxd0" lado="derecha" x="225.6" y="135.2"/>
+</forma>

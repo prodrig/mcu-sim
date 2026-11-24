@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Rpull: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="Rpull" version="1" svg="Rpull.svg" ancho="176.6" alto="231.3">
+  <ancla terminal="a" elemento="$.a" lado="abajo" x="75" y="186"/>
+</forma>

@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 253.6 194.3" width="25.36mm" height="19.43mm">
+<!-- EthPhy: el dibujo de la pieza para mcu-sim-build (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     Unidades de 0.1 mm. La pieza es $, y cada terminal $.terminal. -->
+<g id="$" transform="translate(46.8,20)" font-family="sans-serif">
+  <rect x="0" y="0" width="160" height="154.3" rx="4" fill="#262626" stroke="#111" stroke-width="1"/>
+  <circle cx="14" cy="14" r="5" fill="#555"/>
+  <text x="80" y="82.2" font-size="13" text-anchor="middle" fill="#ddd">PHY</text>
+  <rect x="-14" y="23.4" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.mdc" cx="-18.8" cy="26.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="26.4" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="30.4" font-size="10" text-anchor="start" fill="#9cf">mdc</text>
+  <rect x="-14" y="36" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.mdio" cx="-18.8" cy="39" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="39" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="43" font-size="10" text-anchor="start" fill="#9cf">mdio</text>
+  <rect x="-14" y="48.8" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.tx_clk" cx="-18.8" cy="51.8" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="51.8" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="55.8" font-size="10" text-anchor="start" fill="#9cf">tx_clk</text>
+  <rect x="-14" y="61.4" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.rx_clk" cx="-18.8" cy="64.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="64.4" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="68.4" font-size="10" text-anchor="start" fill="#9cf">rx_clk</text>
+  <rect x="-14" y="74.2" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.tx_en" cx="-18.8" cy="77.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="77.2" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="81.2" font-size="10" text-anchor="start" fill="#9cf">tx_en</text>
+  <rect x="-14" y="86.8" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.txd0" cx="-18.8" cy="89.8" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="89.8" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="93.8" font-size="10" text-anchor="start" fill="#9cf">txd0</text>
+  <rect x="-14" y="99.5" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.txd1" cx="-18.8" cy="102.5" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="102.5" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="106.5" font-size="10" text-anchor="start" fill="#9cf">txd1</text>
+  <rect x="-14" y="112.2" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.txd2" cx="-18.8" cy="115.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="115.2" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="119.2" font-size="10" text-anchor="start" fill="#9cf">txd2</text>
+  <rect x="-14" y="124.9" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.txd3" cx="-18.8" cy="127.9" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="-18.8" cy="127.9" r="3.2" fill="#3a2f0a"/>
+  <text x="8" y="131.9" font-size="10" text-anchor="start" fill="#9cf">txd3</text>
+  <rect x="160" y="23.4" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.col" cx="178.8" cy="26.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="26.4" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="30.4" font-size="10" text-anchor="end" fill="#9cf">col</text>
+  <rect x="160" y="36" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.crs" cx="178.8" cy="39" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="39" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="43" font-size="10" text-anchor="end" fill="#9cf">crs</text>
+  <rect x="160" y="48.8" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.rx_er" cx="178.8" cy="51.8" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="51.8" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="55.8" font-size="10" text-anchor="end" fill="#9cf">rx_er</text>
+  <rect x="160" y="61.4" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.rx_dv" cx="178.8" cy="64.4" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="64.4" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="68.4" font-size="10" text-anchor="end" fill="#9cf">rx_dv</text>
+  <rect x="160" y="74.2" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.rxd3" cx="178.8" cy="77.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="77.2" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="81.2" font-size="10" text-anchor="end" fill="#9cf">rxd3</text>
+  <rect x="160" y="86.8" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.rxd2" cx="178.8" cy="89.8" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="89.8" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="93.8" font-size="10" text-anchor="end" fill="#9cf">rxd2</text>
+  <rect x="160" y="99.5" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.rxd1" cx="178.8" cy="102.5" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="102.5" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="106.5" font-size="10" text-anchor="end" fill="#9cf">rxd1</text>
+  <rect x="160" y="112.2" width="14" height="6" fill="#b8b8b8"/>
+  <circle id="$.rxd0" cx="178.8" cy="115.2" r="8" fill="#c9a227" stroke="#7a5f0f" stroke-width="1.2"/>
+  <circle cx="178.8" cy="115.2" r="3.2" fill="#3a2f0a"/>
+  <text x="152" y="119.2" font-size="10" text-anchor="end" fill="#9cf">rxd0</text>
+</g>
+</svg>

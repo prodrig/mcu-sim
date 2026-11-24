@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MotorBLDC: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="MotorBLDC" version="1" svg="MotorBLDC.svg" ancho="400" alto="568.8">
+  <ancla terminal="u" elemento="$.u" lado="abajo" x="85.7" y="480"/>
+  <ancla terminal="v" elemento="$.v" lado="abajo" x="111.1" y="480"/>
+  <ancla terminal="w" elemento="$.w" lado="abajo" x="136.5" y="480"/>
+  <ancla terminal="hall_vcc" elemento="$.hall_vcc" lado="abajo" x="161.9" y="480"/>
+  <ancla terminal="hall_gnd" elemento="$.hall_gnd" lado="abajo" x="187.3" y="480"/>
+  <ancla terminal="h1" elemento="$.h1" lado="abajo" x="212.7" y="480"/>
+  <ancla terminal="h2" elemento="$.h2" lado="abajo" x="238.1" y="480"/>
+  <ancla terminal="h3" elemento="$.h3" lado="abajo" x="263.5" y="480"/>
+  <ancla terminal="enc_a" elemento="$.enc_a" lado="abajo" x="288.9" y="480"/>
+  <ancla terminal="enc_b" elemento="$.enc_b" lado="abajo" x="314.3" y="480"/>
+</forma>

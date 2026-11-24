@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 198.4 713.6" width="19.84mm" height="71.36mm">
+<!-- discovery_f3.p2: STM32F3DISCOVERY: EXP2. Despiezado; unidades de 0.1 mm; cada pin es $.TIRA.N (doc/analisis_build.md, B6).
+     Lo genera biblioteca/herramientas/genera_conectores.py: no se edita a mano. -->
+<g id="$" transform="translate(20,50)" font-family="sans-serif">
+  <text x="0" y="-16" font-size="12" font-weight="bold" fill="#000">STM32F3DISCOVERY: EXP2</text>
+  <g transform="translate(57.2,26)">
+    <rect id="$.P2.1" x="-8" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="3" font-size="9" text-anchor="end" fill="#c01c28">1 5V</text>
+    <rect id="$.P2.2" x="17.4" y="-8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="3" font-size="9" text-anchor="start" fill="#c01c28">2 5V</text>
+    <rect id="$.P2.3" x="-8" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="28.4" font-size="9" text-anchor="end" fill="#1a5fb4">3 PF9</text>
+    <rect id="$.P2.4" x="17.4" y="17.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="28.4" font-size="9" text-anchor="start" fill="#1a5fb4">4 PF10</text>
+    <rect id="$.P2.5" x="-8" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="53.8" font-size="9" text-anchor="end" fill="#9a9996">5 NC</text>
+    <rect id="$.P2.6" x="17.4" y="42.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="53.8" font-size="9" text-anchor="start" fill="#9a9996">6 NC</text>
+    <rect id="$.P2.7" x="-8" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="79.2" font-size="9" text-anchor="end" fill="#1a5fb4">7 PC14</text>
+    <rect id="$.P2.8" x="17.4" y="68.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="79.2" font-size="9" text-anchor="start" fill="#1a5fb4">8 PC15</text>
+    <rect id="$.P2.9" x="-8" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="104.6" font-size="9" text-anchor="end" fill="#1a5fb4">9 PE6</text>
+    <rect id="$.P2.10" x="17.4" y="93.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="104.6" font-size="9" text-anchor="start" fill="#1a5fb4">10 PC13</text>
+    <rect id="$.P2.11" x="-8" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="130" font-size="9" text-anchor="end" fill="#1a5fb4">11 PE4</text>
+    <rect id="$.P2.12" x="17.4" y="119" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="130" font-size="9" text-anchor="start" fill="#1a5fb4">12 PE5</text>
+    <rect id="$.P2.13" x="-8" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="155.4" font-size="9" text-anchor="end" fill="#1a5fb4">13 PE2</text>
+    <rect id="$.P2.14" x="17.4" y="144.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="155.4" font-size="9" text-anchor="start" fill="#1a5fb4">14 PE3</text>
+    <rect id="$.P2.15" x="-8" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="180.8" font-size="9" text-anchor="end" fill="#1a5fb4">15 PE0</text>
+    <rect id="$.P2.16" x="17.4" y="169.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="180.8" font-size="9" text-anchor="start" fill="#1a5fb4">16 PE1</text>
+    <rect id="$.P2.17" x="-8" y="195.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="206.2" font-size="9" text-anchor="end" fill="#1a5fb4">17 PB8</text>
+    <rect id="$.P2.18" x="17.4" y="195.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="206.2" font-size="9" text-anchor="start" fill="#1a5fb4">18 PB9</text>
+    <rect id="$.P2.19" x="-8" y="220.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="231.6" font-size="9" text-anchor="end" fill="#c01c28">19 BOOT0</text>
+    <rect id="$.P2.20" x="17.4" y="220.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="231.6" font-size="9" text-anchor="start" fill="#c01c28">20 VDD</text>
+    <rect id="$.P2.21" x="-8" y="246" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="257" font-size="9" text-anchor="end" fill="#1a5fb4">21 PB6</text>
+    <rect id="$.P2.22" x="17.4" y="246" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="257" font-size="9" text-anchor="start" fill="#1a5fb4">22 PB7</text>
+    <rect id="$.P2.23" x="-8" y="271.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="282.4" font-size="9" text-anchor="end" fill="#1a5fb4">23 PB4</text>
+    <rect id="$.P2.24" x="17.4" y="271.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="282.4" font-size="9" text-anchor="start" fill="#1a5fb4">24 PB5</text>
+    <rect id="$.P2.25" x="-8" y="296.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="307.8" font-size="9" text-anchor="end" fill="#1a5fb4">25 PD7</text>
+    <rect id="$.P2.26" x="17.4" y="296.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="307.8" font-size="9" text-anchor="start" fill="#1a5fb4">26 PB3</text>
+    <rect id="$.P2.27" x="-8" y="322.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="333.2" font-size="9" text-anchor="end" fill="#1a5fb4">27 PD5</text>
+    <rect id="$.P2.28" x="17.4" y="322.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="333.2" font-size="9" text-anchor="start" fill="#1a5fb4">28 PD6</text>
+    <rect id="$.P2.29" x="-8" y="347.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="358.6" font-size="9" text-anchor="end" fill="#1a5fb4">29 PD3</text>
+    <rect id="$.P2.30" x="17.4" y="347.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="358.6" font-size="9" text-anchor="start" fill="#1a5fb4">30 PD4</text>
+    <rect id="$.P2.31" x="-8" y="373" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="384" font-size="9" text-anchor="end" fill="#1a5fb4">31 PD1</text>
+    <rect id="$.P2.32" x="17.4" y="373" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="384" font-size="9" text-anchor="start" fill="#1a5fb4">32 PD2</text>
+    <rect id="$.P2.33" x="-8" y="398.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="409.4" font-size="9" text-anchor="end" fill="#1a5fb4">33 PC12</text>
+    <rect id="$.P2.34" x="17.4" y="398.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="409.4" font-size="9" text-anchor="start" fill="#1a5fb4">34 PD0</text>
+    <rect id="$.P2.35" x="-8" y="423.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="434.8" font-size="9" text-anchor="end" fill="#1a5fb4">35 PC10</text>
+    <rect id="$.P2.36" x="17.4" y="423.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="434.8" font-size="9" text-anchor="start" fill="#1a5fb4">36 PC11</text>
+    <rect id="$.P2.37" x="-8" y="449.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="460.2" font-size="9" text-anchor="end" fill="#1a5fb4">37 PA14</text>
+    <rect id="$.P2.38" x="17.4" y="449.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="460.2" font-size="9" text-anchor="start" fill="#1a5fb4">38 PA15</text>
+    <rect id="$.P2.39" x="-8" y="474.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="485.6" font-size="9" text-anchor="end" fill="#1a5fb4">39 PF6</text>
+    <rect id="$.P2.40" x="17.4" y="474.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="485.6" font-size="9" text-anchor="start" fill="#1a5fb4">40 PA13</text>
+    <rect id="$.P2.41" x="-8" y="500" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="511" font-size="9" text-anchor="end" fill="#9a9996">41 NC</text>
+    <rect id="$.P2.42" x="17.4" y="500" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="511" font-size="9" text-anchor="start" fill="#9a9996">42 NC</text>
+    <rect id="$.P2.43" x="-8" y="525.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="536.4" font-size="9" text-anchor="end" fill="#1a5fb4">43 PA10</text>
+    <rect id="$.P2.44" x="17.4" y="525.4" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="536.4" font-size="9" text-anchor="start" fill="#1a5fb4">44 PA9</text>
+    <rect id="$.P2.45" x="-8" y="550.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="561.8" font-size="9" text-anchor="end" fill="#1a5fb4">45 PA8</text>
+    <rect id="$.P2.46" x="17.4" y="550.8" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="561.8" font-size="9" text-anchor="start" fill="#1a5fb4">46 PC9</text>
+    <rect id="$.P2.47" x="-8" y="576.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="587.2" font-size="9" text-anchor="end" fill="#1a5fb4">47 PC8</text>
+    <rect id="$.P2.48" x="17.4" y="576.2" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="587.2" font-size="9" text-anchor="start" fill="#9a9996">48 NC</text>
+    <rect id="$.P2.49" x="-8" y="601.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="-14" y="612.6" font-size="9" text-anchor="end" fill="#333333">49 VSS</text>
+    <rect id="$.P2.50" x="17.4" y="601.6" width="16" height="16" fill="#d4ac0d" stroke="#9a7d0a" stroke-width="1"/>
+    <text x="39.4" y="612.6" font-size="9" text-anchor="start" fill="#333333">50 VSS</text>
+    <text x="10" y="-14" font-size="11" font-weight="bold" fill="#333" text-anchor="middle">P2</text>
+  </g>
+</g>
+</svg>

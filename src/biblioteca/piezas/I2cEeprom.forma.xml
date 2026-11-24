@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- I2cEeprom: dónde está cada terminal en su dibujo (doc/analisis_build.md, B5).
+     Lo genera biblioteca/herramientas/dibuja_piezas.py: no se edita a mano.
+     x, y en unidades de 0.1 mm, desde la esquina de arriba a la izquierda
+     del viewBox; lado: hacia dónde sale el hilo. -->
+<forma tipo="I2cEeprom" version="1" svg="I2cEeprom.svg" ancho="233.6" alto="105.4">
+  <ancla terminal="scl" elemento="$.scl" lado="izquierda" x="28" y="52.7"/>
+  <ancla terminal="sda" elemento="$.sda" lado="derecha" x="205.6" y="52.7"/>
+</forma>
