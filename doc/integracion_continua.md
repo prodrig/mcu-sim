@@ -13,7 +13,7 @@ Que las suites pasen lo comprueba cualquiera. Lo que se comprueba aquí es que
 **el tiempo simulado no se mueva**, al picosegundo:
 
 ```
-test407    2165 comprobaciones    2281249034555 ps   (resto: sin T96 ni T97)
+test407    2179 comprobaciones    2281249034555 ps   (resto: sin T96 ni T97)
 test446     204                   1033367277932 ps
 test417     165                       718988288 ps
 testserie   189                    400677589564 ps

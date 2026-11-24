@@ -610,6 +610,11 @@ public:
     const std::map<std::string, std::string>& revisiones() const { return revisiones_; }
     const LienzoVentana& lienzo() const { return lienzo_; }
     void pon_rutas(std::vector<RutaLinea> r) { rutas_ = std::move(r); }
+    // Los avisos del <build> de mcu-sim-build (parts/netlist_xml.h, lee_build):
+    // lo unico de el que se guarda. El <build> en si no llega aqui, y por eso
+    // no puede llegar a la ventana en T_PLACA
+    void pon_aviso_build(const std::string& a) { avisos_build_.push_back(a); }
+    const std::vector<std::string>& avisos_build() const { return avisos_build_; }
     const std::vector<RutaLinea>& rutas() const { return rutas_; }
     // Las líneas que la ventana dibuja, como las nombra: un acople de dos o
     // más conectores es una línea por cada par de vecinos, y cada hilo, una
@@ -1886,6 +1891,7 @@ private:
     LienzoVentana lienzo_;
     std::map<std::string, std::string> revisiones_;
     std::vector<RutaLinea> rutas_;
+    std::vector<std::string> avisos_build_;
     bool                       sin_mcu_ = false;
     const Encapsulado*         enc_implicito_ = &ENC_LQFP100;
     std::vector<ExtPartBase*>  piezas_;

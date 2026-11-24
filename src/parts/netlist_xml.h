@@ -55,6 +55,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <functional>
 #include <map>
 #include <sstream>
 #include <string>
@@ -176,6 +177,200 @@ inline std::string lee_lienzo(const std::string& t, LienzoVentana& l) {
     l.y = v[1];
     l.ancho = v[2];
     l.alto = v[3];
+    return std::string();
+}
+
+// ---------------------------------------------------------------------------
+// <build>: LO QUE SOLO USA mcu-sim-build (doc/analisis_build.md §7, fase B7)
+//
+// mcu-sim-build guarda en el propio XML dónde puso cada pieza, las conexiones
+// que dibujó entre patillas -con su trazado y si se ven- y si un MCU va con
+// su dibujo detallado o con el simple. Para la simulación NO SIGNIFICA NADA:
+// las conexiones ya están en los nodos de los <pin>, y el dibujo de la placa
+// ya está en su SVG. Por eso aquí se comprueba lo justo para que una errata no
+// pase en silencio, y no se guarda: no llega al `Netlist`, y así no puede
+// llegar a la ventana en T_PLACA. Que las conexiones internas de una placa
+// NUNCA se vean en mcu-sim-gui (N12 del análisis) depende de esto; T134 lo
+// vigila.
+//
+//   <placa nombre="mi-placa">                  En una placa, como hijo de la
+//     ...                                      raíz (al final, por costumbre;
+//     <build version="1" programa="...">       no se exige):
+//       <marco x="0" y="0" ancho="70" alto="45"/>
+//       <instancia id="LD2" fuente="piezas/Led" x="5" y="30" giro="90"
+//                  escala="1" dibujo="simple"/>
+//       <conexion a="LD2.anodo" b="u0.PA5" trazado="tramos" eje="h"
+//                 codos="31 12" visible="no"/>
+//     </build>
+//   </placa>
+//
+//   <sistema nombre="...">                     En un sistema, solo la
+//     ...                                      visibilidad de cada línea: el
+//     <build version="1">                      trazado ya lo dicen las <ruta>
+//       <linea linea="hilo S/P1.PWM N/CN9.6" visible="no"/>
+//     </build>
+//   </sistema>
+//
+// Qué es un ERROR -la placa no se monta-: un <build> repetido o dentro de una
+// placa escrita en un sistema (esa la edita el sistema), una `version` que no
+// es 1, un elemento o un atributo desconocido, un número que no lo es, un giro
+// que no es 0, 90, 180 o 270, una escala fuera de 0.25 a 4, un dibujo que no
+// es `simple` ni `detalle`, un trazado que no es `curva` ni `tramos`, un eje o
+// unos codos en una curva, una conexión de una patilla consigo misma, una
+// instancia o una línea repetidas.
+//
+// Qué es un AVISO -se monta igual-: una <instancia> o un extremo de una
+// <conexion> que nombran algo que la placa no tiene, o una <linea> que el
+// sistema no tiene. Es lo que pasa cuando alguien edita a mano una placa de
+// mcu-sim-build, y quien lo arregla es mcu-sim-build al abrirla (§7). En una
+// placa leída desde un sistema no se miran: los dice su propio --valida.
+//
+// `existe(id)`: si la placa tiene ese componente o MCU (sin cualificar).
+// `lineas`: las líneas del sistema, o nullptr en una placa.
+// ---------------------------------------------------------------------------
+inline std::string lee_build(const XmlNodo& b, bool de_sistema,
+                             const std::function<bool(const std::string&)>& existe,
+                             const std::vector<std::string>* lineas,
+                             std::vector<std::string>* avisos) {
+    char pos[48];
+    auto donde = [&](const XmlNodo& n) {
+        std::snprintf(pos, sizeof pos, "linea %u: ", n.linea);
+        return std::string(pos);
+    };
+    auto avisa = [&](const XmlNodo& n, const std::string& t) {
+        if (avisos) avisos->push_back(donde(n) + "<build>: " + t);
+    };
+    auto solo = [&](const XmlNodo& n, std::initializer_list<const char*> v) -> std::string {
+        for (const auto& a : n.attrs) {
+            bool ok = false;
+            for (const char* x : v) ok = ok || a.first == x;
+            if (!ok) {
+                std::string l;
+                for (const char* x : v) l += (l.empty() ? "" : ", ") + std::string(x);
+                return donde(n) + "<build>: <" + n.nombre + ">: atributo desconocido: " +
+                       a.first + " (los que tiene: " + l + ")";
+            }
+        }
+        return std::string();
+    };
+    auto numero = [&](const XmlNodo& n, const char* at, double& v) -> std::string {
+        std::vector<double> x;
+        if (!lee_numeros(n.attr_o(at), x) || x.size() != 1)
+            return donde(n) + "<build>: <" + n.nombre + "> " + at + "=\"" + n.attr_o(at) +
+                   "\": es un numero";
+        v = x[0];
+        return std::string();
+    };
+    std::string e = solo(b, {"version", "programa"});
+    if (!e.empty()) return e;
+    if (!b.tiene("version"))
+        return donde(b) + "<build> sin version=: la de hoy es la 1";
+    if (b.attr_o("version") != "1")
+        return donde(b) + "<build version=\"" + b.attr_o("version") + "\">: este mcu-sim "
+               "solo conoce la 1, y la placa es de un mcu-sim-build mas nuevo";
+    // El extremo de una conexión: «ID.patilla». El id es lo de antes del
+    // primer punto -`u0.P1.0` es la P1.0 del chip u0-
+    auto id_de_extremo = [](const std::string& x) {
+        const size_t p = x.find('.');
+        return p == std::string::npos ? std::string() : x.substr(0, p);
+    };
+    std::vector<std::string> vistos;
+    bool hay_marco = false;
+    for (const XmlNodo& h : b.hijos) {
+        if (de_sistema) {
+            if (h.nombre != "linea")
+                return donde(h) + "<build> de un <sistema>: dentro solo va <linea>, no <" +
+                       h.nombre + ">";
+            if (!(e = solo(h, {"linea", "visible"})).empty()) return e;
+            if (!h.tiene("linea")) return donde(h) + "<build>: <linea> sin linea=";
+            const std::string v = h.attr_o("visible", "si");
+            if (v != "si" && v != "no")
+                return donde(h) + "<build>: <linea> visible=\"" + v + "\": es si o no";
+            const std::string l = h.attr_o("linea");
+            if (std::find(vistos.begin(), vistos.end(), l) != vistos.end())
+                return donde(h) + "<build>: <linea linea=\"" + l + "\"> repetida";
+            vistos.push_back(l);
+            if (lineas && std::find(lineas->begin(), lineas->end(), l) == lineas->end())
+                avisa(h, "<linea linea=\"" + l + "\">: el sistema no tiene esa linea");
+            continue;
+        }
+        if (h.nombre == "marco") {
+            if (hay_marco) return donde(h) + "<build>: <marco> repetido";
+            hay_marco = true;
+            if (!(e = solo(h, {"x", "y", "ancho", "alto"})).empty()) return e;
+            double v[4];
+            const char* n[4] = {"x", "y", "ancho", "alto"};
+            for (int k = 0; k < 4; ++k)
+                if (!(e = numero(h, n[k], v[k])).empty()) return e;
+            if (v[2] <= 0 || v[3] <= 0)
+                return donde(h) + "<build>: <marco>: el ancho y el alto son positivos";
+        } else if (h.nombre == "instancia") {
+            if (!(e = solo(h, {"id", "fuente", "x", "y", "giro", "escala", "dibujo"})).empty())
+                return e;
+            if (!h.tiene("id") || !h.tiene("x") || !h.tiene("y"))
+                return donde(h) + "<build>: <instancia> necesita id=, x= e y=";
+            double v;
+            if (!(e = numero(h, "x", v)).empty() || !(e = numero(h, "y", v)).empty()) return e;
+            if (h.tiene("giro")) {
+                int g = 0;
+                const std::string eg = lee_giro(h.attr_o("giro"), g);
+                if (!eg.empty()) return donde(h) + "<build>: <instancia>: " + eg;
+            }
+            if (h.tiene("escala")) {
+                if (!(e = numero(h, "escala", v)).empty()) return e;
+                if (v < 0.25 || v > 4)
+                    return donde(h) + "<build>: <instancia> escala=\"" + h.attr_o("escala") +
+                           "\": va de 0.25 a 4";
+            }
+            const std::string d = h.attr_o("dibujo", "simple");
+            if (d != "simple" && d != "detalle")
+                return donde(h) + "<build>: <instancia> dibujo=\"" + d +
+                       "\": es simple o detalle";
+            const std::string id = h.attr_o("id");
+            if (std::find(vistos.begin(), vistos.end(), id) != vistos.end())
+                return donde(h) + "<build>: <instancia id=\"" + id + "\"> repetida";
+            vistos.push_back(id);
+            if (existe && !existe(id))
+                avisa(h, "<instancia id=\"" + id + "\">: la placa no tiene ningun "
+                         "componente ni MCU con ese id");
+        } else if (h.nombre == "conexion") {
+            if (!(e = solo(h, {"a", "b", "trazado", "eje", "codos", "visible"})).empty())
+                return e;
+            if (!h.tiene("a") || !h.tiene("b"))
+                return donde(h) + "<build>: <conexion> necesita a= y b=";
+            const std::string a = h.attr_o("a"), z = h.attr_o("b");
+            if (a == z)
+                return donde(h) + "<build>: <conexion> de " + a + " consigo misma";
+            const std::string t = h.attr_o("trazado", "curva");
+            if (t != "curva" && t != "tramos")
+                return donde(h) + "<build>: <conexion> trazado=\"" + t +
+                       "\": es curva o tramos";
+            if (t == "curva" && (h.tiene("eje") || h.tiene("codos")))
+                return donde(h) + "<build>: <conexion>: eje= y codos= solo van con "
+                       "trazado=\"tramos\"";
+            const std::string ej = h.attr_o("eje", "h");
+            if (ej != "h" && ej != "v")
+                return donde(h) + "<build>: <conexion> eje=\"" + ej + "\": es h o v";
+            std::vector<double> c;
+            if (h.tiene("codos") && !lee_numeros(h.attr_o("codos"), c))
+                return donde(h) + "<build>: <conexion> codos=\"" + h.attr_o("codos") +
+                       "\": son numeros, en mm";
+            const std::string v = h.attr_o("visible", "si");
+            if (v != "si" && v != "no")
+                return donde(h) + "<build>: <conexion> visible=\"" + v + "\": es si o no";
+            for (const std::string& x : {a, z}) {
+                const std::string id = id_de_extremo(x);
+                if (id.empty())
+                    return donde(h) + "<build>: <conexion>: '" + x + "' no es ID.patilla";
+                if (existe && !existe(id))
+                    avisa(h, "<conexion> " + a + " - " + z + ": la placa no tiene ningun "
+                             "componente ni MCU '" + id + "'");
+            }
+        } else {
+            return donde(h) + "<build>: elemento desconocido <" + h.nombre +
+                   ">. Lo que va aqui: <marco>, <instancia> y <conexion>";
+        }
+    }
     return std::string();
 }
 
@@ -540,7 +735,7 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
     // orden de construccion, y de eso depende que una referencia funcione.
     for (const XmlNodo& h : raiz.hijos) {
         if (h.nombre == "nodo" || h.nombre == "mcu" || h.nombre == "ilustracion" ||
-            h.nombre == "vista3d")
+            h.nombre == "vista3d" || h.nombre == "build")
             continue;
         // UNA CADENA MECANICA (parts/cadena.h): `<transmision id cadena="M V">`
         // es una pieza Transmision cuyas referencias e0, e1... son las piezas
@@ -742,6 +937,30 @@ inline std::string netlist_desde_xml(Netlist& nl, const XmlNodo& raiz,
         const std::string e =
             lee_vista3d(nl, h, cx.en_sistema() ? cx.id + "/" : std::string(), il.vista3d);
         if (!e.empty()) return e;
+    }
+    // Quinta: lo de mcu-sim-build (B7 de doc/analisis_build.md). Se comprueba
+    // y no se guarda: ver lee_build
+    bool hay_build = false;
+    for (const XmlNodo& h : raiz.hijos) {
+        if (h.nombre != "build") continue;
+        if (hay_build) return donde(h) + "<build> repetido: uno por placa";
+        hay_build = true;
+        if (dentro)
+            return donde(h) + "<build> en una placa escrita dentro de un <sistema>: esa "
+                   "placa la edita el sistema, y lo suyo va en el <build> del sistema";
+        // Las referencias, solo en una placa suelta: en una de un sistema las
+        // dice su propio --valida
+        std::function<bool(const std::string&)> existe;
+        if (!cx.en_sistema())
+            existe = [&nl](const std::string& id) {
+                if (nl.busca(id)) return true;
+                for (const DeclMcu& m : nl.mcus()) if (m.id == id) return true;
+                return false;
+            };
+        std::vector<std::string> av;
+        const std::string e = lee_build(h, false, existe, nullptr, &av);
+        if (!e.empty()) return e;
+        for (const std::string& a : av) nl.pon_aviso_build(a);
     }
     if (ilus) *ilus = il;
     return std::string();
@@ -955,6 +1174,7 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
     };
     std::vector<RutaLinea> rutas;
     std::vector<unsigned> lineas_ruta;
+    const XmlNodo* build = nullptr;      // el <build> de mcu-sim-build, si lo hay
     for (const XmlNodo& h : raiz.hijos) {
         if (h.nombre == "placa") continue;
         if (h.nombre == "ruta") {
@@ -1135,10 +1355,14 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
                            "\">: la placa " + pl + " no tiene ningun componente que se llame " + rs;
             }
             nl.busca(q[0])->ref_tardia(h.attr_o("nombre").c_str(), q[1]);
+        } else if (h.nombre == "build") {
+            // Lo de mcu-sim-build: se mira al final, con las lineas ya puestas
+            if (build) return donde(h) + "<build> repetido: uno por sistema";
+            build = &h;
         } else {
             return donde(h) + "elemento desconocido dentro de <sistema>: <" + h.nombre +
                    ">. Lo que va aqui: <placa>, <acopla>, <hilo>, <mcu ref>, <jumper ref>, "
-                   "<memoria ref>, <ref pieza> y <ruta>";
+                   "<memoria ref>, <ref pieza>, <ruta> y <build>";
         }
     }
     // Las rutas, de líneas que hay: ya están todos los acoples y los hilos
@@ -1153,6 +1377,12 @@ inline std::string sistema_desde_xml(Netlist& nl, const XmlNodo& raiz,
         }
     nl.pon_rutas(rutas);
     nl.pon_placas(placas);
+    if (build) {
+        std::vector<std::string> av;
+        const std::string e = lee_build(*build, true, nullptr, &lineas, &av);
+        if (!e.empty()) return e;
+        for (const std::string& a : av) nl.pon_aviso_build(a);
+    }
     return std::string();
 }
 

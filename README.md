@@ -121,7 +121,7 @@ plataformas. Cada uno da sus comprobaciones y el tiempo simulado que tarda,
 que es su **invariante** (en `resto`, sin lo que hablan con un GDB de verdad):
 
 ```
-make test407     # 2165 comprobaciones    2281249034555 ps (resto)   STM32F407
+make test407     # 2179 comprobaciones    2281249034555 ps (resto)   STM32F407
 make test446     #  204                   1033367277932 ps           STM32F446
 make test417     #  165                       718988288 ps           STM32F417
 make testf3      #  428                 116875480154660 ps (resto)   STM32F303

@@ -796,6 +796,64 @@ contenido por memoria (su plan §53).
 
 ---
 
+### 2.8 Lo que guarda `mcu-sim-build`: `<build>`
+
+`mcu-sim-build` (`doc/analisis_build.md`) dibuja una placa en vez de
+escribirla, y lo que dibuja lo guarda **en el propio XML**, en un `<build>`
+al final:
+* dónde puso cada pieza;
+* las conexiones que trazó entre patillas, con su trazado y si se ven;
+* si un MCU va con su dibujo detallado o con el simple.
+
+**Para la simulación no significa nada**:
+* las conexiones ya están en los nodos de los `<pin>`;
+* el dibujo ya está en el SVG.
+
+`mcu-sim` lo comprueba y **no lo guarda**. No va en `T_PLACA` ni en el dibujo,
+así que las conexiones de dentro de una placa **nunca se ven en
+`mcu-sim-gui`**.
+
+```xml
+<placa nombre="mi-placa">
+  <mcu tipo="STM32F446RE" id="u0"/>
+  <componente tipo="Led" id="LD2"><pin nombre="anodo" nodo="PA5"/></componente>
+  ...
+  <build version="1" programa="mcu-sim-build 0.1.0">
+    <marco x="0" y="0" ancho="70" alto="45"/>
+    <instancia id="u0"  fuente="mcus/STM32F446RE" x="20" y="10" dibujo="simple"/>
+    <instancia id="LD2" fuente="piezas/Led" x="5" y="30" giro="90"/>
+    <conexion a="LD2.anodo" b="u0.PA5" trazado="tramos" eje="h" codos="31 12"/>
+  </build>
+</placa>
+```
+
+| Elemento | Atributos | Qué es |
+| :--- | :--- | :--- |
+| `<build>` | `version` (hoy, `1`), `programa` | Uno por placa o por sistema, como hijo de la raíz. Al final, por costumbre: no se exige |
+| `<marco>` | `x`, `y`, `ancho`, `alto`, en mm | El borde de la placa |
+| `<instancia>` | `id`, `x`, `y` (mm); `fuente`, `giro` (0, 90, 180, 270), `escala` (0.25 a 4), `dibujo` (`simple` o `detalle`) | Dónde va una pieza o un MCU de la placa, y de qué entrada de la biblioteca salió |
+| `<conexion>` | `a`, `b` (`ID.patilla`); `trazado` (`curva` o `tramos`), `eje` y `codos` (con `tramos`, como en `<ruta>`), `visible` (`si` o `no`) | Una línea dibujada entre dos patillas |
+| `<linea>` | `linea` (como en `<ruta>`), `visible` | **Solo en el `<build>` de un sistema**, y lo único que va en él: si se ve una línea. El trazado ya lo dicen las `<ruta>` |
+
+**Errores**, y la placa no se monta:
+* un `<build>` repetido;
+* un `<build>` en una placa escrita dentro de un sistema (esa la edita el
+  sistema);
+* una `version` que no es 1;
+* un elemento o un atributo desconocido;
+* un número que no lo es, o un giro, una escala, un `dibujo`, un `trazado`,
+  un `eje` o un `visible` que no valen;
+* `eje` o `codos` en una curva;
+* una conexión de una patilla consigo misma;
+* una instancia o una línea repetidas.
+
+**Avisos**, y se monta igual: una instancia o un extremo de conexión que
+nombran algo que la placa no tiene, o una línea que el sistema no tiene. Es lo
+que pasa al editar a mano una placa de `mcu-sim-build`, y es `mcu-sim-build`
+quien lo arregla al abrirla. Salen como `[build]` con `--verbose`, y se
+cuentan en los avisos de la placa. En una placa leída desde un sistema no se
+miran, porque los dice su propio `--valida`.
+
 ## 3. Parámetros comunes
 
 ### 3.1 Los tres de todos los componentes

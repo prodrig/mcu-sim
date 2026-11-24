@@ -79,7 +79,8 @@
 # (Y la quinta, 2026-11-24, solo en las comprobaciones: T133, las fichas de
 #  las piezas como dato para mcu-sim-build -`--exporta-piezas`, fase B1 de
 #  doc/analisis_build.md-. Es pura, como T126: no avanza el reloj. 2151 ->
-#  2165, y el resto, al picosegundo: 2281249034555.)
+#  2165, y el resto, al picosegundo: 2281249034555. Y T134, el <build> de
+#  mcu-sim-build en el XML -fase B7-, tambien pura: 2165 -> 2179.)
 #
 # O sea que contrastar el total generaba un fallo falso en una plataforma y
 # tapaba el criterio de verdad. Contrastar `resto` no afloja nada: quita del
@@ -92,7 +93,7 @@
 # mas lo que T96 y T97 gasten sin esperar a nadie.
 
 # suite      comprobaciones   tiempo simulado (ps)   cifra
-test407               2165      2281249034555        resto
+test407               2179      2281249034555        resto
 test446                204      1033367277932        total
 test417                165           718988288        total
 # El banco del puente UART (P-14). Crece con cada fase del plan de

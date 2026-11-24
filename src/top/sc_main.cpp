@@ -1202,6 +1202,7 @@ SC_MODULE(F1Tb) {
         t131_systick_tras_parada();
         t132_rebotes();
         t133_exporta_piezas();
+        t134_build_en_el_xml();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -15158,6 +15159,186 @@ SC_MODULE(F1Tb) {
                 sin_dobles = false;
         }
         check(sin_dobles, "y la cabecera es un comentario XML valido: sin `--` dentro");
+    }
+
+    // -----------------------------------------------------------------------
+    // T134 — El <build> de mcu-sim-build en el XML (fase B7 de
+    // doc/analisis_build.md, decisión D2-B). mcu-sim-build guarda en la propia
+    // placa dónde puso cada pieza y las conexiones que dibujó; mcu-sim lo
+    // comprueba y NO LO GUARDA, para que nunca llegue a la ventana: las
+    // conexiones de dentro de una placa no se ven en mcu-sim-gui (N12). Lo que
+    // hay que ver aquí es eso -que la placa con y sin <build> se vuelca igual-
+    // y que una errata en el <build> no pasa en silencio.
+    //
+    // Puro: se lee XML y no se construye ni se simula nada.
+    // -----------------------------------------------------------------------
+    void t134_build_en_el_xml() {
+        group("T134 El <build> de mcu-sim-build: se comprueba y no llega a la ventana (B7)");
+
+        const std::string cuerpo =
+            "<placa nombre=\"b7\">\n"
+            "  <mcu tipo=\"STM32F407VG\" id=\"u0\"/>\n"
+            "  <componente tipo=\"Led\" id=\"LD2\"><pin nombre=\"anodo\" nodo=\"PA5\"/></componente>\n"
+            "  <componente tipo=\"Conector\" id=\"CN5\" filas=\"1\" columnas=\"10\">\n"
+            "    <pin nombre=\"6\" nodo=\"PA5\"/>\n"
+            "  </componente>\n";
+        auto con = [&](const std::string& build) { return cuerpo + build + "</placa>\n"; };
+        const std::string bueno =
+            "  <build version=\"1\" programa=\"mcu-sim-build 0.1.0\">\n"
+            "    <marco x=\"0\" y=\"0\" ancho=\"70\" alto=\"45\"/>\n"
+            "    <instancia id=\"u0\" fuente=\"mcus/STM32F407VG\" x=\"20\" y=\"10\" dibujo=\"detalle\"/>\n"
+            "    <instancia id=\"LD2\" fuente=\"piezas/Led\" x=\"5\" y=\"30\" giro=\"90\" escala=\"1.5\"/>\n"
+            "    <instancia id=\"CN5\" fuente=\"piezas/Conector\" x=\"40\" y=\"2\"/>\n"
+            "    <conexion a=\"LD2.anodo\" b=\"u0.PA5\"/>\n"
+            "    <conexion a=\"CN5.6\" b=\"u0.PA5\" trazado=\"tramos\" eje=\"v\" codos=\"31 12\" visible=\"no\"/>\n"
+            "  </build>\n";
+
+        // --- 1. Una placa con su <build> se monta, y se vuelca como sin el --
+        std::string vol_con, vol_sin;
+        {
+            Netlist n;
+            const std::string e = netlist_desde_texto(n, con(bueno));
+            check(e.empty(), e.empty() ? "una placa con un <build> bien escrito se lee"
+                                       : e.c_str());
+            check(n.avisos_build().empty(), "y sin avisos: todo lo que nombra existe");
+            std::ostringstream os; n.volcar_xml(os, "b7"); vol_con = os.str();
+        }
+        {
+            Netlist n;
+            const std::string e = netlist_desde_texto(n, con(""));
+            check(e.empty(), "la misma placa sin <build>, igual");
+            std::ostringstream os; n.volcar_xml(os, "b7"); vol_sin = os.str();
+        }
+        check(!vol_con.empty() && vol_con == vol_sin,
+              "y lo que se manda a la ventana (T_PLACA) es IDENTICO con y sin <build>");
+        check(vol_con.find("build") == std::string::npos &&
+              vol_con.find("conexion") == std::string::npos &&
+              vol_con.find("instancia") == std::string::npos,
+              "no lleva nada del <build>: las conexiones internas no llegan a "
+              "mcu-sim-gui");
+
+        // --- 2. Lo que nombra algo que no hay: aviso, y se monta igual -----
+        {
+            Netlist n;
+            const std::string e = netlist_desde_texto(n, con(
+                "  <build version=\"1\">\n"
+                "    <instancia id=\"LD9\" x=\"0\" y=\"0\"/>\n"
+                "    <conexion a=\"LD2.anodo\" b=\"R1.a\"/>\n"
+                "  </build>\n"));
+            check(e.empty(), "un <build> que nombra piezas que no hay no impide montar");
+            check(n.avisos_build().size() == 2 &&
+                  n.avisos_build()[0].find("LD9") != std::string::npos &&
+                  n.avisos_build()[1].find("R1") != std::string::npos,
+                  "pero da un aviso por cada una: la instancia LD9 y la conexion a R1");
+        }
+
+        // --- 3. Las erratas son errores -------------------------------------
+        struct Malo { const char* build; const char* busca; };
+        const Malo malos[] = {
+            {"<build/>", "sin version"},
+            {"<build version=\"2\"/>", "solo conoce la 1"},
+            {"<build version=\"1\" autor=\"x\"/>", "atributo desconocido: autor"},
+            {"<build version=\"1\"/><build version=\"1\"/>", "repetido"},
+            {"<build version=\"1\"><cosa/></build>", "elemento desconocido <cosa>"},
+            {"<build version=\"1\"><marco x=\"0\" y=\"0\" ancho=\"0\" alto=\"4\"/></build>",
+             "positivos"},
+            {"<build version=\"1\"><marco x=\"0\" y=\"0\" ancho=\"5\" alto=\"4\"/>"
+             "<marco x=\"0\" y=\"0\" ancho=\"5\" alto=\"4\"/></build>", "<marco> repetido"},
+            {"<build version=\"1\"><instancia id=\"LD2\" x=\"a\" y=\"0\"/></build>",
+             "es un numero"},
+            {"<build version=\"1\"><instancia id=\"LD2\" x=\"0\"/></build>", "id=, x= e y="},
+            {"<build version=\"1\"><instancia id=\"LD2\" x=\"0\" y=\"0\" giro=\"45\"/></build>",
+             "giro"},
+            {"<build version=\"1\"><instancia id=\"LD2\" x=\"0\" y=\"0\" escala=\"5\"/></build>",
+             "de 0.25 a 4"},
+            {"<build version=\"1\"><instancia id=\"LD2\" x=\"0\" y=\"0\" dibujo=\"foto\"/></build>",
+             "simple o detalle"},
+            {"<build version=\"1\"><instancia id=\"LD2\" x=\"0\" y=\"0\" color=\"rojo\"/></build>",
+             "atributo desconocido: color"},
+            {"<build version=\"1\"><instancia id=\"LD2\" x=\"0\" y=\"0\"/>"
+             "<instancia id=\"LD2\" x=\"1\" y=\"1\"/></build>", "repetida"},
+            {"<build version=\"1\"><conexion a=\"LD2.anodo\"/></build>", "a= y b="},
+            {"<build version=\"1\"><conexion a=\"u0.PA5\" b=\"u0.PA5\"/></build>",
+             "consigo misma"},
+            {"<build version=\"1\"><conexion a=\"LD2\" b=\"u0.PA5\"/></build>",
+             "no es ID.patilla"},
+            {"<build version=\"1\"><conexion a=\"LD2.anodo\" b=\"u0.PA5\" trazado=\"recta\"/></build>",
+             "curva o tramos"},
+            {"<build version=\"1\"><conexion a=\"LD2.anodo\" b=\"u0.PA5\" eje=\"h\"/></build>",
+             "solo van con"},
+            {"<build version=\"1\"><conexion a=\"LD2.anodo\" b=\"u0.PA5\" trazado=\"tramos\" "
+             "eje=\"x\"/></build>", "es h o v"},
+            {"<build version=\"1\"><conexion a=\"LD2.anodo\" b=\"u0.PA5\" trazado=\"tramos\" "
+             "codos=\"1 a\"/></build>", "son numeros"},
+            {"<build version=\"1\"><conexion a=\"LD2.anodo\" b=\"u0.PA5\" visible=\"quiza\"/>"
+             "</build>", "es si o no"},
+        };
+        unsigned rechazados = 0, con_motivo = 0;
+        for (const Malo& m : malos) {
+            Netlist n;
+            const std::string e = netlist_desde_texto(n, con(std::string("  ") + m.build + "\n"));
+            if (!e.empty()) ++rechazados;
+            if (e.find(m.busca) != std::string::npos) ++con_motivo;
+            else std::printf("    %s -> %s\n", m.build, e.empty() ? "(se acepta)" : e.c_str());
+        }
+        const unsigned n_malos = unsigned(sizeof malos / sizeof malos[0]);
+        check(rechazados == n_malos,
+              "las erratas del <build> son errores: version, atributos y elementos "
+              "desconocidos, numeros, giro, escala, dibujo, trazado, eje, codos, "
+              "visible, repetidos y conexiones consigo mismas");
+        check(con_motivo == n_malos, "y cada uno dice por que");
+
+        // --- 4. En un sistema -----------------------------------------------
+        auto sistema = [&](const std::string& dentro_n, const std::string& build,
+                           Netlist& n) {
+            const std::string x =
+                "<sistema nombre=\"s7\">\n"
+                "  <placa id=\"N\" nombre=\"n\">\n"
+                "    <mcu tipo=\"STM32F407VG\" id=\"u0\"/>\n"
+                "    <componente tipo=\"Conector\" id=\"CN5\" filas=\"1\" columnas=\"2\">\n"
+                "      <pin nombre=\"1\" nodo=\"PA5\"/>\n"
+                "    </componente>\n" + dentro_n +
+                "  </placa>\n"
+                "  <placa id=\"S\" nombre=\"s\">\n"
+                "    <componente tipo=\"Conector\" id=\"CN1\" filas=\"1\" columnas=\"2\"/>\n"
+                "  </placa>\n"
+                "  <hilo a=\"N/CN5.1\" b=\"S/CN1.1\"/>\n" + build +
+                "</sistema>\n";
+            XmlLector lx;
+            if (!lx.parse(x)) return lx.error();
+            return sistema_desde_xml(n, lx.raiz(), std::string());
+        };
+        {
+            Netlist n;
+            const std::string e = sistema(
+                "", "  <build version=\"1\"><linea linea=\"hilo N/CN5.1 S/CN1.1\" "
+                    "visible=\"no\"/></build>\n", n);
+            check(e.empty(), e.empty() ? "un sistema con su <build>, la visibilidad de "
+                                         "una linea, se lee" : e.c_str());
+            check(n.avisos_build().empty(), "sin avisos: la linea existe");
+        }
+        {
+            Netlist n;
+            const std::string e = sistema(
+                "", "  <build version=\"1\"><linea linea=\"hilo N/CN5.2 S/CN1.2\"/></build>\n", n);
+            check(e.empty() && n.avisos_build().size() == 1,
+                  "una linea que el sistema no tiene es un aviso, no un error");
+        }
+        {
+            Netlist n;
+            const std::string e = sistema(
+                "", "  <build version=\"1\"><conexion a=\"N/CN5.1\" b=\"S/CN1.1\"/></build>\n", n);
+            check(e.find("solo va <linea>") != std::string::npos,
+                  "en el <build> de un sistema solo van <linea>: el trazado ya lo "
+                  "dicen las <ruta>");
+        }
+        {
+            Netlist n;
+            const std::string e = sistema("    <build version=\"1\"/>\n", "", n);
+            check(e.find("escrita dentro de un <sistema>") != std::string::npos,
+                  "y una placa escrita dentro de un sistema no lleva <build>: la "
+                  "edita el sistema");
+        }
     }
 
     void t126_ayuda_componentes() {

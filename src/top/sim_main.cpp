@@ -655,6 +655,13 @@ SC_MODULE(Sim) {
             avisos_placa.push_back(q);
             ++n_avisos;
         }
+        // Lo de mcu-sim-build que nombra algo que la placa no tiene: se monta
+        // igual, y lo arregla mcu-sim-build al abrirla (B7, lee_build)
+        for (const std::string& q : placa.avisos_build()) {
+            stm32::avisa_consola("  [build] %s\n", q.c_str());
+            avisos_placa.push_back(q);
+            ++n_avisos;
+        }
         // Un conflicto eléctrico NO detiene la simulación: puede ser una
         // decisión deliberada -un pin compartido entre dos montajes- y el que
         // manda es quien escribe la placa. Pero se dice, y se dice antes.
