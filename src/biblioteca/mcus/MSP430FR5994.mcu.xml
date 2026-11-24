@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El patillaje del MSP430FR5994 y lo que puede hacer cada patilla, contrastado con lo
+     que simula el modelo de mcu-sim. Lo genera biblioteca/herramientas/genera_mcus.py
+     (doc/analisis_build.md, B3 y B4): no se edita a mano. -->
+<mcu tipo="MSP430FR5994" familia="MSP430FR2" encapsulado="LQFP80" patillas="80" fuente="TI SLASE54D" contrastado="si" version="1">
+  <patilla n="1" nombre="P1.0/TA0.1/DMAE0/RTCCLK/A0/C0/VREF-/VeREF-" clase="es" nodo="P1.0">
+    <funcion nombre="TA0.1" modo="1" simulada="si"/>
+    <funcion nombre="TA0.CCI1A" modo="1" simulada="no"/>
+    <funcion nombre="DMAE0" modo="2" simulada="si"/>
+    <funcion nombre="RTCCLK" modo="2" simulada="si"/>
+    <funcion nombre="A0" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C0" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="VREF-" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="VeREF-" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="2" nombre="P1.1/TA0.2/TA1CLK/COUT/A1/C1/VREF+/VeREF+" clase="es" nodo="P1.1">
+    <funcion nombre="TA0.2" modo="1" simulada="si"/>
+    <funcion nombre="TA0.CCI2A" modo="1" simulada="no"/>
+    <funcion nombre="COUT" modo="2" simulada="si"/>
+    <funcion nombre="TA1CLK" modo="2" simulada="si"/>
+    <funcion nombre="A1" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C1" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="VREF+" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="VeREF+" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="3" nombre="P1.2/TA1.1/TA0CLK/COUT/A2/C2" clase="es" nodo="P1.2">
+    <funcion nombre="TA1.1" modo="1" simulada="si"/>
+    <funcion nombre="TA1.CCI1A" modo="1" simulada="no"/>
+    <funcion nombre="COUT" modo="2" simulada="si"/>
+    <funcion nombre="TA0CLK" modo="2" simulada="si"/>
+    <funcion nombre="A2" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C2" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="4" nombre="P3.0/A12/C12" clase="es" nodo="P3.0">
+    <funcion nombre="A12" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C12" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="5" nombre="P3.1/A13/C13" clase="es" nodo="P3.1">
+    <funcion nombre="A13" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C13" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="6" nombre="P3.2/A14/C14" clase="es" nodo="P3.2">
+    <funcion nombre="A14" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C14" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="7" nombre="P3.3/A15/C15" clase="es" nodo="P3.3">
+    <funcion nombre="A15" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C15" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="8" nombre="P6.0/UCA3TXD/UCA3SIMO" clase="es" nodo="P6.0">
+    <funcion nombre="UCA3SIMO" modo="1" simulada="si"/>
+    <funcion nombre="UCA3TXD" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="9" nombre="P6.1/UCA3RXD/UCA3SOMI" clase="es" nodo="P6.1">
+    <funcion nombre="UCA3RXD" modo="1" simulada="si"/>
+    <funcion nombre="UCA3SOMI" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="10" nombre="P6.2/UCA3CLK" clase="es" nodo="P6.2">
+    <funcion nombre="UCA3CLK" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="11" nombre="P6.3/UCA3STE" clase="es" nodo="P6.3">
+    <funcion nombre="UCA3STE" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="12" nombre="P4.7" clase="es" nodo="P4.7"/>
+  <patilla n="13" nombre="P7.0/UCB2SIMO/UCB2SDA" clase="es" nodo="P7.0">
+    <funcion nombre="UCB2SDA" modo="1" simulada="si"/>
+    <funcion nombre="UCB2SIMO" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="14" nombre="P7.1/UCB2SOMI/UCB2SCL" clase="es" nodo="P7.1">
+    <funcion nombre="UCB2SCL" modo="1" simulada="si"/>
+    <funcion nombre="UCB2SOMI" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="15" nombre="P8.0" clase="es" nodo="P8.0"/>
+  <patilla n="16" nombre="P1.3/TA1.2/UCB0STE/A3/C3" clase="es" nodo="P1.3">
+    <funcion nombre="TA1.2" modo="1" simulada="si"/>
+    <funcion nombre="TA1.CCI2A" modo="1" simulada="no"/>
+    <funcion nombre="UCB0STE" modo="2" simulada="si"/>
+    <funcion nombre="A3" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C3" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="17" nombre="P1.4/TB0.1/UCA0STE/A4/C4" clase="es" nodo="P1.4">
+    <funcion nombre="TB0.1" modo="1" simulada="si"/>
+    <funcion nombre="TB0.CCI1A" modo="1" simulada="no"/>
+    <funcion nombre="UCA0STE" modo="2" simulada="si"/>
+    <funcion nombre="A4" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C4" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="18" nombre="P1.5/TB0.2/UCA0CLK/A5/C5" clase="es" nodo="P1.5">
+    <funcion nombre="TB0.2" modo="1" simulada="si"/>
+    <funcion nombre="TB0.CCI2A" modo="1" simulada="no"/>
+    <funcion nombre="UCA0CLK" modo="2" simulada="si"/>
+    <funcion nombre="A5" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C5" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="19" nombre="DVSS2" clase="alimentacion" nodo=""/>
+  <patilla n="20" nombre="DVCC2" clase="alimentacion" nodo=""/>
+  <patilla n="21" nombre="PJ.0/TDO/TB0OUTH/SMCLK/SRSCG1/C6" clase="es" nodo="PJ.0">
+    <funcion nombre="SMCLK" modo="1" simulada="si"/>
+    <funcion nombre="TB0OUTH" modo="1" simulada="si"/>
+    <funcion nombre="SRSCG1" modo="2" simulada="si"/>
+    <funcion nombre="C6" analogica="si" simulada="si"/>
+    <funcion nombre="TDO" simulada="no"/>
+  </patilla>
+  <patilla n="22" nombre="PJ.1/TDI/TCLK/MCLK/SRSCG0/C7" clase="es" nodo="PJ.1">
+    <funcion nombre="MCLK" modo="1" simulada="si"/>
+    <funcion nombre="SRSCG0" modo="2" simulada="si"/>
+    <funcion nombre="C7" analogica="si" simulada="si"/>
+    <funcion nombre="TCLK" simulada="no"/>
+    <funcion nombre="TDI" simulada="no"/>
+  </patilla>
+  <patilla n="23" nombre="PJ.2/TMS/ACLK/SROSCOFF/C8" clase="es" nodo="PJ.2">
+    <funcion nombre="ACLK" modo="1" simulada="si"/>
+    <funcion nombre="SROSCOFF" modo="2" simulada="si"/>
+    <funcion nombre="C8" analogica="si" simulada="si"/>
+    <funcion nombre="TMS" simulada="no"/>
+  </patilla>
+  <patilla n="24" nombre="PJ.3/TCK/SRCPUOFF/C9" clase="es" nodo="PJ.3">
+    <funcion nombre="SRCPUOFF" modo="2" simulada="si"/>
+    <funcion nombre="C9" analogica="si" simulada="si"/>
+    <funcion nombre="TCK" simulada="no"/>
+  </patilla>
+  <patilla n="25" nombre="P7.2/UCB2CLK" clase="es" nodo="P7.2">
+    <funcion nombre="UCB2CLK" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="26" nombre="P7.3/UCB2STE/TA4.1" clase="es" nodo="P7.3">
+    <funcion nombre="UCB2STE" modo="1" simulada="si"/>
+    <funcion nombre="TA4.1" modo="2" simulada="no"/>
+    <funcion nombre="TA4.CCI1B" modo="2" simulada="si"/>
+  </patilla>
+  <patilla n="27" nombre="P7.4/TA4.0/A16" clase="es" nodo="P7.4">
+    <funcion nombre="TA4.0" modo="2" simulada="no"/>
+    <funcion nombre="TA4.CCI0B" modo="2" simulada="si"/>
+    <funcion nombre="A16" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="28" nombre="P7.5/A17" clase="es" nodo="P7.5">
+    <funcion nombre="A17" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="29" nombre="P7.6/A18" clase="es" nodo="P7.6">
+    <funcion nombre="A18" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="30" nombre="P7.7/A19" clase="es" nodo="P7.7">
+    <funcion nombre="A19" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="31" nombre="P4.0/A8" clase="es" nodo="P4.0">
+    <funcion nombre="A8" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="32" nombre="P4.1/A9" clase="es" nodo="P4.1">
+    <funcion nombre="A9" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="33" nombre="P4.2/A10" clase="es" nodo="P4.2">
+    <funcion nombre="A10" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="34" nombre="P4.3/A11" clase="es" nodo="P4.3">
+    <funcion nombre="A11" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="35" nombre="P2.5/TB0.0/UCA1TXD/UCA1SIMO" clase="es" nodo="P2.5">
+    <funcion nombre="TB0.0" modo="1" simulada="no"/>
+    <funcion nombre="TB0.CCI0B" modo="1" simulada="si"/>
+    <funcion nombre="UCA1SIMO" modo="2" simulada="si"/>
+    <funcion nombre="UCA1TXD" modo="2" simulada="si"/>
+  </patilla>
+  <patilla n="36" nombre="P2.6/TB0.1/UCA1RXD/UCA1SOMI" clase="es" nodo="P2.6">
+    <funcion nombre="TB0.1" modo="1" simulada="si"/>
+    <funcion nombre="UCA1RXD" modo="2" simulada="si"/>
+    <funcion nombre="UCA1SOMI" modo="2" simulada="si"/>
+  </patilla>
+  <patilla n="37" nombre="TEST/SBWTCK" clase="control" nodo="TEST"/>
+  <patilla n="38" nombre="RST/NMI/SBWTDIO" clase="reset" nodo="RST"/>
+  <patilla n="39" nombre="DVSS3" clase="alimentacion" nodo=""/>
+  <patilla n="40" nombre="DVCC3" clase="alimentacion" nodo=""/>
+  <patilla n="41" nombre="P2.0/TB0.6/UCA0TXD/BSLTX/UCA0SIMO/TB0CLK/ACLK" clase="es" nodo="P2.0">
+    <funcion nombre="TB0.6" modo="1" simulada="no"/>
+    <funcion nombre="TB0.CCI6B" modo="1" simulada="si"/>
+    <funcion nombre="UCA0SIMO" modo="2" simulada="si"/>
+    <funcion nombre="UCA0TXD" modo="2" simulada="si"/>
+    <funcion nombre="ACLK" modo="3" simulada="si"/>
+    <funcion nombre="TB0CLK" modo="3" simulada="si"/>
+    <funcion nombre="BSLTX" simulada="no"/>
+  </patilla>
+  <patilla n="42" nombre="P2.1/TB0.0/UCA0RXD/BSLRX/UCA0SOMI" clase="es" nodo="P2.1">
+    <funcion nombre="TB0.0" modo="1" simulada="si"/>
+    <funcion nombre="TB0.CCI0A" modo="1" simulada="no"/>
+    <funcion nombre="UCA0RXD" modo="2" simulada="si"/>
+    <funcion nombre="UCA0SOMI" modo="2" simulada="si"/>
+    <funcion nombre="TB0.0" modo="3" simulada="si"/>
+    <funcion nombre="TB0.CCI0A" modo="3" simulada="no"/>
+    <funcion nombre="BSLRX" simulada="no"/>
+  </patilla>
+  <patilla n="43" nombre="P2.2/TB0.2/UCB0CLK" clase="es" nodo="P2.2">
+    <funcion nombre="TB0.2" modo="1" simulada="si"/>
+    <funcion nombre="UCB0CLK" modo="2" simulada="si"/>
+  </patilla>
+  <patilla n="44" nombre="P8.1" clase="es" nodo="P8.1"/>
+  <patilla n="45" nombre="P8.2" clase="es" nodo="P8.2"/>
+  <patilla n="46" nombre="P8.3" clase="es" nodo="P8.3"/>
+  <patilla n="47" nombre="P3.4/TB0.3/SMCLK" clase="es" nodo="P3.4">
+    <funcion nombre="TB0.3" modo="1" simulada="si"/>
+    <funcion nombre="TB0.CCI3A" modo="1" simulada="no"/>
+    <funcion nombre="SMCLK" modo="2" simulada="si"/>
+    <funcion nombre="SMCLK" modo="3" simulada="si"/>
+  </patilla>
+  <patilla n="48" nombre="P3.5/TB0.4/COUT" clase="es" nodo="P3.5">
+    <funcion nombre="TB0.4" modo="1" simulada="si"/>
+    <funcion nombre="TB0.CCI4A" modo="1" simulada="no"/>
+    <funcion nombre="COUT" modo="2" simulada="si"/>
+    <funcion nombre="COUT" modo="3" simulada="si"/>
+  </patilla>
+  <patilla n="49" nombre="P3.6/TB0.5" clase="es" nodo="P3.6">
+    <funcion nombre="TB0.5" modo="1" simulada="si"/>
+    <funcion nombre="TB0.CCI5A" modo="1" simulada="no"/>
+  </patilla>
+  <patilla n="50" nombre="P3.7/TB0.6" clase="es" nodo="P3.7">
+    <funcion nombre="TB0.6" modo="1" simulada="si"/>
+    <funcion nombre="TB0.CCI6A" modo="1" simulada="no"/>
+  </patilla>
+  <patilla n="51" nombre="P1.6/TB0.3/UCB0SIMO/UCB0SDA/BSLSDA/TA0.0" clase="es" nodo="P1.6">
+    <funcion nombre="TB0.3" modo="1" simulada="no"/>
+    <funcion nombre="TB0.CCI3B" modo="1" simulada="si"/>
+    <funcion nombre="UCB0SDA" modo="2" simulada="si"/>
+    <funcion nombre="UCB0SIMO" modo="2" simulada="si"/>
+    <funcion nombre="TA0.0" modo="3" simulada="si"/>
+    <funcion nombre="TA0.CCI0A" modo="3" simulada="no"/>
+    <funcion nombre="BSLSDA" simulada="no"/>
+  </patilla>
+  <patilla n="52" nombre="P1.7/TB0.4/UCB0SOMI/UCB0SCL/BSLSCL/TA1.0" clase="es" nodo="P1.7">
+    <funcion nombre="TB0.4" modo="1" simulada="no"/>
+    <funcion nombre="TB0.CCI4B" modo="1" simulada="si"/>
+    <funcion nombre="UCB0SCL" modo="2" simulada="si"/>
+    <funcion nombre="UCB0SOMI" modo="2" simulada="si"/>
+    <funcion nombre="TA1.0" modo="3" simulada="si"/>
+    <funcion nombre="TA1.CCI0A" modo="3" simulada="no"/>
+    <funcion nombre="BSLSCL" simulada="no"/>
+  </patilla>
+  <patilla n="53" nombre="P5.0/UCB1SIMO/UCB1SDA" clase="es" nodo="P5.0">
+    <funcion nombre="UCB1SDA" modo="1" simulada="si"/>
+    <funcion nombre="UCB1SIMO" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="54" nombre="P5.1/UCB1SOMI/UCB1SCL" clase="es" nodo="P5.1">
+    <funcion nombre="UCB1SCL" modo="1" simulada="si"/>
+    <funcion nombre="UCB1SOMI" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="55" nombre="P5.2/UCB1CLK/TA4CLK" clase="es" nodo="P5.2">
+    <funcion nombre="UCB1CLK" modo="1" simulada="si"/>
+    <funcion nombre="TA4CLK" modo="2" simulada="si"/>
+  </patilla>
+  <patilla n="56" nombre="P5.3/UCB1STE" clase="es" nodo="P5.3">
+    <funcion nombre="UCB1STE" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="57" nombre="P4.4/TB0.5" clase="es" nodo="P4.4">
+    <funcion nombre="TB0.5" modo="1" simulada="no"/>
+    <funcion nombre="TB0.CCI5B" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="58" nombre="P4.5" clase="es" nodo="P4.5"/>
+  <patilla n="59" nombre="P4.6" clase="es" nodo="P4.6"/>
+  <patilla n="60" nombre="DVSS1" clase="alimentacion" nodo=""/>
+  <patilla n="61" nombre="DVCC1" clase="alimentacion" nodo=""/>
+  <patilla n="62" nombre="P2.7" clase="es" nodo="P2.7"/>
+  <patilla n="63" nombre="P2.3/TA0.0/UCA1STE/A6/C10" clase="es" nodo="P2.3">
+    <funcion nombre="TA0.0" modo="1" simulada="no"/>
+    <funcion nombre="TA0.CCI0B" modo="1" simulada="si"/>
+    <funcion nombre="UCA1STE" modo="2" simulada="si"/>
+    <funcion nombre="A6" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C10" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="64" nombre="P2.4/TA1.0/UCA1CLK/A7/C11" clase="es" nodo="P2.4">
+    <funcion nombre="TA1.0" modo="1" simulada="no"/>
+    <funcion nombre="TA1.CCI0B" modo="1" simulada="si"/>
+    <funcion nombre="UCA1CLK" modo="2" simulada="si"/>
+    <funcion nombre="A7" modo="3" analogica="si" simulada="si"/>
+    <funcion nombre="C11" modo="3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="65" nombre="P5.4/UCA2TXD/UCA2SIMO/TB0OUTH" clase="es" nodo="P5.4">
+    <funcion nombre="UCA2SIMO" modo="1" simulada="si"/>
+    <funcion nombre="UCA2TXD" modo="1" simulada="si"/>
+    <funcion nombre="TB0OUTH" modo="3" simulada="si"/>
+  </patilla>
+  <patilla n="66" nombre="P5.5/UCA2RXD/UCA2SOMI/ACLK" clase="es" nodo="P5.5">
+    <funcion nombre="UCA2RXD" modo="1" simulada="si"/>
+    <funcion nombre="UCA2SOMI" modo="1" simulada="si"/>
+    <funcion nombre="ACLK" modo="3" simulada="si"/>
+  </patilla>
+  <patilla n="67" nombre="P5.6/UCA2CLK/TA4.0/SMCLK" clase="es" nodo="P5.6">
+    <funcion nombre="UCA2CLK" modo="1" simulada="si"/>
+    <funcion nombre="TA4.0" modo="2" simulada="si"/>
+    <funcion nombre="TA4.CCI0A" modo="2" simulada="no"/>
+    <funcion nombre="SMCLK" modo="3" simulada="si"/>
+  </patilla>
+  <patilla n="68" nombre="P5.7/UCA2STE/TA4.1/MCLK" clase="es" nodo="P5.7">
+    <funcion nombre="UCA2STE" modo="1" simulada="si"/>
+    <funcion nombre="TA4.1" modo="2" simulada="si"/>
+    <funcion nombre="TA4.CCI1A" modo="2" simulada="no"/>
+    <funcion nombre="MCLK" modo="3" simulada="si"/>
+  </patilla>
+  <patilla n="69" nombre="P6.4/UCB3SIMO/UCB3SDA" clase="es" nodo="P6.4">
+    <funcion nombre="UCB3SDA" modo="1" simulada="si"/>
+    <funcion nombre="UCB3SIMO" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="70" nombre="P6.5/UCB3SOMI/UCB3SCL" clase="es" nodo="P6.5">
+    <funcion nombre="UCB3SCL" modo="1" simulada="si"/>
+    <funcion nombre="UCB3SOMI" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="71" nombre="P6.6/UCB3CLK" clase="es" nodo="P6.6">
+    <funcion nombre="UCB3CLK" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="72" nombre="P6.7/UCB3STE" clase="es" nodo="P6.7">
+    <funcion nombre="UCB3STE" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="73" nombre="AVSS3" clase="alimentacion" nodo=""/>
+  <patilla n="74" nombre="PJ.6/HFXIN" clase="es" nodo="PJ.6">
+    <funcion nombre="HFXIN" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="75" nombre="PJ.7/HFXOUT" clase="es" nodo="PJ.7">
+    <funcion nombre="HFXOUT" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="76" nombre="AVSS2" clase="alimentacion" nodo=""/>
+  <patilla n="77" nombre="PJ.4/LFXIN" clase="es" nodo="PJ.4">
+    <funcion nombre="LFXIN" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="78" nombre="PJ.5/LFXOUT" clase="es" nodo="PJ.5">
+    <funcion nombre="LFXOUT" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="79" nombre="AVSS1" clase="alimentacion" nodo=""/>
+  <patilla n="80" nombre="AVCC1" clase="alimentacion" nodo=""/>
+</mcu>

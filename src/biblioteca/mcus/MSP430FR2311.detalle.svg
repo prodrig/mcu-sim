@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 309 316" width="30.90mm" height="31.60mm">
+<!-- MSP430FR2311, TSSOP20: el dibujo detallado de mcu-sim-build (doc/analisis_build.md, B3 y B4).
+     Lo genera biblioteca/herramientas/genera_mcus.py: no se edita a mano.
+     Unidades de 0.1 mm. Cada patilla es $.N, con N su posicion. -->
+<g id="$" transform="translate(132.5,122.5)" font-family="sans-serif">
+  <rect x="0" y="0" width="44" height="71" rx="0.9" fill="#2b2b2b" stroke="#111" stroke-width="0.5"/>
+  <circle cx="6.5" cy="6.5" r="1.3" fill="#555"/>
+  <rect id="$.1" x="-10" y="4.8" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.2" x="-10" y="11.3" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.3" x="-10" y="17.8" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.4" x="-10" y="24.3" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.5" x="-10" y="30.8" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.6" x="-10" y="37.3" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.7" x="-10" y="43.8" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.8" x="-10" y="50.3" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.9" x="-10" y="56.8" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.10" x="-10" y="63.3" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.11" x="44" y="63.3" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.12" x="44" y="56.8" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.13" x="44" y="50.3" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.14" x="44" y="43.8" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.15" x="44" y="37.3" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.16" x="44" y="30.8" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.17" x="44" y="24.3" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.18" x="44" y="17.8" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.19" x="44" y="11.3" width="10" height="2.9" fill="#b8b8b8"/>
+  <rect id="$.20" x="44" y="4.8" width="10" height="2.9" fill="#b8b8b8"/>
+  <text x="-12" y="7.6" font-size="3.9" text-anchor="end" fill="#1a5fb4">1 P1.1/UCB0CLK/ACLK/C1/A1</text>
+  <text x="-12" y="14.1" font-size="3.9" text-anchor="end" fill="#1a5fb4">2 P1.0/UCB0STE/SMCLK/C0/A0/Veref+</text>
+  <text x="-12" y="20.6" font-size="3.9" text-anchor="end" fill="#6a3d9a">3 TEST/SBWTCK</text>
+  <text x="-12" y="27.1" font-size="3.9" text-anchor="end" fill="#6a3d9a">4 RST/NMI/SBWTDIO</text>
+  <text x="-12" y="33.6" font-size="3.9" text-anchor="end" fill="#c01c28">5 DVCC</text>
+  <text x="-12" y="40.1" font-size="3.9" text-anchor="end" fill="#c01c28">6 DVSS</text>
+  <text x="-12" y="46.6" font-size="3.9" text-anchor="end" fill="#1a5fb4">7 P2.7/TB0CLK/XIN</text>
+  <text x="-12" y="53.1" font-size="3.9" text-anchor="end" fill="#1a5fb4">8 P2.6/MCLK/XOUT</text>
+  <text x="-12" y="59.6" font-size="3.9" text-anchor="end" fill="#1a5fb4">9 P2.5/UCB0SOMI/UCB0SCL</text>
+  <text x="-12" y="66.1" font-size="3.9" text-anchor="end" fill="#1a5fb4">10 P2.4/UCB0SIMO/UCB0SDA</text>
+  <text x="56" y="66.1" font-size="3.9" fill="#1a5fb4">11 P2.3/UCB0CLK/TB1TRG</text>
+  <text x="56" y="59.6" font-size="3.9" fill="#1a5fb4">12 P2.2/UCB0STE/TB1CLK</text>
+  <text x="56" y="53.1" font-size="3.9" fill="#1a5fb4">13 P2.1/TB1.2</text>
+  <text x="56" y="46.6" font-size="3.9" fill="#1a5fb4">14 P2.0/TB1.1/COUT</text>
+  <text x="56" y="40.1" font-size="3.9" fill="#1a5fb4">15 P1.7/UCA0TXD/UCA0SIMO/TB0.2/TDO/TRI0+/A7/VREF+</text>
+  <text x="56" y="33.6" font-size="3.9" fill="#1a5fb4">16 P1.6/UCA0RXD/UCA0SOMI/TB0.1/TDI/TCLK/TRI0-/A6</text>
+  <text x="56" y="27.1" font-size="3.9" fill="#1a5fb4">17 P1.5/UCA0CLK/TMS/TRI0O/A5</text>
+  <text x="56" y="20.6" font-size="3.9" fill="#1a5fb4">18 P1.4/UCA0STE/TCK/OA0+/A4</text>
+  <text x="56" y="14.1" font-size="3.9" fill="#1a5fb4">19 P1.3/UCB0SOMI/UCB0SCL/OA0O/A3</text>
+  <text x="56" y="7.6" font-size="3.9" fill="#1a5fb4">20 P1.2/UCB0SIMO/UCB0SDA/TB0TRG/OA0-/A2/Veref-</text>
+  <text x="22" y="37.4" font-size="8.9" text-anchor="middle" fill="#ddd" transform="rotate(-90,22,35.5)">MSP430FR2311</text>
+</g>
+</svg>

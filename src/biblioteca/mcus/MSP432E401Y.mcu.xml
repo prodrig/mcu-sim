@@ -1,0 +1,515 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El patillaje del MSP432E401Y y lo que puede hacer cada patilla, contrastado con lo
+     que simula el modelo de mcu-sim. Lo genera biblioteca/herramientas/genera_mcus.py
+     (doc/analisis_build.md, B3 y B4): no se edita a mano. -->
+<mcu tipo="MSP432E401Y" familia="MSP432E4" encapsulado="TQFP128" patillas="128" fuente="TI SLASEN5" contrastado="si" version="1">
+  <patilla n="1" nombre="PD0/AIN15/C0o/I2C7SCL/SSI2XDAT1/T0CCP0" clase="es" nodo="PD0">
+    <funcion nombre="I2C7SCL" modo="2" simulada="si"/>
+    <funcion nombre="T0CCP0" modo="3" simulada="si"/>
+    <funcion nombre="C0o" modo="5" simulada="no"/>
+    <funcion nombre="SSI2XDAT1" modo="15" simulada="si"/>
+    <funcion nombre="AIN15" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="2" nombre="PD1/AIN14/C1o/I2C7SDA/SSI2XDAT0/T0CCP1" clase="es" nodo="PD1">
+    <funcion nombre="I2C7SDA" modo="2" simulada="si"/>
+    <funcion nombre="T0CCP1" modo="3" simulada="si"/>
+    <funcion nombre="C1o" modo="5" simulada="no"/>
+    <funcion nombre="SSI2XDAT0" modo="15" simulada="si"/>
+    <funcion nombre="AIN14" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="3" nombre="PD2/AIN13/C2o/I2C8SCL/SSI2Fss/T1CCP0" clase="es" nodo="PD2">
+    <funcion nombre="I2C8SCL" modo="2" simulada="si"/>
+    <funcion nombre="T1CCP0" modo="3" simulada="si"/>
+    <funcion nombre="C2o" modo="5" simulada="no"/>
+    <funcion nombre="SSI2Fss" modo="15" simulada="si"/>
+    <funcion nombre="AIN13" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="4" nombre="PD3/AIN12/I2C8SDA/SSI2Clk/T1CCP1" clase="es" nodo="PD3">
+    <funcion nombre="I2C8SDA" modo="2" simulada="si"/>
+    <funcion nombre="T1CCP1" modo="3" simulada="si"/>
+    <funcion nombre="SSI2Clk" modo="15" simulada="si"/>
+    <funcion nombre="AIN12" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="5" nombre="PQ0/EPI0S20/SSI3Clk" clase="es" nodo="PQ0">
+    <funcion nombre="SSI3Clk" modo="14" simulada="si"/>
+    <funcion nombre="EPI0S20" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="6" nombre="PQ1/EPI0S21/SSI3Fss" clase="es" nodo="PQ1">
+    <funcion nombre="SSI3Fss" modo="14" simulada="si"/>
+    <funcion nombre="EPI0S21" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="7" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="8" nombre="VDDA" clase="alimentacion" nodo="VDDA"/>
+  <patilla n="9" nombre="VREFA+" clase="alimentacion" nodo=""/>
+  <patilla n="10" nombre="GNDA" clase="alimentacion" nodo="GNDA"/>
+  <patilla n="11" nombre="PQ2/EPI0S22/SSI3XDAT0" clase="es" nodo="PQ2">
+    <funcion nombre="SSI3XDAT0" modo="14" simulada="si"/>
+    <funcion nombre="EPI0S22" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="12" nombre="PE3/AIN0/U1DTR" clase="es" nodo="PE3">
+    <funcion nombre="U1DTR" modo="1" simulada="no"/>
+    <funcion nombre="AIN0" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="13" nombre="PE2/AIN1/U1DCD" clase="es" nodo="PE2">
+    <funcion nombre="U1DCD" modo="1" simulada="no"/>
+    <funcion nombre="AIN1" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="14" nombre="PE1/AIN2/U1DSR" clase="es" nodo="PE1">
+    <funcion nombre="U1DSR" modo="1" simulada="no"/>
+    <funcion nombre="AIN2" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="15" nombre="PE0/AIN3/U1RTS" clase="es" nodo="PE0">
+    <funcion nombre="U1RTS" modo="1" simulada="no"/>
+    <funcion nombre="AIN3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="16" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="17" nombre="GND" clase="alimentacion" nodo="GND"/>
+  <patilla n="18" nombre="PK0/AIN16/EPI0S0/U4Rx" clase="es" nodo="PK0">
+    <funcion nombre="U4Rx" modo="1" simulada="si"/>
+    <funcion nombre="EPI0S0" modo="15" simulada="no"/>
+    <funcion nombre="AIN16" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="19" nombre="PK1/AIN17/EPI0S1/U4Tx" clase="es" nodo="PK1">
+    <funcion nombre="U4Tx" modo="1" simulada="si"/>
+    <funcion nombre="EPI0S1" modo="15" simulada="no"/>
+    <funcion nombre="AIN17" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="20" nombre="PK2/AIN18/EPI0S2/U4RTS" clase="es" nodo="PK2">
+    <funcion nombre="U4RTS" modo="1" simulada="no"/>
+    <funcion nombre="EPI0S2" modo="15" simulada="no"/>
+    <funcion nombre="AIN18" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="21" nombre="PK3/AIN19/EPI0S3/U4CTS" clase="es" nodo="PK3">
+    <funcion nombre="U4CTS" modo="1" simulada="no"/>
+    <funcion nombre="EPI0S3" modo="15" simulada="no"/>
+    <funcion nombre="AIN19" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="22" nombre="PC7/C0-/EPI0S4/U5Tx" clase="es" nodo="PC7">
+    <funcion nombre="U5Tx" modo="1" simulada="si"/>
+    <funcion nombre="EPI0S4" modo="15" simulada="no"/>
+    <funcion nombre="C0-" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="23" nombre="PC6/C0+/EPI0S5/U5Rx" clase="es" nodo="PC6">
+    <funcion nombre="U5Rx" modo="1" simulada="si"/>
+    <funcion nombre="EPI0S5" modo="15" simulada="no"/>
+    <funcion nombre="C0+" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="24" nombre="PC5/C1+/EPI0S6/RTCCLK/U7Tx" clase="es" nodo="PC5">
+    <funcion nombre="U7Tx" modo="1" simulada="si"/>
+    <funcion nombre="RTCCLK" modo="7" simulada="no"/>
+    <funcion nombre="EPI0S6" modo="15" simulada="no"/>
+    <funcion nombre="C1+" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="25" nombre="PC4/C1-/EPI0S7/U7Rx" clase="es" nodo="PC4">
+    <funcion nombre="U7Rx" modo="1" simulada="si"/>
+    <funcion nombre="EPI0S7" modo="15" simulada="no"/>
+    <funcion nombre="C1-" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="26" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="27" nombre="PQ3/EPI0S23/SSI3XDAT1" clase="es" nodo="PQ3">
+    <funcion nombre="SSI3XDAT1" modo="14" simulada="si"/>
+    <funcion nombre="EPI0S23" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="28" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="29" nombre="PH0/EPI0S0/U0RTS" clase="es" nodo="PH0">
+    <funcion nombre="U0RTS" modo="1" simulada="no"/>
+    <funcion nombre="EPI0S0" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="30" nombre="PH1/EPI0S1/U0CTS" clase="es" nodo="PH1">
+    <funcion nombre="U0CTS" modo="1" simulada="no"/>
+    <funcion nombre="EPI0S1" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="31" nombre="PH2/EPI0S2/U0DCD" clase="es" nodo="PH2">
+    <funcion nombre="U0DCD" modo="1" simulada="no"/>
+    <funcion nombre="EPI0S2" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="32" nombre="PH3/EPI0S3/U0DSR" clase="es" nodo="PH3">
+    <funcion nombre="U0DSR" modo="1" simulada="no"/>
+    <funcion nombre="EPI0S3" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="33" nombre="PA0/CAN0Rx/I2C9SCL/T0CCP0/U0Rx" clase="es" nodo="PA0">
+    <funcion nombre="U0Rx" modo="1" simulada="si"/>
+    <funcion nombre="I2C9SCL" modo="2" simulada="si"/>
+    <funcion nombre="T0CCP0" modo="3" simulada="si"/>
+    <funcion nombre="CAN0Rx" modo="7" simulada="si"/>
+  </patilla>
+  <patilla n="34" nombre="PA1/CAN0Tx/I2C9SDA/T0CCP1/U0Tx" clase="es" nodo="PA1">
+    <funcion nombre="U0Tx" modo="1" simulada="si"/>
+    <funcion nombre="I2C9SDA" modo="2" simulada="si"/>
+    <funcion nombre="T0CCP1" modo="3" simulada="si"/>
+    <funcion nombre="CAN0Tx" modo="7" simulada="si"/>
+  </patilla>
+  <patilla n="35" nombre="PA2/I2C8SCL/SSI0Clk/T1CCP0/U4Rx" clase="es" nodo="PA2">
+    <funcion nombre="U4Rx" modo="1" simulada="si"/>
+    <funcion nombre="I2C8SCL" modo="2" simulada="si"/>
+    <funcion nombre="T1CCP0" modo="3" simulada="si"/>
+    <funcion nombre="SSI0Clk" modo="15" simulada="si"/>
+  </patilla>
+  <patilla n="36" nombre="PA3/I2C8SDA/SSI0Fss/T1CCP1/U4Tx" clase="es" nodo="PA3">
+    <funcion nombre="U4Tx" modo="1" simulada="si"/>
+    <funcion nombre="I2C8SDA" modo="2" simulada="si"/>
+    <funcion nombre="T1CCP1" modo="3" simulada="si"/>
+    <funcion nombre="SSI0Fss" modo="15" simulada="si"/>
+  </patilla>
+  <patilla n="37" nombre="PA4/I2C7SCL/SSI0XDAT0/T2CCP0/U3Rx" clase="es" nodo="PA4">
+    <funcion nombre="U3Rx" modo="1" simulada="si"/>
+    <funcion nombre="I2C7SCL" modo="2" simulada="si"/>
+    <funcion nombre="T2CCP0" modo="3" simulada="si"/>
+    <funcion nombre="SSI0XDAT0" modo="15" simulada="si"/>
+  </patilla>
+  <patilla n="38" nombre="PA5/I2C7SDA/SSI0XDAT1/T2CCP1/U3Tx" clase="es" nodo="PA5">
+    <funcion nombre="U3Tx" modo="1" simulada="si"/>
+    <funcion nombre="I2C7SDA" modo="2" simulada="si"/>
+    <funcion nombre="T2CCP1" modo="3" simulada="si"/>
+    <funcion nombre="SSI0XDAT1" modo="15" simulada="si"/>
+  </patilla>
+  <patilla n="39" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="40" nombre="PA6/EPI0S8/I2C6SCL/SSI0XDAT2/T3CCP0/U2Rx/USB0EPEN" clase="es" nodo="PA6">
+    <funcion nombre="U2Rx" modo="1" simulada="si"/>
+    <funcion nombre="I2C6SCL" modo="2" simulada="si"/>
+    <funcion nombre="T3CCP0" modo="3" simulada="si"/>
+    <funcion nombre="USB0EPEN" modo="5" simulada="no"/>
+    <funcion nombre="SSI0XDAT2" modo="13" simulada="no"/>
+    <funcion nombre="EPI0S8" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="41" nombre="PA7/EPI0S9/I2C6SDA/SSI0XDAT3/T3CCP1/U2Tx/USB0EPEN/USB0PFLT" clase="es" nodo="PA7">
+    <funcion nombre="U2Tx" modo="1" simulada="si"/>
+    <funcion nombre="I2C6SDA" modo="2" simulada="si"/>
+    <funcion nombre="T3CCP1" modo="3" simulada="si"/>
+    <funcion nombre="USB0PFLT" modo="5" simulada="no"/>
+    <funcion nombre="USB0EPEN" modo="11" simulada="no"/>
+    <funcion nombre="SSI0XDAT3" modo="13" simulada="no"/>
+    <funcion nombre="EPI0S9" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="42" nombre="PF0/EN0LED0/M0PWM0/SSI3XDAT1/TRD2" clase="es" nodo="PF0">
+    <funcion nombre="EN0LED0" modo="5" simulada="no"/>
+    <funcion nombre="M0PWM0" modo="6" simulada="no"/>
+    <funcion nombre="SSI3XDAT1" modo="14" simulada="si"/>
+    <funcion nombre="TRD2" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="43" nombre="PF1/EN0LED2/M0PWM1/SSI3XDAT0/TRD1" clase="es" nodo="PF1">
+    <funcion nombre="EN0LED2" modo="5" simulada="no"/>
+    <funcion nombre="M0PWM1" modo="6" simulada="no"/>
+    <funcion nombre="SSI3XDAT0" modo="14" simulada="si"/>
+    <funcion nombre="TRD1" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="44" nombre="PF2/M0PWM2/SSI3Fss/TRD0" clase="es" nodo="PF2">
+    <funcion nombre="M0PWM2" modo="6" simulada="no"/>
+    <funcion nombre="SSI3Fss" modo="14" simulada="si"/>
+    <funcion nombre="TRD0" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="45" nombre="PF3/M0PWM3/SSI3Clk/TRCLK" clase="es" nodo="PF3">
+    <funcion nombre="M0PWM3" modo="6" simulada="no"/>
+    <funcion nombre="SSI3Clk" modo="14" simulada="si"/>
+    <funcion nombre="TRCLK" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="46" nombre="PF4/EN0LED1/M0FAULT0/SSI3XDAT2/TRD3" clase="es" nodo="PF4">
+    <funcion nombre="EN0LED1" modo="5" simulada="no"/>
+    <funcion nombre="M0FAULT0" modo="6" simulada="no"/>
+    <funcion nombre="SSI3XDAT2" modo="14" simulada="no"/>
+    <funcion nombre="TRD3" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="47" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="48" nombre="GND" clase="alimentacion" nodo="GND"/>
+  <patilla n="49" nombre="PG0/EN0PPS/EPI0S11/I2C1SCL/M0PWM4" clase="es" nodo="PG0">
+    <funcion nombre="I2C1SCL" modo="2" simulada="si"/>
+    <funcion nombre="EN0PPS" modo="5" simulada="no"/>
+    <funcion nombre="M0PWM4" modo="6" simulada="no"/>
+    <funcion nombre="EPI0S11" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="50" nombre="PG1/EPI0S10/I2C1SDA/M0PWM5" clase="es" nodo="PG1">
+    <funcion nombre="I2C1SDA" modo="2" simulada="si"/>
+    <funcion nombre="M0PWM5" modo="6" simulada="no"/>
+    <funcion nombre="EPI0S10" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="51" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="52" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="53" nombre="EN0RXIN" clase="control" nodo=""/>
+  <patilla n="54" nombre="EN0RXIP" clase="control" nodo=""/>
+  <patilla n="55" nombre="GND" clase="alimentacion" nodo="GND"/>
+  <patilla n="56" nombre="EN0TXON" clase="control" nodo=""/>
+  <patilla n="57" nombre="EN0TXOP" clase="control" nodo=""/>
+  <patilla n="58" nombre="GND" clase="alimentacion" nodo="GND"/>
+  <patilla n="59" nombre="RBIAS" clase="control" nodo=""/>
+  <patilla n="60" nombre="PK7/EPI0S24/I2C4SDA/M0FAULT2/RTCCLK/U0RI" clase="es" nodo="PK7">
+    <funcion nombre="U0RI" modo="1" simulada="no"/>
+    <funcion nombre="I2C4SDA" modo="2" simulada="si"/>
+    <funcion nombre="RTCCLK" modo="5" simulada="no"/>
+    <funcion nombre="M0FAULT2" modo="6" simulada="no"/>
+    <funcion nombre="EPI0S24" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="61" nombre="PK6/EN0LED1/EPI0S25/I2C4SCL/M0FAULT1" clase="es" nodo="PK6">
+    <funcion nombre="I2C4SCL" modo="2" simulada="si"/>
+    <funcion nombre="EN0LED1" modo="5" simulada="no"/>
+    <funcion nombre="M0FAULT1" modo="6" simulada="no"/>
+    <funcion nombre="EPI0S25" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="62" nombre="PK5/EN0LED2/EPI0S31/I2C3SDA/M0PWM7" clase="es" nodo="PK5">
+    <funcion nombre="I2C3SDA" modo="2" simulada="si"/>
+    <funcion nombre="EN0LED2" modo="5" simulada="no"/>
+    <funcion nombre="M0PWM7" modo="6" simulada="no"/>
+    <funcion nombre="EPI0S31" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="63" nombre="PK4/EN0LED0/EPI0S32/I2C3SCL/M0PWM6" clase="es" nodo="PK4">
+    <funcion nombre="I2C3SCL" modo="2" simulada="si"/>
+    <funcion nombre="EN0LED0" modo="5" simulada="no"/>
+    <funcion nombre="M0PWM6" modo="6" simulada="no"/>
+    <funcion nombre="EPI0S32" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="64" nombre="WAKE" clase="control" nodo="WAKE"/>
+  <patilla n="65" nombre="HIB" clase="control" nodo="HIB"/>
+  <patilla n="66" nombre="XOSC0" clase="control" nodo="XOSC0"/>
+  <patilla n="67" nombre="XOSC1" clase="control" nodo="XOSC1"/>
+  <patilla n="68" nombre="VBAT" clase="alimentacion" nodo="VBAT"/>
+  <patilla n="69" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="70" nombre="RST" clase="reset" nodo="RST"/>
+  <patilla n="71" nombre="PM7/T5CCP1/TMPR0/U0RI" clase="es" nodo="PM7">
+    <funcion nombre="U0RI" modo="1" simulada="no"/>
+    <funcion nombre="T5CCP1" modo="3" simulada="si"/>
+    <funcion nombre="TMPR0" simulada="no"/>
+  </patilla>
+  <patilla n="72" nombre="PM6/T5CCP0/TMPR1/U0DSR" clase="es" nodo="PM6">
+    <funcion nombre="U0DSR" modo="1" simulada="no"/>
+    <funcion nombre="T5CCP0" modo="3" simulada="si"/>
+    <funcion nombre="TMPR1" simulada="no"/>
+  </patilla>
+  <patilla n="73" nombre="PM5/T4CCP1/TMPR2/U0DCD" clase="es" nodo="PM5">
+    <funcion nombre="U0DCD" modo="1" simulada="no"/>
+    <funcion nombre="T4CCP1" modo="3" simulada="si"/>
+    <funcion nombre="TMPR2" simulada="no"/>
+  </patilla>
+  <patilla n="74" nombre="PM4/T4CCP0/TMPR3/U0CTS" clase="es" nodo="PM4">
+    <funcion nombre="U0CTS" modo="1" simulada="no"/>
+    <funcion nombre="T4CCP0" modo="3" simulada="si"/>
+    <funcion nombre="TMPR3" simulada="no"/>
+  </patilla>
+  <patilla n="75" nombre="PM3/EPI0S12/T3CCP1" clase="es" nodo="PM3">
+    <funcion nombre="T3CCP1" modo="3" simulada="si"/>
+    <funcion nombre="EPI0S12" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="76" nombre="PM2/EPI0S13/T3CCP0" clase="es" nodo="PM2">
+    <funcion nombre="T3CCP0" modo="3" simulada="si"/>
+    <funcion nombre="EPI0S13" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="77" nombre="PM1/EPI0S14/T2CCP1" clase="es" nodo="PM1">
+    <funcion nombre="T2CCP1" modo="3" simulada="si"/>
+    <funcion nombre="EPI0S14" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="78" nombre="PM0/EPI0S15/T2CCP0" clase="es" nodo="PM0">
+    <funcion nombre="T2CCP0" modo="3" simulada="si"/>
+    <funcion nombre="EPI0S15" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="79" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="80" nombre="GND" clase="alimentacion" nodo="GND"/>
+  <patilla n="81" nombre="PL0/EPI0S16/I2C2SDA/M0FAULT3/USB0D0" clase="es" nodo="PL0">
+    <funcion nombre="I2C2SDA" modo="2" simulada="si"/>
+    <funcion nombre="M0FAULT3" modo="6" simulada="no"/>
+    <funcion nombre="USB0D0" modo="14" simulada="no"/>
+    <funcion nombre="EPI0S16" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="82" nombre="PL1/EPI0S17/I2C2SCL/PhA0/USB0D1" clase="es" nodo="PL1">
+    <funcion nombre="I2C2SCL" modo="2" simulada="si"/>
+    <funcion nombre="PhA0" modo="6" simulada="no"/>
+    <funcion nombre="USB0D1" modo="14" simulada="no"/>
+    <funcion nombre="EPI0S17" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="83" nombre="PL2/C0o/EPI0S18/PhB0/USB0D2" clase="es" nodo="PL2">
+    <funcion nombre="C0o" modo="5" simulada="no"/>
+    <funcion nombre="PhB0" modo="6" simulada="no"/>
+    <funcion nombre="USB0D2" modo="14" simulada="no"/>
+    <funcion nombre="EPI0S18" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="84" nombre="PL3/C1o/EPI0S19/IDX0/USB0D3" clase="es" nodo="PL3">
+    <funcion nombre="C1o" modo="5" simulada="no"/>
+    <funcion nombre="IDX0" modo="6" simulada="no"/>
+    <funcion nombre="USB0D3" modo="14" simulada="no"/>
+    <funcion nombre="EPI0S19" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="85" nombre="PL4/EPI0S26/T0CCP0/USB0D4" clase="es" nodo="PL4">
+    <funcion nombre="T0CCP0" modo="3" simulada="si"/>
+    <funcion nombre="USB0D4" modo="14" simulada="no"/>
+    <funcion nombre="EPI0S26" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="86" nombre="PL5/EPI0S33/T0CCP1/USB0D5" clase="es" nodo="PL5">
+    <funcion nombre="T0CCP1" modo="3" simulada="si"/>
+    <funcion nombre="USB0D5" modo="14" simulada="no"/>
+    <funcion nombre="EPI0S33" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="87" nombre="VDDC" clase="alimentacion" nodo=""/>
+  <patilla n="88" nombre="OSC0" clase="control" nodo="OSC0"/>
+  <patilla n="89" nombre="OSC1" clase="control" nodo="OSC1"/>
+  <patilla n="90" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="91" nombre="PB2/EPI0S27/I2C0SCL/T5CCP0/USB0STP" clase="es" nodo="PB2">
+    <funcion nombre="I2C0SCL" modo="2" simulada="si"/>
+    <funcion nombre="T5CCP0" modo="3" simulada="si"/>
+    <funcion nombre="USB0STP" modo="14" simulada="no"/>
+    <funcion nombre="EPI0S27" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="92" nombre="PB3/EPI0S28/I2C0SDA/T5CCP1/USB0CLK" clase="es" nodo="PB3">
+    <funcion nombre="I2C0SDA" modo="2" simulada="si"/>
+    <funcion nombre="T5CCP1" modo="3" simulada="si"/>
+    <funcion nombre="USB0CLK" modo="14" simulada="no"/>
+    <funcion nombre="EPI0S28" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="93" nombre="PL7/T1CCP1/USB0DM" clase="es" nodo="PL7">
+    <funcion nombre="T1CCP1" modo="3" simulada="si"/>
+    <funcion nombre="USB0DM" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="94" nombre="PL6/T1CCP0/USB0DP" clase="es" nodo="PL6">
+    <funcion nombre="T1CCP0" modo="3" simulada="si"/>
+    <funcion nombre="USB0DP" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="95" nombre="PB0/CAN1Rx/I2C5SCL/T4CCP0/U1Rx/USB0ID" clase="es" nodo="PB0">
+    <funcion nombre="U1Rx" modo="1" simulada="si"/>
+    <funcion nombre="I2C5SCL" modo="2" simulada="si"/>
+    <funcion nombre="T4CCP0" modo="3" simulada="si"/>
+    <funcion nombre="CAN1Rx" modo="7" simulada="si"/>
+    <funcion nombre="USB0ID" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="96" nombre="PB1/CAN1Tx/I2C5SDA/T4CCP1/U1Tx/USB0VBUS" clase="es" nodo="PB1">
+    <funcion nombre="U1Tx" modo="1" simulada="si"/>
+    <funcion nombre="I2C5SDA" modo="2" simulada="si"/>
+    <funcion nombre="T4CCP1" modo="3" simulada="si"/>
+    <funcion nombre="CAN1Tx" modo="7" simulada="si"/>
+    <funcion nombre="USB0VBUS" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="97" nombre="PC3/TDO/SWO" clase="es" nodo="PC3">
+    <funcion nombre="SWO" modo="1" simulada="si"/>
+    <funcion nombre="TDO" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="98" nombre="PC2/TDI" clase="es" nodo="PC2">
+    <funcion nombre="TDI" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="99" nombre="PC1/TMS/SWDIO" clase="es" nodo="PC1">
+    <funcion nombre="SWDIO" modo="1" simulada="si"/>
+    <funcion nombre="TMS" modo="1" simulada="no"/>
+  </patilla>
+  <patilla n="100" nombre="PC0/TCK/SWCLK" clase="es" nodo="PC0">
+    <funcion nombre="SWCLK" modo="1" simulada="si"/>
+    <funcion nombre="TCK" modo="1" simulada="no"/>
+  </patilla>
+  <patilla n="101" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="102" nombre="PQ4/DIVSCLK/U1Rx" clase="es" nodo="PQ4">
+    <funcion nombre="U1Rx" modo="1" simulada="si"/>
+    <funcion nombre="DIVSCLK" modo="7" simulada="no"/>
+  </patilla>
+  <patilla n="103" nombre="PP2/EPI0S29/U0DTR/USB0NXT" clase="es" nodo="PP2">
+    <funcion nombre="U0DTR" modo="1" simulada="no"/>
+    <funcion nombre="USB0NXT" modo="14" simulada="no"/>
+    <funcion nombre="EPI0S29" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="104" nombre="PP3/EPI0S30/RTCCLK/U0DCD/U1CTS/USB0DIR" clase="es" nodo="PP3">
+    <funcion nombre="U1CTS" modo="1" simulada="no"/>
+    <funcion nombre="U0DCD" modo="2" simulada="no"/>
+    <funcion nombre="RTCCLK" modo="7" simulada="no"/>
+    <funcion nombre="USB0DIR" modo="14" simulada="no"/>
+    <funcion nombre="EPI0S30" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="105" nombre="PP4/U0DSR/U3RTS/USB0D7" clase="es" nodo="PP4">
+    <funcion nombre="U3RTS" modo="1" simulada="no"/>
+    <funcion nombre="U0DSR" modo="2" simulada="no"/>
+    <funcion nombre="USB0D7" modo="14" simulada="no"/>
+  </patilla>
+  <patilla n="106" nombre="PP5/I2C2SCL/U3CTS/USB0D6" clase="es" nodo="PP5">
+    <funcion nombre="U3CTS" modo="1" simulada="no"/>
+    <funcion nombre="I2C2SCL" modo="2" simulada="si"/>
+    <funcion nombre="USB0D6" modo="14" simulada="no"/>
+  </patilla>
+  <patilla n="107" nombre="PN0/U1RTS" clase="es" nodo="PN0">
+    <funcion nombre="U1RTS" modo="1" simulada="no"/>
+  </patilla>
+  <patilla n="108" nombre="PN1/U1CTS" clase="es" nodo="PN1">
+    <funcion nombre="U1CTS" modo="1" simulada="no"/>
+  </patilla>
+  <patilla n="109" nombre="PN2/EPI0S29/U1DCD/U2RTS" clase="es" nodo="PN2">
+    <funcion nombre="U1DCD" modo="1" simulada="no"/>
+    <funcion nombre="U2RTS" modo="2" simulada="no"/>
+    <funcion nombre="EPI0S29" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="110" nombre="PN3/EPI0S30/U1DSR/U2CTS" clase="es" nodo="PN3">
+    <funcion nombre="U1DSR" modo="1" simulada="no"/>
+    <funcion nombre="U2CTS" modo="2" simulada="no"/>
+    <funcion nombre="EPI0S30" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="111" nombre="PN4/EPI0S34/I2C2SDA/U1DTR/U3RTS" clase="es" nodo="PN4">
+    <funcion nombre="U1DTR" modo="1" simulada="no"/>
+    <funcion nombre="U3RTS" modo="2" simulada="no"/>
+    <funcion nombre="I2C2SDA" modo="3" simulada="si"/>
+    <funcion nombre="EPI0S34" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="112" nombre="PN5/EPI0S35/I2C2SCL/U1RI/U3CTS" clase="es" nodo="PN5">
+    <funcion nombre="U1RI" modo="1" simulada="no"/>
+    <funcion nombre="U3CTS" modo="2" simulada="no"/>
+    <funcion nombre="I2C2SCL" modo="3" simulada="si"/>
+    <funcion nombre="EPI0S35" modo="15" simulada="no"/>
+  </patilla>
+  <patilla n="113" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="114" nombre="GND" clase="alimentacion" nodo="GND"/>
+  <patilla n="115" nombre="VDDC" clase="alimentacion" nodo=""/>
+  <patilla n="116" nombre="PJ0/EN0PPS/U3Rx" clase="es" nodo="PJ0">
+    <funcion nombre="U3Rx" modo="1" simulada="si"/>
+    <funcion nombre="EN0PPS" modo="5" simulada="no"/>
+  </patilla>
+  <patilla n="117" nombre="PJ1/U3Tx" clase="es" nodo="PJ1">
+    <funcion nombre="U3Tx" modo="1" simulada="si"/>
+  </patilla>
+  <patilla n="118" nombre="PP0/C2+/SSI3XDAT2/U6Rx" clase="es" nodo="PP0">
+    <funcion nombre="U6Rx" modo="1" simulada="si"/>
+    <funcion nombre="SSI3XDAT2" modo="15" simulada="no"/>
+    <funcion nombre="C2+" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="119" nombre="PP1/C2-/SSI3XDAT3/U6Tx" clase="es" nodo="PP1">
+    <funcion nombre="U6Tx" modo="1" simulada="si"/>
+    <funcion nombre="SSI3XDAT3" modo="15" simulada="no"/>
+    <funcion nombre="C2-" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="120" nombre="PB5/AIN11/I2C5SDA/SSI1Clk/U0RTS" clase="es" nodo="PB5">
+    <funcion nombre="U0RTS" modo="1" simulada="no"/>
+    <funcion nombre="I2C5SDA" modo="2" simulada="si"/>
+    <funcion nombre="SSI1Clk" modo="15" simulada="si"/>
+    <funcion nombre="AIN11" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="121" nombre="PB4/AIN10/I2C5SCL/SSI1Fss/U0CTS" clase="es" nodo="PB4">
+    <funcion nombre="U0CTS" modo="1" simulada="no"/>
+    <funcion nombre="I2C5SCL" modo="2" simulada="si"/>
+    <funcion nombre="SSI1Fss" modo="15" simulada="si"/>
+    <funcion nombre="AIN10" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="122" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="123" nombre="PE4/AIN9/SSI1XDAT0/U1RI" clase="es" nodo="PE4">
+    <funcion nombre="U1RI" modo="1" simulada="no"/>
+    <funcion nombre="SSI1XDAT0" modo="15" simulada="si"/>
+    <funcion nombre="AIN9" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="124" nombre="PE5/AIN8/SSI1XDAT1" clase="es" nodo="PE5">
+    <funcion nombre="SSI1XDAT1" modo="15" simulada="si"/>
+    <funcion nombre="AIN8" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="125" nombre="PD4/AIN7/SSI1XDAT2/T3CCP0/U2Rx" clase="es" nodo="PD4">
+    <funcion nombre="U2Rx" modo="1" simulada="si"/>
+    <funcion nombre="T3CCP0" modo="3" simulada="si"/>
+    <funcion nombre="SSI1XDAT2" modo="15" simulada="no"/>
+    <funcion nombre="AIN7" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="126" nombre="PD5/AIN6/SSI1XDAT3/T3CCP1/U2Tx" clase="es" nodo="PD5">
+    <funcion nombre="U2Tx" modo="1" simulada="si"/>
+    <funcion nombre="T3CCP1" modo="3" simulada="si"/>
+    <funcion nombre="SSI1XDAT3" modo="15" simulada="no"/>
+    <funcion nombre="AIN6" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="127" nombre="PD6/AIN5/SSI2XDAT3/T4CCP0/U2RTS/USB0EPEN" clase="es" nodo="PD6">
+    <funcion nombre="U2RTS" modo="1" simulada="no"/>
+    <funcion nombre="T4CCP0" modo="3" simulada="si"/>
+    <funcion nombre="USB0EPEN" modo="5" simulada="no"/>
+    <funcion nombre="SSI2XDAT3" modo="15" simulada="no"/>
+    <funcion nombre="AIN5" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="128" nombre="PD7/AIN4/NMI/SSI2XDAT2/T4CCP1/U2CTS/USB0PFLT" clase="es" nodo="PD7">
+    <funcion nombre="U2CTS" modo="1" simulada="no"/>
+    <funcion nombre="T4CCP1" modo="3" simulada="si"/>
+    <funcion nombre="USB0PFLT" modo="5" simulada="no"/>
+    <funcion nombre="NMI" modo="8" simulada="no"/>
+    <funcion nombre="SSI2XDAT2" modo="15" simulada="no"/>
+    <funcion nombre="AIN4" analogica="si" simulada="si"/>
+  </patilla>
+</mcu>

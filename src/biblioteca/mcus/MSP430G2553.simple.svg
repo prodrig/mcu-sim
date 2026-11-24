@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 95.5 278" width="9.55mm" height="27.80mm">
+<!-- MSP430G2553, PDIP20: el dibujo simple de mcu-sim-build (doc/analisis_build.md, B3 y B4).
+     Lo genera biblioteca/herramientas/genera_mcus.py: no se edita a mano.
+     Unidades de 0.1 mm. Cada patilla es $.N, con N su posicion. -->
+<g id="$" transform="translate(16,6)" font-family="sans-serif">
+  <rect x="0" y="0" width="63.5" height="266" rx="1.3" fill="#2b2b2b" stroke="#111" stroke-width="0.5"/>
+  <circle cx="8.1" cy="6" r="1.9" fill="#555"/>
+  <rect x="-10" y="11.1" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="-10" y="36.5" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="-10" y="61.9" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="-10" y="87.3" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="-10" y="112.7" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="-10" y="138.1" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="-10" y="163.5" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="-10" y="188.9" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="-10" y="214.3" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="-10" y="239.7" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="63.5" y="239.7" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="63.5" y="214.3" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="63.5" y="188.9" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="63.5" y="163.5" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="63.5" y="138.1" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="63.5" y="112.7" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="63.5" y="87.3" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="63.5" y="61.9" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="63.5" y="36.5" width="10" height="15.2" fill="#b8b8b8"/>
+  <rect x="63.5" y="11.1" width="10" height="15.2" fill="#b8b8b8"/>
+  <text x="31.8" y="136" font-size="31.8" text-anchor="middle" fill="#ddd" transform="rotate(-90,31.8,133)">MSP430G2553</text>
+</g>
+</svg>

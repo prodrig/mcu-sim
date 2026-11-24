@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 102 102" width="10.20mm" height="10.20mm">
+<!-- MSP430FR2355, LQFP48: el dibujo simple de mcu-sim-build (doc/analisis_build.md, B3 y B4).
+     Lo genera biblioteca/herramientas/genera_mcus.py: no se edita a mano.
+     Unidades de 0.1 mm. Cada patilla es $.N, con N su posicion. -->
+<g id="$" transform="translate(16,16)" font-family="sans-serif">
+  <rect x="0" y="0" width="70" height="70" rx="1.4" fill="#2b2b2b" stroke="#111" stroke-width="0.5"/>
+  <circle cx="8.6" cy="8.6" r="2.1" fill="#555"/>
+  <rect x="-10" y="6.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="-10" y="11.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="-10" y="16.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="-10" y="21.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="-10" y="26.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="-10" y="31.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="-10" y="36.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="-10" y="41.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="-10" y="46.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="-10" y="51.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="-10" y="56.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="-10" y="61.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="6.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="11.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="16.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="21.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="26.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="31.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="36.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="41.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="46.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="51.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="56.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="61.1" y="70" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="70" y="61.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="70" y="56.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="70" y="51.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="70" y="46.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="70" y="41.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="70" y="36.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="70" y="31.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="70" y="26.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="70" y="21.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="70" y="16.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="70" y="11.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="70" y="6.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect x="61.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="56.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="51.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="46.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="41.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="36.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="31.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="26.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="21.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="16.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="11.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect x="6.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <text x="35" y="38.1" font-size="8.8" text-anchor="middle" fill="#ddd">MSP430FR2355</text>
+</g>
+</svg>

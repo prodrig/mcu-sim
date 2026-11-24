@@ -921,7 +921,8 @@ una placa.
   `RV_ESP32C3` (RV32IMC con U, sin mie/mip, mtvec vectorizado y alineado a
   256, 16 PMP, sin contadores estándar, `HardwareCpu863`, 8 triggers con
   tcontrol), los pines con su función 0 y su configuración tras el reset, los
-  encapsulados (QFN32 de 22 GPIO y el de las «X», de 16), la nomenclatura
+  encapsulados (QFN32 de 22 GPIO y el de la C3FH4X, de 16: la C3FH8X saca
+  los 22, lo corrigió B4b de doc/analisis_build.md), la nomenclatura
   (`GPIOn`, `IOn`, `MTMS`…, `U0RXD`/`U0TXD`) y los descriptores ESP32-C3,
   C3FH4, C3FH4X y C3FH8X.
 * `soc/esp32c3/esp32c3.h`: el SoC, con el decodificador de bus (la SRAM1 por

@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 120 120" width="12.00mm" height="12.00mm">
+<!-- ESP32-C6, QFN40: el dibujo detallado de mcu-sim-build (doc/analisis_build.md, B3 y B4).
+     Lo genera biblioteca/herramientas/genera_mcus.py: no se edita a mano.
+     Unidades de 0.1 mm. Cada patilla es $.N, con N su posicion. -->
+<g id="$" transform="translate(35,35)" font-family="sans-serif">
+  <rect x="0" y="0" width="50" height="50" rx="1" fill="#2b2b2b" stroke="#111" stroke-width="0.5"/>
+  <circle cx="7" cy="7" r="1.5" fill="#555"/>
+  <rect id="$.1" x="0" y="5.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.2" x="0" y="9.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.3" x="0" y="13.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.4" x="0" y="17.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.5" x="0" y="21.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.6" x="0" y="25.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.7" x="0" y="29.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.8" x="0" y="33.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.9" x="0" y="37.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.10" x="0" y="41.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.11" x="5.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.12" x="9.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.13" x="13.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.14" x="17.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.15" x="21.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.16" x="25.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.17" x="29.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.18" x="33.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.19" x="37.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.20" x="41.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.21" x="45" y="41.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.22" x="45" y="37.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.23" x="45" y="33.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.24" x="45" y="29.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.25" x="45" y="25.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.26" x="45" y="21.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.27" x="45" y="17.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.28" x="45" y="13.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.29" x="45" y="9.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.30" x="45" y="5.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.31" x="41.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.32" x="37.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.33" x="33.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.34" x="29.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.35" x="25.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.36" x="21.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.37" x="17.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.38" x="13.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.39" x="9.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.40" x="5.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect id="$.41" x="10" y="10" width="30" height="30" fill="none" stroke="#b8b8b8" stroke-width="0.6" stroke-dasharray="2.4 1.6"/>
+  <text x="-2" y="7.9" font-size="2.5" text-anchor="end" fill="#6a3d9a">1 ANT</text>
+  <text x="-2" y="11.9" font-size="2.5" text-anchor="end" fill="#c01c28">2 VDDA3P3</text>
+  <text x="-2" y="15.9" font-size="2.5" text-anchor="end" fill="#c01c28">3 VDDA3P3</text>
+  <text x="-2" y="19.9" font-size="2.5" text-anchor="end" fill="#6a3d9a">4 CHIP_PU</text>
+  <text x="-2" y="23.9" font-size="2.5" text-anchor="end" fill="#c01c28">5 VDDPST1</text>
+  <text x="-2" y="27.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">6 XTAL_32K_P/GPIO0</text>
+  <text x="-2" y="31.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">7 XTAL_32K_N/GPIO1</text>
+  <text x="-2" y="35.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">8 GPIO2</text>
+  <text x="-2" y="39.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">9 GPIO3</text>
+  <text x="-2" y="43.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">10 MTMS/GPIO4</text>
+  <text x="7.9" y="52" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,7.9,52)">11 MTDI/GPIO5</text>
+  <text x="11.9" y="52" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,11.9,52)">12 MTCK/GPIO6</text>
+  <text x="15.9" y="52" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,15.9,52)">13 MTDO/GPIO7</text>
+  <text x="19.9" y="52" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,19.9,52)">14 GPIO8</text>
+  <text x="23.9" y="52" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,23.9,52)">15 GPIO9</text>
+  <text x="27.9" y="52" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,27.9,52)">16 GPIO10</text>
+  <text x="31.9" y="52" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,31.9,52)">17 GPIO11</text>
+  <text x="35.9" y="52" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,35.9,52)">18 GPIO12</text>
+  <text x="39.9" y="52" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,39.9,52)">19 GPIO13</text>
+  <text x="43.9" y="52" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,43.9,52)">20 SPICS0/GPIO24</text>
+  <text x="52" y="43.9" font-size="2.5" fill="#1a5fb4">21 SPIQ/GPIO25</text>
+  <text x="52" y="39.9" font-size="2.5" fill="#1a5fb4">22 SPIWP/GPIO26</text>
+  <text x="52" y="35.9" font-size="2.5" fill="#1a5fb4">23 VDD_SPI/GPIO27</text>
+  <text x="52" y="31.9" font-size="2.5" fill="#1a5fb4">24 SPIHD/GPIO28</text>
+  <text x="52" y="27.9" font-size="2.5" fill="#1a5fb4">25 SPICLK/GPIO29</text>
+  <text x="52" y="23.9" font-size="2.5" fill="#1a5fb4">26 SPID/GPIO30</text>
+  <text x="52" y="19.9" font-size="2.5" fill="#1a5fb4">27 GPIO15</text>
+  <text x="52" y="15.9" font-size="2.5" fill="#c01c28">28 VDDPST2</text>
+  <text x="52" y="11.9" font-size="2.5" fill="#1a5fb4">29 U0TXD/GPIO16</text>
+  <text x="52" y="7.9" font-size="2.5" fill="#1a5fb4">30 U0RXD/GPIO17</text>
+  <text x="43.9" y="-2" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,43.9,-2)">31 SDIO_CMD/GPIO18</text>
+  <text x="39.9" y="-2" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,39.9,-2)">32 SDIO_CLK/GPIO19</text>
+  <text x="35.9" y="-2" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,35.9,-2)">33 SDIO_DATA0/GPIO20</text>
+  <text x="31.9" y="-2" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,31.9,-2)">34 SDIO_DATA1/GPIO21</text>
+  <text x="27.9" y="-2" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,27.9,-2)">35 SDIO_DATA2/GPIO22</text>
+  <text x="23.9" y="-2" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,23.9,-2)">36 SDIO_DATA3/GPIO23</text>
+  <text x="19.9" y="-2" font-size="2.5" fill="#c01c28" transform="rotate(-90,19.9,-2)">37 VDDA1</text>
+  <text x="15.9" y="-2" font-size="2.5" fill="#6a3d9a" transform="rotate(-90,15.9,-2)">38 XTAL_N</text>
+  <text x="11.9" y="-2" font-size="2.5" fill="#6a3d9a" transform="rotate(-90,11.9,-2)">39 XTAL_P</text>
+  <text x="7.9" y="-2" font-size="2.5" fill="#c01c28" transform="rotate(-90,7.9,-2)">40 VDDA2</text>
+  <text x="25" y="38.8" font-size="2" text-anchor="middle" fill="#ddd">41 GND (debajo)</text>
+  <text x="25" y="28.1" font-size="9" text-anchor="middle" fill="#ddd">ESP32-C6</text>
+</g>
+</svg>

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 125 125" width="12.50mm" height="12.50mm">
+<!-- ESP32-C3, QFN32: el dibujo detallado de mcu-sim-build (doc/analisis_build.md, B3 y B4).
+     Lo genera biblioteca/herramientas/genera_mcus.py: no se edita a mano.
+     Unidades de 0.1 mm. Cada patilla es $.N, con N su posicion. -->
+<g id="$" transform="translate(37.5,37.5)" font-family="sans-serif">
+  <rect x="0" y="0" width="50" height="50" rx="1" fill="#2b2b2b" stroke="#111" stroke-width="0.5"/>
+  <circle cx="7" cy="7" r="1.5" fill="#555"/>
+  <rect id="$.1" x="0" y="6.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.2" x="0" y="11.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.3" x="0" y="16.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.4" x="0" y="21.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.5" x="0" y="26.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.6" x="0" y="31.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.7" x="0" y="36.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.8" x="0" y="41.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.9" x="6.1" y="45" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.10" x="11.1" y="45" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.11" x="16.1" y="45" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.12" x="21.1" y="45" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.13" x="26.1" y="45" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.14" x="31.1" y="45" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.15" x="36.1" y="45" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.16" x="41.1" y="45" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.17" x="45" y="41.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.18" x="45" y="36.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.19" x="45" y="31.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.20" x="45" y="26.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.21" x="45" y="21.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.22" x="45" y="16.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.23" x="45" y="11.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.24" x="45" y="6.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.25" x="41.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.26" x="36.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.27" x="31.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.28" x="26.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.29" x="21.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.30" x="16.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.31" x="11.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.32" x="6.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.33" x="10" y="10" width="30" height="30" fill="none" stroke="#b8b8b8" stroke-width="0.8" stroke-dasharray="3 2"/>
+  <text x="-2" y="8.6" font-size="3" text-anchor="end" fill="#6a3d9a">1 LNA_IN</text>
+  <text x="-2" y="13.6" font-size="3" text-anchor="end" fill="#c01c28">2 VDD3P3</text>
+  <text x="-2" y="18.6" font-size="3" text-anchor="end" fill="#c01c28">3 VDD3P3</text>
+  <text x="-2" y="23.6" font-size="3" text-anchor="end" fill="#1a5fb4">4 XTAL_32K_P/GPIO0</text>
+  <text x="-2" y="28.6" font-size="3" text-anchor="end" fill="#1a5fb4">5 XTAL_32K_N/GPIO1</text>
+  <text x="-2" y="33.5" font-size="3" text-anchor="end" fill="#1a5fb4">6 GPIO2</text>
+  <text x="-2" y="38.5" font-size="3" text-anchor="end" fill="#6a3d9a">7 CHIP_EN</text>
+  <text x="-2" y="43.6" font-size="3" text-anchor="end" fill="#1a5fb4">8 GPIO3</text>
+  <text x="8.6" y="52" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,8.6,52)">9 MTMS/GPIO4</text>
+  <text x="13.6" y="52" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,13.6,52)">10 MTDI/GPIO5</text>
+  <text x="18.6" y="52" font-size="3" text-anchor="end" fill="#c01c28" transform="rotate(-90,18.6,52)">11 VDD3P3_RTC</text>
+  <text x="23.6" y="52" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,23.6,52)">12 MTCK/GPIO6</text>
+  <text x="28.6" y="52" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,28.6,52)">13 MTDO/GPIO7</text>
+  <text x="33.5" y="52" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,33.5,52)">14 GPIO8</text>
+  <text x="38.5" y="52" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,38.5,52)">15 GPIO9</text>
+  <text x="43.6" y="52" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,43.6,52)">16 GPIO10</text>
+  <text x="52" y="43.6" font-size="3" fill="#c01c28">17 VDD3P3_CPU</text>
+  <text x="52" y="38.5" font-size="3" fill="#1a5fb4">18 VDD_SPI/GPIO11</text>
+  <text x="52" y="33.5" font-size="3" fill="#1a5fb4">19 SPIHD/GPIO12</text>
+  <text x="52" y="28.6" font-size="3" fill="#1a5fb4">20 SPIWP/GPIO13</text>
+  <text x="52" y="23.6" font-size="3" fill="#1a5fb4">21 SPICS0/GPIO14</text>
+  <text x="52" y="18.6" font-size="3" fill="#1a5fb4">22 SPICLK/GPIO15</text>
+  <text x="52" y="13.6" font-size="3" fill="#1a5fb4">23 SPID/GPIO16</text>
+  <text x="52" y="8.6" font-size="3" fill="#1a5fb4">24 SPIQ/GPIO17</text>
+  <text x="43.6" y="-2" font-size="3" fill="#1a5fb4" transform="rotate(-90,43.6,-2)">25 GPIO18</text>
+  <text x="38.5" y="-2" font-size="3" fill="#1a5fb4" transform="rotate(-90,38.5,-2)">26 GPIO19</text>
+  <text x="33.5" y="-2" font-size="3" fill="#1a5fb4" transform="rotate(-90,33.5,-2)">27 U0RXD/GPIO20</text>
+  <text x="28.6" y="-2" font-size="3" fill="#1a5fb4" transform="rotate(-90,28.6,-2)">28 U0TXD/GPIO21</text>
+  <text x="23.6" y="-2" font-size="3" fill="#6a3d9a" transform="rotate(-90,23.6,-2)">29 XTAL_N</text>
+  <text x="18.6" y="-2" font-size="3" fill="#6a3d9a" transform="rotate(-90,18.6,-2)">30 XTAL_P</text>
+  <text x="13.6" y="-2" font-size="3" fill="#c01c28" transform="rotate(-90,13.6,-2)">31 VDDA</text>
+  <text x="8.6" y="-2" font-size="3" fill="#c01c28" transform="rotate(-90,8.6,-2)">32 VDDA</text>
+  <text x="25" y="38.5" font-size="2.4" text-anchor="middle" fill="#ddd">33 GND (debajo)</text>
+  <text x="25" y="28.1" font-size="9" text-anchor="middle" fill="#ddd">ESP32-C3</text>
+</g>
+</svg>

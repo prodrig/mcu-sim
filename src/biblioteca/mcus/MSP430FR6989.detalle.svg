@@ -1,0 +1,210 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 335.4 335.4" width="33.54mm" height="33.54mm">
+<!-- MSP430FR6989, LQFP100: el dibujo detallado de mcu-sim-build (doc/analisis_build.md, B3 y B4).
+     Lo genera biblioteca/herramientas/genera_mcus.py: no se edita a mano.
+     Unidades de 0.1 mm. Cada patilla es $.N, con N su posicion. -->
+<g id="$" transform="translate(97.7,97.7)" font-family="sans-serif">
+  <rect x="0" y="0" width="140" height="140" rx="2.8" fill="#2b2b2b" stroke="#111" stroke-width="0.5"/>
+  <circle cx="14.2" cy="14.2" r="4.2" fill="#555"/>
+  <rect id="$.1" x="-10" y="8.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.2" x="-10" y="13.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.3" x="-10" y="18.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.4" x="-10" y="23.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.5" x="-10" y="28.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.6" x="-10" y="33.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.7" x="-10" y="38.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.8" x="-10" y="43.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.9" x="-10" y="48.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.10" x="-10" y="53.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.11" x="-10" y="58.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.12" x="-10" y="63.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.13" x="-10" y="68.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.14" x="-10" y="73.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.15" x="-10" y="78.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.16" x="-10" y="83.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.17" x="-10" y="88.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.18" x="-10" y="93.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.19" x="-10" y="98.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.20" x="-10" y="103.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.21" x="-10" y="108.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.22" x="-10" y="113.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.23" x="-10" y="118.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.24" x="-10" y="123.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.25" x="-10" y="128.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.26" x="8.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.27" x="13.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.28" x="18.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.29" x="23.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.30" x="28.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.31" x="33.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.32" x="38.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.33" x="43.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.34" x="48.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.35" x="53.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.36" x="58.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.37" x="63.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.38" x="68.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.39" x="73.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.40" x="78.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.41" x="83.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.42" x="88.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.43" x="93.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.44" x="98.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.45" x="103.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.46" x="108.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.47" x="113.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.48" x="118.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.49" x="123.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.50" x="128.6" y="140" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.51" x="140" y="128.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.52" x="140" y="123.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.53" x="140" y="118.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.54" x="140" y="113.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.55" x="140" y="108.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.56" x="140" y="103.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.57" x="140" y="98.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.58" x="140" y="93.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.59" x="140" y="88.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.60" x="140" y="83.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.61" x="140" y="78.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.62" x="140" y="73.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.63" x="140" y="68.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.64" x="140" y="63.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.65" x="140" y="58.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.66" x="140" y="53.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.67" x="140" y="48.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.68" x="140" y="43.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.69" x="140" y="38.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.70" x="140" y="33.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.71" x="140" y="28.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.72" x="140" y="23.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.73" x="140" y="18.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.74" x="140" y="13.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.75" x="140" y="8.6" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.76" x="128.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.77" x="123.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.78" x="118.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.79" x="113.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.80" x="108.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.81" x="103.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.82" x="98.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.83" x="93.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.84" x="88.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.85" x="83.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.86" x="78.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.87" x="73.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.88" x="68.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.89" x="63.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.90" x="58.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.91" x="53.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.92" x="48.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.93" x="43.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.94" x="38.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.95" x="33.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.96" x="28.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.97" x="23.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.98" x="18.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.99" x="13.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.100" x="8.6" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <text x="-12" y="11.1" font-size="3" text-anchor="end" fill="#1a5fb4">1 P4.3/UCA0SOMI/UCA0RXD/UCB1STE</text>
+  <text x="-12" y="16.1" font-size="3" text-anchor="end" fill="#1a5fb4">2 P1.4/UCB0CLK/UCA0STE/TA1.0/S1</text>
+  <text x="-12" y="21.1" font-size="3" text-anchor="end" fill="#1a5fb4">3 P1.5/UCB0STE/UCA0CLK/TA0.0/S0</text>
+  <text x="-12" y="26.1" font-size="3" text-anchor="end" fill="#1a5fb4">4 P1.6/UCB0SIMO/UCB0SDA/TA0.1</text>
+  <text x="-12" y="31.1" font-size="3" text-anchor="end" fill="#1a5fb4">5 P1.7/UCB0SOMI/UCB0SCL/TA0.2</text>
+  <text x="-12" y="36" font-size="3" text-anchor="end" fill="#6a3d9a">6 R33/LCDCAP</text>
+  <text x="-12" y="41.1" font-size="3" text-anchor="end" fill="#1a5fb4">7 P6.0/R23</text>
+  <text x="-12" y="46.1" font-size="3" text-anchor="end" fill="#1a5fb4">8 P6.1/R13/LCDREF</text>
+  <text x="-12" y="51.1" font-size="3" text-anchor="end" fill="#1a5fb4">9 P6.2/COUT/R03</text>
+  <text x="-12" y="56.1" font-size="3" text-anchor="end" fill="#1a5fb4">10 P6.3/COM0</text>
+  <text x="-12" y="61.1" font-size="3" text-anchor="end" fill="#1a5fb4">11 P6.4/TB0.0/COM1</text>
+  <text x="-12" y="66.1" font-size="3" text-anchor="end" fill="#1a5fb4">12 P6.5/TB0.1/COM2</text>
+  <text x="-12" y="71.1" font-size="3" text-anchor="end" fill="#1a5fb4">13 P6.6/TB0.2/COM3</text>
+  <text x="-12" y="76.1" font-size="3" text-anchor="end" fill="#1a5fb4">14 P2.4/TB0.3/COM4/S43</text>
+  <text x="-12" y="81.1" font-size="3" text-anchor="end" fill="#1a5fb4">15 P2.5/TB0.4/COM5/S42</text>
+  <text x="-12" y="86.1" font-size="3" text-anchor="end" fill="#1a5fb4">16 P2.6/TB0.5/ESIC1OUT/COM6/S41</text>
+  <text x="-12" y="91.1" font-size="3" text-anchor="end" fill="#1a5fb4">17 P2.7/TB0.6/ESIC2OUT/COM7/S40</text>
+  <text x="-12" y="96.1" font-size="3" text-anchor="end" fill="#1a5fb4">18 P10.2/TA1.0/SMCLK/S39</text>
+  <text x="-12" y="101.1" font-size="3" text-anchor="end" fill="#1a5fb4">19 P5.0/TA1.1/MCLK/S38</text>
+  <text x="-12" y="106.1" font-size="3" text-anchor="end" fill="#1a5fb4">20 P5.1/TA1.2/S37</text>
+  <text x="-12" y="111.1" font-size="3" text-anchor="end" fill="#1a5fb4">21 P5.2/TA1.0/TA1CLK/ACLK/S36</text>
+  <text x="-12" y="116.1" font-size="3" text-anchor="end" fill="#1a5fb4">22 P5.3/UCB1STE/S35</text>
+  <text x="-12" y="121.1" font-size="3" text-anchor="end" fill="#1a5fb4">23 P3.0/UCB1CLK/S34</text>
+  <text x="-12" y="126.1" font-size="3" text-anchor="end" fill="#1a5fb4">24 P3.1/UCB1SIMO/UCB1SDA/S33</text>
+  <text x="-12" y="131.1" font-size="3" text-anchor="end" fill="#1a5fb4">25 P3.2/UCB1SOMI/UCB1SCL/S32</text>
+  <text x="11.1" y="152" font-size="3" text-anchor="end" fill="#c01c28" transform="rotate(-90,11.1,152)">26 DVSS1</text>
+  <text x="16.1" y="152" font-size="3" text-anchor="end" fill="#c01c28" transform="rotate(-90,16.1,152)">27 DVCC1</text>
+  <text x="21.1" y="152" font-size="3" text-anchor="end" fill="#6a3d9a" transform="rotate(-90,21.1,152)">28 TEST/SBWTCK</text>
+  <text x="26.1" y="152" font-size="3" text-anchor="end" fill="#6a3d9a" transform="rotate(-90,26.1,152)">29 RST/NMI/SBWTDIO</text>
+  <text x="31.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,31.1,152)">30 PJ.0/TDO/TB0OUTH/SMCLK/SRSCG1</text>
+  <text x="36" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,36,152)">31 PJ.1/TDI/TCLK/MCLK/SRSCG0</text>
+  <text x="41.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,41.1,152)">32 PJ.2/TMS/ACLK/SROSCOFF</text>
+  <text x="46.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,46.1,152)">33 PJ.3/TCK/COUT/SRCPUOFF</text>
+  <text x="51.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,51.1,152)">34 P6.7/TA0CLK/S31</text>
+  <text x="56.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,56.1,152)">35 P7.5/TA0.2/S30</text>
+  <text x="61.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,61.1,152)">36 P7.6/TA0.1/S29</text>
+  <text x="66.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,66.1,152)">37 P10.1/TA0.0/S28</text>
+  <text x="71.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,71.1,152)">38 P7.7/TA1.2/TB0OUTH/S27</text>
+  <text x="76.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,76.1,152)">39 P3.3/TA1.1/TB0CLK/S26</text>
+  <text x="81.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,81.1,152)">40 P3.4/UCA1SIMO/UCA1TXD/TB0.0/S25</text>
+  <text x="86.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,86.1,152)">41 P3.5/UCA1SOMI/UCA1RXD/TB0.1/S24</text>
+  <text x="91.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,91.1,152)">42 P3.6/UCA1CLK/TB0.2/S23</text>
+  <text x="96.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,96.1,152)">43 P3.7/UCA1STE/TB0.3/S22</text>
+  <text x="101.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,101.1,152)">44 P8.0/RTCCLK/S21</text>
+  <text x="106.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,106.1,152)">45 P8.1/DMAE0/S20</text>
+  <text x="111.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,111.1,152)">46 P8.2/S19</text>
+  <text x="116.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,116.1,152)">47 P8.3/MCLK/S18</text>
+  <text x="121.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,121.1,152)">48 P2.3/UCA0STE/TB0OUTH</text>
+  <text x="126.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,126.1,152)">49 P2.2/UCA0CLK/TB0.4/RTCCLK</text>
+  <text x="131.1" y="152" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,131.1,152)">50 P2.1/UCA0SOMI/UCA0RXD/TB0.5/DMAE0</text>
+  <text x="152" y="131.1" font-size="3" fill="#1a5fb4">51 P2.0/UCA0SIMO/UCA0TXD/TB0.6/TB0CLK</text>
+  <text x="152" y="126.1" font-size="3" fill="#1a5fb4">52 P7.0/TA0CLK/S17</text>
+  <text x="152" y="121.1" font-size="3" fill="#1a5fb4">53 P7.1/TA0.0/ACLK/S16</text>
+  <text x="152" y="116.1" font-size="3" fill="#1a5fb4">54 P7.2/TA0.1/S15</text>
+  <text x="152" y="111.1" font-size="3" fill="#1a5fb4">55 P7.3/TA0.2/S14</text>
+  <text x="152" y="106.1" font-size="3" fill="#1a5fb4">56 P7.4/SMCLK/S13</text>
+  <text x="152" y="101.1" font-size="3" fill="#c01c28">57 DVSS2</text>
+  <text x="152" y="96.1" font-size="3" fill="#c01c28">58 DVCC2</text>
+  <text x="152" y="91.1" font-size="3" fill="#1a5fb4">59 P8.4/A7/C7</text>
+  <text x="152" y="86.1" font-size="3" fill="#1a5fb4">60 P8.5/A6/C6</text>
+  <text x="152" y="81.1" font-size="3" fill="#1a5fb4">61 P8.6/A5/C5</text>
+  <text x="152" y="76.1" font-size="3" fill="#1a5fb4">62 P8.7/A4/C4</text>
+  <text x="152" y="71.1" font-size="3" fill="#1a5fb4">63 P1.3/ESITEST4/TA1.2/A3/C3</text>
+  <text x="152" y="66.1" font-size="3" fill="#1a5fb4">64 P1.2/TA1.1/TA0CLK/COUT/A2/C2</text>
+  <text x="152" y="61.1" font-size="3" fill="#1a5fb4">65 P1.1/TA0.2/TA1CLK/COUT/A1/C1/VREF+/VeREF+</text>
+  <text x="152" y="56.1" font-size="3" fill="#1a5fb4">66 P1.0/TA0.1/DMAE0/RTCCLK/A0/C0/VREF-/VeREF-</text>
+  <text x="152" y="51.1" font-size="3" fill="#1a5fb4">67 P9.0/ESICH0/ESITEST0/A8/C8</text>
+  <text x="152" y="46.1" font-size="3" fill="#1a5fb4">68 P9.1/ESICH1/ESITEST1/A9/C9</text>
+  <text x="152" y="41.1" font-size="3" fill="#1a5fb4">69 P9.2/ESICH2/ESITEST2/A10/C10</text>
+  <text x="152" y="36" font-size="3" fill="#1a5fb4">70 P9.3/ESICH3/ESITEST3/A11/C11</text>
+  <text x="152" y="31.1" font-size="3" fill="#1a5fb4">71 P9.4/ESICI0/A12/C12</text>
+  <text x="152" y="26.1" font-size="3" fill="#1a5fb4">72 P9.5/ESICI1/A13/C13</text>
+  <text x="152" y="21.1" font-size="3" fill="#1a5fb4">73 P9.6/ESICI2/A14/C14</text>
+  <text x="152" y="16.1" font-size="3" fill="#1a5fb4">74 P9.7/ESICI3/A15/C15</text>
+  <text x="152" y="11.1" font-size="3" fill="#6a3d9a">75 ESIDVCC</text>
+  <text x="131.1" y="-12" font-size="3" fill="#6a3d9a" transform="rotate(-90,131.1,-12)">76 ESIDVSS</text>
+  <text x="126.1" y="-12" font-size="3" fill="#6a3d9a" transform="rotate(-90,126.1,-12)">77 ESICI</text>
+  <text x="121.1" y="-12" font-size="3" fill="#6a3d9a" transform="rotate(-90,121.1,-12)">78 ESICOM</text>
+  <text x="116.1" y="-12" font-size="3" fill="#c01c28" transform="rotate(-90,116.1,-12)">79 AVCC1</text>
+  <text x="111.1" y="-12" font-size="3" fill="#c01c28" transform="rotate(-90,111.1,-12)">80 AVSS3</text>
+  <text x="106.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,106.1,-12)">81 PJ.7/HFXOUT</text>
+  <text x="101.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,101.1,-12)">82 PJ.6/HFXIN</text>
+  <text x="96.1" y="-12" font-size="3" fill="#c01c28" transform="rotate(-90,96.1,-12)">83 AVSS1</text>
+  <text x="91.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,91.1,-12)">84 PJ.4/LFXIN</text>
+  <text x="86.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,86.1,-12)">85 PJ.5/LFXOUT</text>
+  <text x="81.1" y="-12" font-size="3" fill="#c01c28" transform="rotate(-90,81.1,-12)">86 AVSS2</text>
+  <text x="76.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,76.1,-12)">87 P5.4/UCA1SIMO/UCA1TXD/S12</text>
+  <text x="71.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,71.1,-12)">88 P5.5/UCA1SOMI/UCA1RXD/S11</text>
+  <text x="66.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,66.1,-12)">89 P5.6/UCA1CLK/S10</text>
+  <text x="61.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,61.1,-12)">90 P5.7/UCA1STE/TB0CLK/S9</text>
+  <text x="56.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,56.1,-12)">91 P4.4/UCB1STE/TA1CLK/S8</text>
+  <text x="51.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,51.1,-12)">92 P4.5/UCB1CLK/TA1.0/S7</text>
+  <text x="46.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,46.1,-12)">93 P4.6/UCB1SIMO/UCB1SDA/TA1.1/S6</text>
+  <text x="41.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,41.1,-12)">94 P4.7/UCB1SOMI/UCB1SCL/TA1.2/S5</text>
+  <text x="36" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,36,-12)">95 P10.0/SMCLK/S4</text>
+  <text x="31.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,31.1,-12)">96 P4.0/UCB1SIMO/UCB1SDA/MCLK/S3</text>
+  <text x="26.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,26.1,-12)">97 P4.1/UCB1SOMI/UCB1SCL/ACLK/S2</text>
+  <text x="21.1" y="-12" font-size="3" fill="#c01c28" transform="rotate(-90,21.1,-12)">98 DVSS3</text>
+  <text x="16.1" y="-12" font-size="3" fill="#c01c28" transform="rotate(-90,16.1,-12)">99 DVCC3</text>
+  <text x="11.1" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,11.1,-12)">100 P4.2/UCA0SIMO/UCA0TXD/UCB1CLK</text>
+  <text x="70" y="76.1" font-size="17.5" text-anchor="middle" fill="#ddd">MSP430FR6989</text>
+</g>
+</svg>

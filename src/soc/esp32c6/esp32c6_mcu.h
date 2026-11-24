@@ -108,6 +108,15 @@ public:
             f.nombre = x.fn0 ? x.fn0 : "";
             inv.fijas.push_back(f);
         }
+        // El SAR ADC lee estos pads directamente (saradc_esp.h: el canal n del
+        // ADC1 es GPIOn; el C6 no tiene ADC2) [DS-C6 tabla 2-9]
+        static const char* const ADC[7] = {"ADC1_CH0", "ADC1_CH1", "ADC1_CH2", "ADC1_CH3", "ADC1_CH4", "ADC1_CH5", "ADC1_CH6"};
+        for (unsigned p = 0; p < 7; ++p) {
+            FuncionDePin f;
+            f.puerto = 0; f.pin = p; f.modo = -1; f.analogica = true;
+            f.nombre = ADC[p]; f.senal = "saradc";
+            inv.fijas.push_back(f);
+        }
         inv.mapeo = "matriz";
         for (const SenalMatriz& m : c6::SENALES) {
             FuncionDePin f;

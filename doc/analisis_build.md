@@ -72,7 +72,7 @@ crea una placa nueva y la valida con `mcu-sim`.
 * **D4-A**: los perfiles de conector viven en la biblioteca. Enseñárselos a
   `mcu-sim` (B14) queda para después.
 
-La documentación está toda (§10): Open Pin Data, SysConfig para los MSP432, y los datasheets de los MSP430 y los ESP32 en `doc/refs/`.
+La documentación está toda (§10): Open Pin Data para ST, los datasheets de los MSP430, los MSP432 y los ESP32 en `doc/refs/`, y la matriz de ESP-IDF.
 
 ---
 
@@ -255,6 +255,31 @@ Ninguna de las cuatro mueve las suites (`test407`, `test417`, `test446` y
 `testf3`, al picosegundo). Lo que la familia tiene y un encapsulado no saca
 (el FSMC en un LQFP64) queda como aviso, no como error.
 
+**Lo que dio B4b**: el contraste con los datasheets de TI y Espressif
+encontró **dos errores del modelo** que cambian lo que se simula, y varios
+nombres mal puestos en su inventario, ya corregidos:
+* El **P401R** conectaba TA2CLK en P4.2 con el modo 1, que es el de ACLK.
+  El datasheet (SLAS826E, tabla 6-70) dice que es la secundaria: P4SEL1 =
+  1, P4SEL0 = 0. Ahora va en el 2.
+* La **ESP32-C3FH8X** tenía el encapsulado de 16 GPIO, como la C3FH4X. Pero
+  la «X» del nombre es la revisión v1.1, no el encapsulado: la tabla 1-1 del
+  datasheet v2.4 le da 22, y solo la C3FH4X (y la C3FH4AZ) deja sin conectar
+  las patillas 19-24.
+* Del inventario, sin cambio en la simulación: en las FR5/FR6, los bits del
+  SR se nombraban por índice siendo máscara (salían «SR»), y las salidas del
+  ESI salían «ESI5» en vez de ESIC1OUT. El disparo del Timer_B es TBxOUTH en
+  sus datasheets. En el P401R, «A», «C», «VREF» y «cristal» pasan a ser A0-A23,
+  C0.0-C1.7, VREF+/VeREF+/C1.7 y LFXIN/LFXOUT/HFXOUT/HFXIN. En el E401Y, «AIN»
+  pasa a AIN0-AIN19. Y los ESP32 declaran los canales del SAR ADC que leen.
+
+Las transcripciones las escribe `extrae_ti.py` (con pdfplumber) y
+`extrae_esp.py`. Lo que el PDF no deja leer bien se corrige ahí, citando la
+tabla: filas perdidas al final de página (F5529), erratas entre las dos
+tablas de un datasheet (COMP0_0 en el FR2355, DMA0E/DMAE0 en el FR6989) y
+descripciones en vez de nombres («Comparator output», «Mapped secondary
+digital function»). Una X en un bit de PxSEL es «cualquiera»: el TB0.0 de
+P2.1 del FR5969 se elige con 01 y con 11, y el modelo ya lo hacía así.
+
 **Lo que dio B2** (`--exporta-mcu`, `soc/inventario_pines.h`). Los 65 MCU
 se exportan, con tantos pads como dice su encapsulado. Lo que el modelo sabe
 decir de sus funciones no es igual en todas las familias, y eso cambia B3 y
@@ -264,8 +289,8 @@ B4:
 | :--- | :--- | :--- |
 | STM32F4, F446 | La tabla AF del `PinMux`: (pad, AF) → señal de SystemC (`usart2.tx_out`), **sin el nombre del manual** | B3 cruza con Open Pin Data **por el número de AF** |
 | STM32F3 | La misma, **con el nombre** (`USART2_TX`), porque su tabla ya sale de Open Pin Data | B3 cruza por AF y por nombre |
-| MSP432P4 | Las fijas del DIO por PxSEL y las **29 mapeables del PMAP** (`P2 P3 P7`), con su nombre corto (`simo`) y su señal | B4 cruza con SysConfig |
-| MSP432E4 | Las del GPIO por PCTL y las analógicas | B4 cruza con SysConfig |
+| MSP432P4 | Las fijas del DIO por PxSEL y las **29 mapeables del PMAP** (`P2 P3 P7`), con su nombre corto (`simo`) y su señal | **Hecho en B4b**: con el datasheet, por PxSEL y nombre; el PMAP, por valor y mnemónico. Los nombres de lo analógico (A0-A23, C0.0-C1.7, los cristales) pasan al modelo |
+| MSP432E4 | Las del GPIO por PCTL y las analógicas | **Hecho en B4b**: con la tabla de PCTL del datasheet |
 | ESP32-C3/C6 | Solo la función 0 directa del IO_MUX (U0TXD, U0RXD). **La matriz no**: sus señales no están en una tabla del modelo | **Hecho en B4a**: `c3::SENALES` y `c6::SENALES`, con los nombres de ESP-IDF v5.3.1. El modelo habilita con ellas las salidas de la matriz |
 | MSP430 (los diez) | **Ninguna**: cada SoC decide la función de un pin en su código (PxSEL, PxSEL2) | **Hecho en B4a**. Los ocho FR2/FR4/FR5/FR6 ya decidían con una tabla (`ChipFr2::fn`), y solo faltaba volcarla. El G2553 (`g2553::FN`) y el F5529 (`f5529::FN` y `f5529::PMAP`) deciden ahora con la suya |
 
@@ -877,7 +902,7 @@ orden sea claro.
 | **B2** ✔ | mcu-sim | `--exporta-mcu TIPO`: patillas soldadas y funciones **simuladas** | La salida, en XML | Pruebas por familia: el recuento de pads coincide con `Encapsulado::n_gpio` (lo mismo que T128) |
 | **B3** ✔ | mcu-sim | Datos de ST: `herramientas/exporta_mcus_st.py` sobre Open Pin Data (commit fijado) + B2 | `mcus/STM32*.mcu.xml` y `*.detalle.svg`/`*.simple.svg` de los 46 | **Contraste**: toda función simulada existe en Open Pin Data con el mismo AF, y todo pad soldado tiene patilla |
 | **B4a** ✔ | mcu-sim | La tabla de funciones de cada modelo MSP430 y la de la matriz de los ESP32, **usadas por el modelo** (decisión del autor, 24-11-2026) | Las tablas, y `--exporta-mcu` sin ninguna familia «sin inventario» | Las suites del G2553, el F5529, los C3/C6, `test430` y `testfr2`, al picosegundo |
-| **B4b** | mcu-sim | Datos de TI y Espressif, con PMAP y matriz | Los `.mcu.xml` y SVG de MSP432, MSP430 y ESP32 | El mismo contraste que B3. Las mapeables del P401R coinciden con `PmapP4::PM_*` |
+| **B4b** ✔ | mcu-sim | Las fuentes de TI y Espressif: el **datasheet** de cada chip (tablas de patillas y «Pin Functions», con el número que elige cada función), el PMAP y la matriz de ESP-IDF. Contraste **estricto**: pad, número y nombre (decisión del autor, 24-11-2026: «tan estricto como el propio hardware»; SysConfig no es obligatorio en un programa y su `mode` no es el PxSEL) | `fuentes/ti/*.pines`, `fuentes/esp/*.pines` y `gpio_sig_map.h`; los `.mcu.xml` y SVG de los 21 | `genera_mcus.py`: los 65 MCU cuadran. Las suites de las familias tocadas, al picosegundo |
 | **B5** | mcu-sim | SVG de las piezas no paramétricas y `<forma>` de todas | `piezas/*.svg` y `<forma>` en cada `.pieza.xml` | Prueba: cada `<ancla>` existe en su SVG, y el SVG cumple el perfil de autor (sin filtros ni máscaras, con viewBox y mm) |
 | **B6** | mcu-sim | Perfiles y conjuntos de conectores, con los `<cableado>` extraídos de las placas | `conectores/*` | Prueba: el `<cableado>` de cada conjunto coincide con el XML de su placa |
 | **B7** ✔ | mcu-sim | **`<build>` en placas y sistemas** (D2-B, §7): se admite, se comprueba y no sale en `T_PLACA` ni en el SVG. `doc/parts.md` §2 lo documenta | El parser, con su prueba (T134) y la de `mcu-sim-gui` | Una placa con `<build>` valida y simula igual que sin él. `T_PLACA` no lo lleva. Un `<build>` repetido, mal colocado o con `version` desconocida es un error. Una `<instancia>` que no está es un aviso. «Guardar en el XML» de la ventana lo deja intacto |
@@ -908,13 +933,12 @@ a `C:\ti`. **No falta nada que bloquee:**
 | :--- | :--- | :--- | :--- |
 | B3 (ST) | **STM32 Open Pin Data**, BSD-3-Clause: `mcu/*.xml` (patillas con `Position`, `Type` y `Signal`), `mcu/IP/GPIO-*_Modes.xml` (número de AF) y `boards/*.ioc` | GitHub, con un commit fijado | Fuente principal, por guion |
 | B3 (ST) | Descriptores de CubeMX | `doc/refs/cubemx/` | Contraste: deben coincidir con Open Pin Data en las F4 |
-| B4 (MSP432P401R) | **SysConfig 1.8**, `dist/deviceData/MSP432P401R/MSP432P401R.json`: los pines y sus `muxes`, con todas las funciones de cada pin, y los tres encapsulados (PZ100, RGC64 y ZXH80) con su numeración. **Pero su `mode` es un índice de SysConfig, no el PxSEL del chip**, y mezcla funciones de software (el chip select de SDSPI en todos los pines). Lo vio B4. Además, en el PZ100 no trae las patillas de alimentación | `C:\ti\sysconfig_1_8_0` | La lista de funciones de cada pin y su posición. El número que las elige sale de las tablas «Pin Functions» del datasheet |
-| B4 (MSP432P401R) | **SLAS826E**, el datasheet | `doc/refs/msp432/slas826e.pdf` | Las patillas que SysConfig no lista: en el PZ100 trae 78 de 100, y faltan las de alimentación, el reset y el cristal. También el contraste de las funciones fijas |
-| B4 (MSP432E401Y) | SysConfig 1.8, `MSP432E/MSP432E.json`: dos referencias y dos encapsulados | `C:\ti\sysconfig_1_8_0` | Igual que el P401R |
-| B4 (MSP432E401Y) | **SLASEN5**, el datasheet | `doc/refs/msp432/slasen5.pdf` | Igual que SLAS826 |
-| B4 (MSP430) | Los diez datasheets: SLAS735J (G2553), SLAS590P (F5529, con su PMAP del P4), SLASE58E (FR2311), SLASEC4D (FR2355), SLASE59F (FR2433), `msp430fr2476.pdf` (FR2476, SLASEO7C), SLAS865F (FR4133), `msp430fr5969.pdf` (FR5969, SLAS704G), SLASE54D (FR5994) y SLAS789D (FR6989) | `doc/refs/msp430/<familia>/` | **Transcripción** de las tablas *Pin Attributes* y *Signal Descriptions*, y de las *Pin Functions* de cada puerto. Ni SysConfig 1.8 ni `targetdb` de CCS 11.2 traen el patillaje de los MSP430 |
-| B4 (ESP32) | Datasheets del ESP32-C3 y del ESP32-C6 (*Pin Overview*, *IO MUX*) y sus TRM (capítulo *IO MUX and GPIO Matrix*, con la tabla de señales) | `doc/refs/esp32-c3/`, `doc/refs/esp32-c6/` | Las patillas, de los datasheets |
-| B4 (ESP32) | ESP-IDF, Apache-2.0: `components/soc/esp32c3/include/soc/gpio_sig_map.h` e `io_mux_reg.h`, y los de `esp32c6` | GitHub | **La matriz, legible por máquina**, contrastada con la tabla del TRM |
+| B4 (MSP432P401R) | SysConfig 1.8 | `C:\ti\sysconfig_1_8_0` | **No se usa**: su `mode` es un índice de SysConfig, no el PxSEL del chip, y mezcla funciones de software (el chip select de SDSPI en todos los pines). Lo vio B4 |
+| B4 (MSP432P401R) | **SLAS826E**, el datasheet: tabla 4-1 (*Pin Attributes*), 6-44 (PMAP) y 6-62 a 6-84 (*Pin Functions*) | `doc/refs/msp432/slas826e.pdf` | **Transcripción** (`extrae_ti.py`) |
+| B4 (MSP432E401Y) | **SLASEN5**: tabla 4-2 (*Pin Attributes*) y 4-4 (*GPIO Pins and Alternate Functions*, con el número de PCTL) | `doc/refs/msp432/slasen5.pdf` | **Transcripción** |
+| B4 (MSP430) | Los diez datasheets: SLAS735J (G2553), SLAS590P (F5529, con su PMAP del P4), SLASE58E (FR2311), SLASEC4D (FR2355), SLASE59F (FR2433), `msp430fr2476.pdf` (FR2476, SLASEO7C), SLAS865F (FR4133), `msp430fr5969.pdf` (FR5969, SLAS704G), SLASE54D (FR5994) y SLAS789D (FR6989) | `doc/refs/msp430/<familia>/` | **Transcripción** de las tablas de patillas y de las *Pin Functions* de cada puerto. Ni SysConfig 1.8 ni `targetdb` de CCS 11.2 traen el patillaje de los MSP430 |
+| B4 (ESP32) | Datasheets del ESP32-C3 (v2.4) y del ESP32-C6 (v1.1): la tabla *Pin Overview* del apéndice, con las funciones del IO MUX y su número | `doc/refs/esp32-c3/`, `doc/refs/esp32-c6/` | **Transcripción** (`extrae_esp.py`) |
+| B4 (ESP32) | ESP-IDF v5.3.1, Apache-2.0: `components/soc/<chip>/include/soc/gpio_sig_map.h` | `biblioteca/fuentes/esp/` | **La matriz, legible por máquina**: el índice de cada señal |
 | B6 | UM1724 (Nucleo-64); SLAU597F, SLAU748B y SLAU599B (LaunchPad MSP432 y EDUMKII); las guías de las diez LaunchPad MSP430 | `doc/refs/nucleo64/`, `doc/refs/msp432/`, `doc/refs/msp430/launchpads/` | Los `<cableado>` salen de los XML de las placas. Estas guías son el contraste |
 | B6 | El estándar de patillaje BoosterPack de TI | ti.com | Solo para los **usos habituales** de J1 a J4. Las guías de las LaunchPad ya traen la tabla |
 

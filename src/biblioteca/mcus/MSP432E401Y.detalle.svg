@@ -1,0 +1,266 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 357.1 357.1" width="35.71mm" height="35.71mm">
+<!-- MSP432E401Y, TQFP128: el dibujo detallado de mcu-sim-build (doc/analisis_build.md, B3 y B4).
+     Lo genera biblioteca/herramientas/genera_mcus.py: no se edita a mano.
+     Unidades de 0.1 mm. Cada patilla es $.N, con N su posicion. -->
+<g id="$" transform="translate(108.6,108.6)" font-family="sans-serif">
+  <rect x="0" y="0" width="140" height="140" rx="2.8" fill="#2b2b2b" stroke="#111" stroke-width="0.5"/>
+  <circle cx="14.2" cy="14.2" r="4.2" fill="#555"/>
+  <rect id="$.1" x="-10" y="6.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.2" x="-10" y="10.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.3" x="-10" y="14.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.4" x="-10" y="18.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.5" x="-10" y="22.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.6" x="-10" y="26.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.7" x="-10" y="30.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.8" x="-10" y="34.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.9" x="-10" y="38.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.10" x="-10" y="42.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.11" x="-10" y="46.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.12" x="-10" y="50.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.13" x="-10" y="54.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.14" x="-10" y="58.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.15" x="-10" y="62.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.16" x="-10" y="66.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.17" x="-10" y="70.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.18" x="-10" y="74.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.19" x="-10" y="78.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.20" x="-10" y="82.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.21" x="-10" y="86.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.22" x="-10" y="90.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.23" x="-10" y="94.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.24" x="-10" y="98.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.25" x="-10" y="102.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.26" x="-10" y="106.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.27" x="-10" y="110.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.28" x="-10" y="114.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.29" x="-10" y="118.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.30" x="-10" y="122.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.31" x="-10" y="126.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.32" x="-10" y="130.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.33" x="6.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.34" x="10.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.35" x="14.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.36" x="18.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.37" x="22.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.38" x="26.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.39" x="30.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.40" x="34.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.41" x="38.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.42" x="42.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.43" x="46.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.44" x="50.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.45" x="54.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.46" x="58.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.47" x="62.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.48" x="66.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.49" x="70.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.50" x="74.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.51" x="78.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.52" x="82.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.53" x="86.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.54" x="90.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.55" x="94.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.56" x="98.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.57" x="102.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.58" x="106.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.59" x="110.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.60" x="114.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.61" x="118.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.62" x="122.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.63" x="126.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.64" x="130.9" y="140" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.65" x="140" y="130.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.66" x="140" y="126.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.67" x="140" y="122.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.68" x="140" y="118.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.69" x="140" y="114.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.70" x="140" y="110.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.71" x="140" y="106.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.72" x="140" y="102.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.73" x="140" y="98.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.74" x="140" y="94.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.75" x="140" y="90.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.76" x="140" y="86.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.77" x="140" y="82.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.78" x="140" y="78.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.79" x="140" y="74.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.80" x="140" y="70.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.81" x="140" y="66.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.82" x="140" y="62.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.83" x="140" y="58.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.84" x="140" y="54.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.85" x="140" y="50.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.86" x="140" y="46.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.87" x="140" y="42.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.88" x="140" y="38.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.89" x="140" y="34.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.90" x="140" y="30.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.91" x="140" y="26.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.92" x="140" y="22.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.93" x="140" y="18.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.94" x="140" y="14.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.95" x="140" y="10.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.96" x="140" y="6.9" width="10" height="2.2" fill="#b8b8b8"/>
+  <rect id="$.97" x="130.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.98" x="126.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.99" x="122.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.100" x="118.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.101" x="114.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.102" x="110.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.103" x="106.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.104" x="102.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.105" x="98.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.106" x="94.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.107" x="90.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.108" x="86.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.109" x="82.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.110" x="78.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.111" x="74.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.112" x="70.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.113" x="66.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.114" x="62.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.115" x="58.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.116" x="54.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.117" x="50.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.118" x="46.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.119" x="42.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.120" x="38.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.121" x="34.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.122" x="30.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.123" x="26.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.124" x="22.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.125" x="18.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.126" x="14.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.127" x="10.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <rect id="$.128" x="6.9" y="-10" width="2.2" height="10" fill="#b8b8b8"/>
+  <text x="-12" y="8.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">1 PD0/AIN15/C0o/I2C7SCL/SSI2XDAT1/T0CCP0</text>
+  <text x="-12" y="12.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">2 PD1/AIN14/C1o/I2C7SDA/SSI2XDAT0/T0CCP1</text>
+  <text x="-12" y="16.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">3 PD2/AIN13/C2o/I2C8SCL/SSI2Fss/T1CCP0</text>
+  <text x="-12" y="20.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">4 PD3/AIN12/I2C8SDA/SSI2Clk/T1CCP1</text>
+  <text x="-12" y="24.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">5 PQ0/EPI0S20/SSI3Clk</text>
+  <text x="-12" y="28.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">6 PQ1/EPI0S21/SSI3Fss</text>
+  <text x="-12" y="32.9" font-size="2.5" text-anchor="end" fill="#c01c28">7 VDD</text>
+  <text x="-12" y="36.9" font-size="2.5" text-anchor="end" fill="#c01c28">8 VDDA</text>
+  <text x="-12" y="40.9" font-size="2.5" text-anchor="end" fill="#c01c28">9 VREFA+</text>
+  <text x="-12" y="44.9" font-size="2.5" text-anchor="end" fill="#c01c28">10 GNDA</text>
+  <text x="-12" y="48.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">11 PQ2/EPI0S22/SSI3XDAT0</text>
+  <text x="-12" y="52.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">12 PE3/AIN0/U1DTR</text>
+  <text x="-12" y="56.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">13 PE2/AIN1/U1DCD</text>
+  <text x="-12" y="60.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">14 PE1/AIN2/U1DSR</text>
+  <text x="-12" y="64.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">15 PE0/AIN3/U1RTS</text>
+  <text x="-12" y="68.9" font-size="2.5" text-anchor="end" fill="#c01c28">16 VDD</text>
+  <text x="-12" y="72.9" font-size="2.5" text-anchor="end" fill="#c01c28">17 GND</text>
+  <text x="-12" y="76.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">18 PK0/AIN16/EPI0S0/U4Rx</text>
+  <text x="-12" y="80.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">19 PK1/AIN17/EPI0S1/U4Tx</text>
+  <text x="-12" y="84.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">20 PK2/AIN18/EPI0S2/U4RTS</text>
+  <text x="-12" y="88.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">21 PK3/AIN19/EPI0S3/U4CTS</text>
+  <text x="-12" y="92.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">22 PC7/C0-/EPI0S4/U5Tx</text>
+  <text x="-12" y="96.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">23 PC6/C0+/EPI0S5/U5Rx</text>
+  <text x="-12" y="100.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">24 PC5/C1+/EPI0S6/RTCCLK/U7Tx</text>
+  <text x="-12" y="104.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">25 PC4/C1-/EPI0S7/U7Rx</text>
+  <text x="-12" y="108.9" font-size="2.5" text-anchor="end" fill="#c01c28">26 VDD</text>
+  <text x="-12" y="112.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">27 PQ3/EPI0S23/SSI3XDAT1</text>
+  <text x="-12" y="116.9" font-size="2.5" text-anchor="end" fill="#c01c28">28 VDD</text>
+  <text x="-12" y="120.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">29 PH0/EPI0S0/U0RTS</text>
+  <text x="-12" y="124.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">30 PH1/EPI0S1/U0CTS</text>
+  <text x="-12" y="128.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">31 PH2/EPI0S2/U0DCD</text>
+  <text x="-12" y="132.9" font-size="2.5" text-anchor="end" fill="#1a5fb4">32 PH3/EPI0S3/U0DSR</text>
+  <text x="8.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,8.9,152)">33 PA0/CAN0Rx/I2C9SCL/T0CCP0/U0Rx</text>
+  <text x="12.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,12.9,152)">34 PA1/CAN0Tx/I2C9SDA/T0CCP1/U0Tx</text>
+  <text x="16.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,16.9,152)">35 PA2/I2C8SCL/SSI0Clk/T1CCP0/U4Rx</text>
+  <text x="20.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,20.9,152)">36 PA3/I2C8SDA/SSI0Fss/T1CCP1/U4Tx</text>
+  <text x="24.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,24.9,152)">37 PA4/I2C7SCL/SSI0XDAT0/T2CCP0/U3Rx</text>
+  <text x="28.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,28.9,152)">38 PA5/I2C7SDA/SSI0XDAT1/T2CCP1/U3Tx</text>
+  <text x="32.9" y="152" font-size="2.5" text-anchor="end" fill="#c01c28" transform="rotate(-90,32.9,152)">39 VDD</text>
+  <text x="36.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,36.9,152)">40 PA6/EPI0S8/I2C6SCL/SSI0XDAT2/T3CCP0/U2Rx/USB0EPEN</text>
+  <text x="40.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,40.9,152)">41 PA7/EPI0S9/I2C6SDA/SSI0XDAT3/T3CCP1/U2Tx/USB0EPEN/USB0PFLT</text>
+  <text x="44.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,44.9,152)">42 PF0/EN0LED0/M0PWM0/SSI3XDAT1/TRD2</text>
+  <text x="48.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,48.9,152)">43 PF1/EN0LED2/M0PWM1/SSI3XDAT0/TRD1</text>
+  <text x="52.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,52.9,152)">44 PF2/M0PWM2/SSI3Fss/TRD0</text>
+  <text x="56.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,56.9,152)">45 PF3/M0PWM3/SSI3Clk/TRCLK</text>
+  <text x="60.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,60.9,152)">46 PF4/EN0LED1/M0FAULT0/SSI3XDAT2/TRD3</text>
+  <text x="64.9" y="152" font-size="2.5" text-anchor="end" fill="#c01c28" transform="rotate(-90,64.9,152)">47 VDD</text>
+  <text x="68.9" y="152" font-size="2.5" text-anchor="end" fill="#c01c28" transform="rotate(-90,68.9,152)">48 GND</text>
+  <text x="72.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,72.9,152)">49 PG0/EN0PPS/EPI0S11/I2C1SCL/M0PWM4</text>
+  <text x="76.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,76.9,152)">50 PG1/EPI0S10/I2C1SDA/M0PWM5</text>
+  <text x="80.9" y="152" font-size="2.5" text-anchor="end" fill="#c01c28" transform="rotate(-90,80.9,152)">51 VDD</text>
+  <text x="84.9" y="152" font-size="2.5" text-anchor="end" fill="#c01c28" transform="rotate(-90,84.9,152)">52 VDD</text>
+  <text x="88.9" y="152" font-size="2.5" text-anchor="end" fill="#6a3d9a" transform="rotate(-90,88.9,152)">53 EN0RXIN</text>
+  <text x="92.9" y="152" font-size="2.5" text-anchor="end" fill="#6a3d9a" transform="rotate(-90,92.9,152)">54 EN0RXIP</text>
+  <text x="96.9" y="152" font-size="2.5" text-anchor="end" fill="#c01c28" transform="rotate(-90,96.9,152)">55 GND</text>
+  <text x="100.9" y="152" font-size="2.5" text-anchor="end" fill="#6a3d9a" transform="rotate(-90,100.9,152)">56 EN0TXON</text>
+  <text x="104.9" y="152" font-size="2.5" text-anchor="end" fill="#6a3d9a" transform="rotate(-90,104.9,152)">57 EN0TXOP</text>
+  <text x="108.9" y="152" font-size="2.5" text-anchor="end" fill="#c01c28" transform="rotate(-90,108.9,152)">58 GND</text>
+  <text x="112.9" y="152" font-size="2.5" text-anchor="end" fill="#6a3d9a" transform="rotate(-90,112.9,152)">59 RBIAS</text>
+  <text x="116.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,116.9,152)">60 PK7/EPI0S24/I2C4SDA/M0FAULT2/RTCCLK/U0RI</text>
+  <text x="120.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,120.9,152)">61 PK6/EN0LED1/EPI0S25/I2C4SCL/M0FAULT1</text>
+  <text x="124.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,124.9,152)">62 PK5/EN0LED2/EPI0S31/I2C3SDA/M0PWM7</text>
+  <text x="128.9" y="152" font-size="2.5" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,128.9,152)">63 PK4/EN0LED0/EPI0S32/I2C3SCL/M0PWM6</text>
+  <text x="132.9" y="152" font-size="2.5" text-anchor="end" fill="#6a3d9a" transform="rotate(-90,132.9,152)">64 WAKE</text>
+  <text x="152" y="132.9" font-size="2.5" fill="#6a3d9a">65 HIB</text>
+  <text x="152" y="128.9" font-size="2.5" fill="#6a3d9a">66 XOSC0</text>
+  <text x="152" y="124.9" font-size="2.5" fill="#6a3d9a">67 XOSC1</text>
+  <text x="152" y="120.9" font-size="2.5" fill="#c01c28">68 VBAT</text>
+  <text x="152" y="116.9" font-size="2.5" fill="#c01c28">69 VDD</text>
+  <text x="152" y="112.9" font-size="2.5" fill="#6a3d9a">70 RST</text>
+  <text x="152" y="108.9" font-size="2.5" fill="#1a5fb4">71 PM7/T5CCP1/TMPR0/U0RI</text>
+  <text x="152" y="104.9" font-size="2.5" fill="#1a5fb4">72 PM6/T5CCP0/TMPR1/U0DSR</text>
+  <text x="152" y="100.9" font-size="2.5" fill="#1a5fb4">73 PM5/T4CCP1/TMPR2/U0DCD</text>
+  <text x="152" y="96.9" font-size="2.5" fill="#1a5fb4">74 PM4/T4CCP0/TMPR3/U0CTS</text>
+  <text x="152" y="92.9" font-size="2.5" fill="#1a5fb4">75 PM3/EPI0S12/T3CCP1</text>
+  <text x="152" y="88.9" font-size="2.5" fill="#1a5fb4">76 PM2/EPI0S13/T3CCP0</text>
+  <text x="152" y="84.9" font-size="2.5" fill="#1a5fb4">77 PM1/EPI0S14/T2CCP1</text>
+  <text x="152" y="80.9" font-size="2.5" fill="#1a5fb4">78 PM0/EPI0S15/T2CCP0</text>
+  <text x="152" y="76.9" font-size="2.5" fill="#c01c28">79 VDD</text>
+  <text x="152" y="72.9" font-size="2.5" fill="#c01c28">80 GND</text>
+  <text x="152" y="68.9" font-size="2.5" fill="#1a5fb4">81 PL0/EPI0S16/I2C2SDA/M0FAULT3/USB0D0</text>
+  <text x="152" y="64.9" font-size="2.5" fill="#1a5fb4">82 PL1/EPI0S17/I2C2SCL/PhA0/USB0D1</text>
+  <text x="152" y="60.9" font-size="2.5" fill="#1a5fb4">83 PL2/C0o/EPI0S18/PhB0/USB0D2</text>
+  <text x="152" y="56.9" font-size="2.5" fill="#1a5fb4">84 PL3/C1o/EPI0S19/IDX0/USB0D3</text>
+  <text x="152" y="52.9" font-size="2.5" fill="#1a5fb4">85 PL4/EPI0S26/T0CCP0/USB0D4</text>
+  <text x="152" y="48.9" font-size="2.5" fill="#1a5fb4">86 PL5/EPI0S33/T0CCP1/USB0D5</text>
+  <text x="152" y="44.9" font-size="2.5" fill="#c01c28">87 VDDC</text>
+  <text x="152" y="40.9" font-size="2.5" fill="#6a3d9a">88 OSC0</text>
+  <text x="152" y="36.9" font-size="2.5" fill="#6a3d9a">89 OSC1</text>
+  <text x="152" y="32.9" font-size="2.5" fill="#c01c28">90 VDD</text>
+  <text x="152" y="28.9" font-size="2.5" fill="#1a5fb4">91 PB2/EPI0S27/I2C0SCL/T5CCP0/USB0STP</text>
+  <text x="152" y="24.9" font-size="2.5" fill="#1a5fb4">92 PB3/EPI0S28/I2C0SDA/T5CCP1/USB0CLK</text>
+  <text x="152" y="20.9" font-size="2.5" fill="#1a5fb4">93 PL7/T1CCP1/USB0DM</text>
+  <text x="152" y="16.9" font-size="2.5" fill="#1a5fb4">94 PL6/T1CCP0/USB0DP</text>
+  <text x="152" y="12.9" font-size="2.5" fill="#1a5fb4">95 PB0/CAN1Rx/I2C5SCL/T4CCP0/U1Rx/USB0ID</text>
+  <text x="152" y="8.9" font-size="2.5" fill="#1a5fb4">96 PB1/CAN1Tx/I2C5SDA/T4CCP1/U1Tx/USB0VBUS</text>
+  <text x="132.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,132.9,-12)">97 PC3/TDO/SWO</text>
+  <text x="128.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,128.9,-12)">98 PC2/TDI</text>
+  <text x="124.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,124.9,-12)">99 PC1/TMS/SWDIO</text>
+  <text x="120.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,120.9,-12)">100 PC0/TCK/SWCLK</text>
+  <text x="116.9" y="-12" font-size="2.5" fill="#c01c28" transform="rotate(-90,116.9,-12)">101 VDD</text>
+  <text x="112.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,112.9,-12)">102 PQ4/DIVSCLK/U1Rx</text>
+  <text x="108.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,108.9,-12)">103 PP2/EPI0S29/U0DTR/USB0NXT</text>
+  <text x="104.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,104.9,-12)">104 PP3/EPI0S30/RTCCLK/U0DCD/U1CTS/USB0DIR</text>
+  <text x="100.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,100.9,-12)">105 PP4/U0DSR/U3RTS/USB0D7</text>
+  <text x="96.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,96.9,-12)">106 PP5/I2C2SCL/U3CTS/USB0D6</text>
+  <text x="92.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,92.9,-12)">107 PN0/U1RTS</text>
+  <text x="88.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,88.9,-12)">108 PN1/U1CTS</text>
+  <text x="84.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,84.9,-12)">109 PN2/EPI0S29/U1DCD/U2RTS</text>
+  <text x="80.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,80.9,-12)">110 PN3/EPI0S30/U1DSR/U2CTS</text>
+  <text x="76.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,76.9,-12)">111 PN4/EPI0S34/I2C2SDA/U1DTR/U3RTS</text>
+  <text x="72.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,72.9,-12)">112 PN5/EPI0S35/I2C2SCL/U1RI/U3CTS</text>
+  <text x="68.9" y="-12" font-size="2.5" fill="#c01c28" transform="rotate(-90,68.9,-12)">113 VDD</text>
+  <text x="64.9" y="-12" font-size="2.5" fill="#c01c28" transform="rotate(-90,64.9,-12)">114 GND</text>
+  <text x="60.9" y="-12" font-size="2.5" fill="#c01c28" transform="rotate(-90,60.9,-12)">115 VDDC</text>
+  <text x="56.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,56.9,-12)">116 PJ0/EN0PPS/U3Rx</text>
+  <text x="52.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,52.9,-12)">117 PJ1/U3Tx</text>
+  <text x="48.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,48.9,-12)">118 PP0/C2+/SSI3XDAT2/U6Rx</text>
+  <text x="44.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,44.9,-12)">119 PP1/C2-/SSI3XDAT3/U6Tx</text>
+  <text x="40.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,40.9,-12)">120 PB5/AIN11/I2C5SDA/SSI1Clk/U0RTS</text>
+  <text x="36.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,36.9,-12)">121 PB4/AIN10/I2C5SCL/SSI1Fss/U0CTS</text>
+  <text x="32.9" y="-12" font-size="2.5" fill="#c01c28" transform="rotate(-90,32.9,-12)">122 VDD</text>
+  <text x="28.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,28.9,-12)">123 PE4/AIN9/SSI1XDAT0/U1RI</text>
+  <text x="24.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,24.9,-12)">124 PE5/AIN8/SSI1XDAT1</text>
+  <text x="20.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,20.9,-12)">125 PD4/AIN7/SSI1XDAT2/T3CCP0/U2Rx</text>
+  <text x="16.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,16.9,-12)">126 PD5/AIN6/SSI1XDAT3/T3CCP1/U2Tx</text>
+  <text x="12.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,12.9,-12)">127 PD6/AIN5/SSI2XDAT3/T4CCP0/U2RTS/USB0EPEN</text>
+  <text x="8.9" y="-12" font-size="2.5" fill="#1a5fb4" transform="rotate(-90,8.9,-12)">128 PD7/AIN4/NMI/SSI2XDAT2/T4CCP1/U2CTS/USB0PFLT</text>
+  <text x="70" y="76.7" font-size="19.1" text-anchor="middle" fill="#ddd">MSP432E401Y</text>
+</g>
+</svg>

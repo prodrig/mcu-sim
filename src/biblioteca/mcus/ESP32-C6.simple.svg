@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 62 62" width="6.20mm" height="6.20mm">
+<!-- ESP32-C6, QFN40: el dibujo simple de mcu-sim-build (doc/analisis_build.md, B3 y B4).
+     Lo genera biblioteca/herramientas/genera_mcus.py: no se edita a mano.
+     Unidades de 0.1 mm. Cada patilla es $.N, con N su posicion. -->
+<g id="$" transform="translate(6,6)" font-family="sans-serif">
+  <rect x="0" y="0" width="50" height="50" rx="1" fill="#2b2b2b" stroke="#111" stroke-width="0.5"/>
+  <circle cx="7" cy="7" r="1.5" fill="#555"/>
+  <rect x="0" y="5.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="0" y="9.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="0" y="13.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="0" y="17.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="0" y="21.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="0" y="25.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="0" y="29.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="0" y="33.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="0" y="37.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="0" y="41.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="5.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="9.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="13.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="17.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="21.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="25.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="29.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="33.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="37.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="41.9" y="45" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="45" y="41.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="45" y="37.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="45" y="33.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="45" y="29.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="45" y="25.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="45" y="21.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="45" y="17.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="45" y="13.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="45" y="9.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="45" y="5.9" width="5" height="2.2" fill="#b8b8b8"/>
+  <rect x="41.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="37.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="33.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="29.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="25.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="21.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="17.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="13.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="9.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="5.9" y="0" width="2.2" height="5" fill="#b8b8b8"/>
+  <rect x="10" y="10" width="30" height="30" fill="none" stroke="#b8b8b8" stroke-width="0.6" stroke-dasharray="2.4 1.6"/>
+  <text x="25" y="28.1" font-size="9" text-anchor="middle" fill="#ddd">ESP32-C6</text>
+</g>
+</svg>

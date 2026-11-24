@@ -1,0 +1,83 @@
+# ESP32-C6FH8, QFN32: el patillaje del datasheet de Espressif (ESP32-C6 Series Datasheet v1.1),
+# tabla «Pin Overview» del apéndice. Lo escribe
+# biblioteca/herramientas/extrae_esp.py; no se edita a mano.
+# patilla POSICION NOMBRE
+# funcion PAD MODO NOMBRE [analogica]   (MODO: la función del IO MUX, F0-F2;
+#                                       - lo analógico y el LP IO MUX)
+documento ESP32-C6_Series_Datasheet_v1.1
+encapsulado QFN32
+patilla 1 ANT
+patilla 2 VDDA3P3
+patilla 3 VDDA3P3
+patilla 4 CHIP_PU
+patilla 5 VDDPST1
+patilla 6 XTAL_32K_P/GPIO0
+patilla 7 XTAL_32K_N/GPIO1
+patilla 8 GPIO2
+patilla 9 GPIO3
+patilla 10 MTMS/GPIO4
+patilla 11 MTDI/GPIO5
+patilla 12 MTCK/GPIO6
+patilla 13 MTDO/GPIO7
+patilla 14 GPIO8
+patilla 15 GPIO9
+patilla 16 GPIO12
+patilla 17 GPIO13
+patilla 18 GPIO14
+patilla 19 GPIO15
+patilla 20 VDDPST2
+patilla 21 U0TXD/GPIO16
+patilla 22 U0RXD/GPIO17
+patilla 23 SDIO_CMD/GPIO18
+patilla 24 SDIO_CLK/GPIO19
+patilla 25 SDIO_DATA0/GPIO20
+patilla 26 SDIO_DATA1/GPIO21
+patilla 27 SDIO_DATA2/GPIO22
+patilla 28 SDIO_DATA3/GPIO23
+patilla 29 VDDA1
+patilla 30 XTAL_N
+patilla 31 XTAL_P
+patilla 32 VDDA2
+patilla 33 GND
+funcion GPIO0 - XTAL_32K_P analogica
+funcion GPIO0 - ADC1_CH0 analogica
+funcion GPIO0 - LP_UART_DTRN
+funcion GPIO1 - XTAL_32K_N analogica
+funcion GPIO1 - ADC1_CH1 analogica
+funcion GPIO1 - LP_UART_DSRN
+funcion GPIO2 2 FSPIQ
+funcion GPIO2 - ADC1_CH2 analogica
+funcion GPIO2 - LP_UART_RTSN
+funcion GPIO3 - ADC1_CH3 analogica
+funcion GPIO3 - LP_UART_CTSN
+funcion GPIO4 0 MTMS
+funcion GPIO4 2 FSPIHD
+funcion GPIO4 - ADC1_CH4 analogica
+funcion GPIO4 - LP_UART_RXD
+funcion GPIO5 0 MTDI
+funcion GPIO5 2 FSPIWP
+funcion GPIO5 - ADC1_CH5 analogica
+funcion GPIO5 - LP_UART_TXD
+funcion GPIO6 0 MTCK
+funcion GPIO6 2 FSPICLK
+funcion GPIO6 - ADC1_CH6 analogica
+funcion GPIO6 - LP_I2C_SDA
+funcion GPIO7 0 MTDO
+funcion GPIO7 2 FSPID
+funcion GPIO7 - LP_I2C_SCL
+funcion GPIO12 - USB_D- analogica
+funcion GPIO13 - USB_D+ analogica
+funcion GPIO16 0 U0TXD
+funcion GPIO16 2 FSPICS0
+funcion GPIO17 0 U0RXD
+funcion GPIO17 2 FSPICS1
+funcion GPIO18 0 SDIO_CMD
+funcion GPIO18 2 FSPICS2
+funcion GPIO19 0 SDIO_CLK
+funcion GPIO19 2 FSPICS3
+funcion GPIO20 0 SDIO_DATA0
+funcion GPIO20 2 FSPICS4
+funcion GPIO21 0 SDIO_DATA1
+funcion GPIO21 2 FSPICS5
+funcion GPIO22 0 SDIO_DATA2
+funcion GPIO23 0 SDIO_DATA3

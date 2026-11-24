@@ -1,0 +1,266 @@
+# MSP430FR5994, LQFP80: el patillaje del datasheet de TI SLASE54D.
+# Lo escribe biblioteca/herramientas/extrae_ti.py; no se edita a mano.
+# patilla POSICION NOMBRE         (el nombre, como en la tabla de patillas)
+# funcion PAD MODO NOMBRE [analogica]   (MODO: el número que la elige;
+#                                       - si no se elige con PxSEL/PCTL)
+# pmap MNEMONICO VALOR               (el PMAP: el valor de PxMAPy)
+documento SLASE54D
+encapsulado LQFP80 PN
+patilla 1 P1.0/TA0.1/DMAE0/RTCCLK/A0/C0/VREF-/VeREF-
+patilla 2 P1.1/TA0.2/TA1CLK/COUT/A1/C1/VREF+/VeREF+
+patilla 3 P1.2/TA1.1/TA0CLK/COUT/A2/C2
+patilla 4 P3.0/A12/C12
+patilla 5 P3.1/A13/C13
+patilla 6 P3.2/A14/C14
+patilla 7 P3.3/A15/C15
+patilla 8 P6.0/UCA3TXD/UCA3SIMO
+patilla 9 P6.1/UCA3RXD/UCA3SOMI
+patilla 10 P6.2/UCA3CLK
+patilla 11 P6.3/UCA3STE
+patilla 12 P4.7
+patilla 13 P7.0/UCB2SIMO/UCB2SDA
+patilla 14 P7.1/UCB2SOMI/UCB2SCL
+patilla 15 P8.0
+patilla 16 P1.3/TA1.2/UCB0STE/A3/C3
+patilla 17 P1.4/TB0.1/UCA0STE/A4/C4
+patilla 18 P1.5/TB0.2/UCA0CLK/A5/C5
+patilla 19 DVSS2
+patilla 20 DVCC2
+patilla 21 PJ.0/TDO/TB0OUTH/SMCLK/SRSCG1/C6
+patilla 22 PJ.1/TDI/TCLK/MCLK/SRSCG0/C7
+patilla 23 PJ.2/TMS/ACLK/SROSCOFF/C8
+patilla 24 PJ.3/TCK/SRCPUOFF/C9
+patilla 25 P7.2/UCB2CLK
+patilla 26 P7.3/UCB2STE/TA4.1
+patilla 27 P7.4/TA4.0/A16
+patilla 28 P7.5/A17
+patilla 29 P7.6/A18
+patilla 30 P7.7/A19
+patilla 31 P4.0/A8
+patilla 32 P4.1/A9
+patilla 33 P4.2/A10
+patilla 34 P4.3/A11
+patilla 35 P2.5/TB0.0/UCA1TXD/UCA1SIMO
+patilla 36 P2.6/TB0.1/UCA1RXD/UCA1SOMI
+patilla 37 TEST/SBWTCK
+patilla 38 RST/NMI/SBWTDIO
+patilla 39 DVSS3
+patilla 40 DVCC3
+patilla 41 P2.0/TB0.6/UCA0TXD/BSLTX/UCA0SIMO/TB0CLK/ACLK
+patilla 42 P2.1/TB0.0/UCA0RXD/BSLRX/UCA0SOMI
+patilla 43 P2.2/TB0.2/UCB0CLK
+patilla 44 P8.1
+patilla 45 P8.2
+patilla 46 P8.3
+patilla 47 P3.4/TB0.3/SMCLK
+patilla 48 P3.5/TB0.4/COUT
+patilla 49 P3.6/TB0.5
+patilla 50 P3.7/TB0.6
+patilla 51 P1.6/TB0.3/UCB0SIMO/UCB0SDA/BSLSDA/TA0.0
+patilla 52 P1.7/TB0.4/UCB0SOMI/UCB0SCL/BSLSCL/TA1.0
+patilla 53 P5.0/UCB1SIMO/UCB1SDA
+patilla 54 P5.1/UCB1SOMI/UCB1SCL
+patilla 55 P5.2/UCB1CLK/TA4CLK
+patilla 56 P5.3/UCB1STE
+patilla 57 P4.4/TB0.5
+patilla 58 P4.5
+patilla 59 P4.6
+patilla 60 DVSS1
+patilla 61 DVCC1
+patilla 62 P2.7
+patilla 63 P2.3/TA0.0/UCA1STE/A6/C10
+patilla 64 P2.4/TA1.0/UCA1CLK/A7/C11
+patilla 65 P5.4/UCA2TXD/UCA2SIMO/TB0OUTH
+patilla 66 P5.5/UCA2RXD/UCA2SOMI/ACLK
+patilla 67 P5.6/UCA2CLK/TA4.0/SMCLK
+patilla 68 P5.7/UCA2STE/TA4.1/MCLK
+patilla 69 P6.4/UCB3SIMO/UCB3SDA
+patilla 70 P6.5/UCB3SOMI/UCB3SCL
+patilla 71 P6.6/UCB3CLK
+patilla 72 P6.7/UCB3STE
+patilla 73 AVSS3
+patilla 74 PJ.6/HFXIN
+patilla 75 PJ.7/HFXOUT
+patilla 76 AVSS2
+patilla 77 PJ.4/LFXIN
+patilla 78 PJ.5/LFXOUT
+patilla 79 AVSS1
+patilla 80 AVCC1
+funcion P1.0 1 TA0.CCI1A
+funcion P1.0 1 TA0.1
+funcion P1.0 2 DMAE0
+funcion P1.0 2 RTCCLK
+funcion P1.0 3 A0 analogica
+funcion P1.0 3 C0 analogica
+funcion P1.0 3 VREF- analogica
+funcion P1.0 3 VeREF- analogica
+funcion P1.1 1 TA0.CCI2A
+funcion P1.1 1 TA0.2
+funcion P1.1 2 TA1CLK
+funcion P1.1 2 COUT
+funcion P1.1 3 A1 analogica
+funcion P1.1 3 C1 analogica
+funcion P1.1 3 VREF+ analogica
+funcion P1.1 3 VeREF+ analogica
+funcion P1.2 1 TA1.CCI1A
+funcion P1.2 1 TA1.1
+funcion P1.2 2 TA0CLK
+funcion P1.2 2 COUT
+funcion P1.2 3 A2 analogica
+funcion P1.2 3 C2 analogica
+funcion P1.3 1 TA1.CCI2A
+funcion P1.3 1 TA1.2
+funcion P1.3 2 UCB0STE
+funcion P1.3 3 A3 analogica
+funcion P1.3 3 C3 analogica
+funcion P1.4 1 TB0.CCI1A
+funcion P1.4 1 TB0.1
+funcion P1.4 2 UCA0STE
+funcion P1.4 3 A4 analogica
+funcion P1.4 3 C4 analogica
+funcion P1.5 1 TB0.CCI2A
+funcion P1.5 1 TB0.2
+funcion P1.5 2 UCA0CLK
+funcion P1.5 3 A5 analogica
+funcion P1.5 3 C5 analogica
+funcion P1.6 1 TB0.CCI3B
+funcion P1.6 1 TB0.3
+funcion P1.6 2 UCB0SIMO
+funcion P1.6 2 UCB0SDA
+funcion P1.6 3 TA0.CCI0A
+funcion P1.6 3 TA0.0
+funcion P1.7 1 TB0.CCI4B
+funcion P1.7 1 TB0.4
+funcion P1.7 2 UCB0SOMI
+funcion P1.7 2 UCB0SCL
+funcion P1.7 3 TA1.CCI0A
+funcion P1.7 3 TA1.0
+funcion P2.0 1 TB0.CCI6B
+funcion P2.0 1 TB0.6
+funcion P2.0 2 UCA0TXD
+funcion P2.0 2 UCA0SIMO
+funcion P2.0 3 TB0CLK
+funcion P2.0 3 ACLK
+funcion P2.1 1 TB0.CCI0A
+funcion P2.1 3 TB0.CCI0A
+funcion P2.1 1 TB0.0
+funcion P2.1 3 TB0.0
+funcion P2.1 2 UCA0RXD
+funcion P2.1 2 UCA0SOMI
+funcion P2.2 1 TB0.2
+funcion P2.2 2 UCB0CLK
+funcion P2.3 1 TA0.CCI0B
+funcion P2.3 1 TA0.0
+funcion P2.3 2 UCA1STE
+funcion P2.3 3 A6 analogica
+funcion P2.3 3 C10 analogica
+funcion P2.4 1 TA1.CCI0B
+funcion P2.4 1 TA1.0
+funcion P2.4 2 UCA1CLK
+funcion P2.4 3 A7 analogica
+funcion P2.4 3 C11 analogica
+funcion P2.5 1 TB0.CCI0B
+funcion P2.5 1 TB0.0
+funcion P2.5 2 UCA1TXD
+funcion P2.5 2 UCA1SIMO
+funcion P2.6 1 TB0.1
+funcion P2.6 2 UCA1RXD
+funcion P2.6 2 UCA1SOMI
+funcion P3.0 3 A12 analogica
+funcion P3.0 3 C12 analogica
+funcion P3.1 3 A13 analogica
+funcion P3.1 3 C13 analogica
+funcion P3.2 3 A14 analogica
+funcion P3.2 3 C14 analogica
+funcion P3.3 3 A15 analogica
+funcion P3.3 3 C15 analogica
+funcion P3.4 1 TB0.CCI3A
+funcion P3.4 1 TB0.3
+funcion P3.4 2 SMCLK
+funcion P3.4 3 SMCLK
+funcion P3.5 1 TB0.CCI4A
+funcion P3.5 1 TB0.4
+funcion P3.5 2 COUT
+funcion P3.5 3 COUT
+funcion P3.6 1 TB0.CCI5A
+funcion P3.6 1 TB0.5
+funcion P3.7 1 TB0.CCI6A
+funcion P3.7 1 TB0.6
+funcion P4.0 3 A8 analogica
+funcion P4.1 3 A9 analogica
+funcion P4.2 3 A10 analogica
+funcion P4.3 3 A11 analogica
+funcion P4.4 1 TB0.CCI5B
+funcion P4.4 1 TB0.5
+funcion P5.0 1 UCB1SIMO
+funcion P5.0 1 UCB1SDA
+funcion P5.1 1 UCB1SOMI
+funcion P5.1 1 UCB1SCL
+funcion P5.2 1 UCB1CLK
+funcion P5.2 2 TA4CLK
+funcion P5.3 1 UCB1STE
+funcion P5.4 1 UCA2TXD
+funcion P5.4 1 UCA2SIMO
+funcion P5.4 3 TB0OUTH
+funcion P5.5 1 UCA2RXD
+funcion P5.5 1 UCA2SOMI
+funcion P5.5 3 ACLK
+funcion P5.6 1 UCA2CLK
+funcion P5.6 2 TA4.CCI0A
+funcion P5.6 2 TA4.0
+funcion P5.6 3 SMCLK
+funcion P5.7 1 UCA2STE
+funcion P5.7 2 TA4.CCI1A
+funcion P5.7 2 TA4.1
+funcion P5.7 3 MCLK
+funcion P6.0 1 UCA3TXD
+funcion P6.0 1 UCA3SIMO
+funcion P6.1 1 UCA3RXD
+funcion P6.1 1 UCA3SOMI
+funcion P6.2 1 UCA3CLK
+funcion P6.3 1 UCA3STE
+funcion P6.4 1 UCB3SIMO
+funcion P6.4 1 UCB3SDA
+funcion P6.5 1 UCB3SOMI
+funcion P6.5 1 UCB3SCL
+funcion P6.6 1 UCB3CLK
+funcion P6.7 1 UCB3STE
+funcion P7.0 1 UCB2SIMO
+funcion P7.0 1 UCB2SDA
+funcion P7.1 1 UCB2SOMI
+funcion P7.1 1 UCB2SCL
+funcion P7.2 1 UCB2CLK
+funcion P7.3 1 UCB2STE
+funcion P7.3 2 TA4.CCI1B
+funcion P7.3 2 TA4.1
+funcion P7.4 2 TA4.CCI0B
+funcion P7.4 2 TA4.0
+funcion P7.4 3 A16 analogica
+funcion P7.5 3 A17 analogica
+funcion P7.6 3 A18 analogica
+funcion P7.7 3 A19 analogica
+funcion PJ.4 - LFXIN analogica
+funcion PJ.5 - LFXOUT analogica
+funcion PJ.6 - HFXIN analogica
+funcion PJ.7 - HFXOUT analogica
+funcion PJ.0 - TDO
+funcion PJ.0 1 TB0OUTH
+funcion PJ.0 1 SMCLK
+funcion PJ.0 2 SRSCG1
+funcion PJ.0 - C6 analogica
+funcion PJ.1 - TDI
+funcion PJ.1 - TCLK
+funcion PJ.1 1 MCLK
+funcion PJ.1 2 SRSCG0
+funcion PJ.1 - C7 analogica
+funcion PJ.2 - TMS
+funcion PJ.2 1 ACLK
+funcion PJ.2 2 SROSCOFF
+funcion PJ.2 - C8 analogica
+funcion PJ.3 - TCK
+funcion PJ.3 2 SRCPUOFF
+funcion PJ.3 - C9 analogica
+funcion P2.0 - BSLTX
+funcion P2.1 - BSLRX
+funcion P1.6 - BSLSDA
+funcion P1.7 - BSLSCL

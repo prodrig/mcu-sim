@@ -1,0 +1,63 @@
+# ESP32-C3FH4X, QFN32: el patillaje del datasheet de Espressif (ESP32-C3 Series Datasheet v2.4),
+# tabla «Pin Overview» del apéndice. Lo escribe
+# biblioteca/herramientas/extrae_esp.py; no se edita a mano.
+# patilla POSICION NOMBRE
+# funcion PAD MODO NOMBRE [analogica]   (MODO: la función del IO MUX, F0-F2;
+#                                       - lo analógico y el LP IO MUX)
+documento ESP32-C3_Series_Datasheet_v2.4
+encapsulado QFN32
+patilla 1 LNA_IN
+patilla 2 VDD3P3
+patilla 3 VDD3P3
+patilla 4 XTAL_32K_P/GPIO0
+patilla 5 XTAL_32K_N/GPIO1
+patilla 6 GPIO2
+patilla 7 CHIP_EN
+patilla 8 GPIO3
+patilla 9 MTMS/GPIO4
+patilla 10 MTDI/GPIO5
+patilla 11 VDD3P3_RTC
+patilla 12 MTCK/GPIO6
+patilla 13 MTDO/GPIO7
+patilla 14 GPIO8
+patilla 15 GPIO9
+patilla 16 GPIO10
+patilla 17 VDD3P3_CPU
+patilla 18 VDD_SPI/GPIO11
+patilla 19 NC
+patilla 20 NC
+patilla 21 NC
+patilla 22 NC
+patilla 23 NC
+patilla 24 NC
+patilla 25 GPIO18
+patilla 26 GPIO19
+patilla 27 U0RXD/GPIO20
+patilla 28 U0TXD/GPIO21
+patilla 29 XTAL_N
+patilla 30 XTAL_P
+patilla 31 VDDA
+patilla 32 VDDA
+patilla 33 GND
+funcion GPIO0 - XTAL_32K_P analogica
+funcion GPIO0 - ADC1_CH0 analogica
+funcion GPIO1 - XTAL_32K_N analogica
+funcion GPIO1 - ADC1_CH1 analogica
+funcion GPIO2 2 FSPIQ
+funcion GPIO2 - ADC1_CH2 analogica
+funcion GPIO3 - ADC1_CH3 analogica
+funcion GPIO4 0 MTMS
+funcion GPIO4 2 FSPIHD
+funcion GPIO4 - ADC1_CH4 analogica
+funcion GPIO5 0 MTDI
+funcion GPIO5 2 FSPIWP
+funcion GPIO5 - ADC2_CH0 analogica
+funcion GPIO6 0 MTCK
+funcion GPIO6 2 FSPICLK
+funcion GPIO7 0 MTDO
+funcion GPIO7 2 FSPID
+funcion GPIO10 2 FSPICS0
+funcion GPIO18 - USB_D- analogica
+funcion GPIO19 - USB_D+ analogica
+funcion GPIO20 0 U0RXD
+funcion GPIO21 0 U0TXD

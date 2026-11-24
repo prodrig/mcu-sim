@@ -150,8 +150,11 @@ inline const std::vector<PinEsp>& pines_c3() {
 }
 
 // --- Encapsulados [DS-C3 tabla 1-1] ---------------------------------------------------
-// QFN32 de 5x5. Con la Flash dentro (C3FH4) siguen saliendo los 22; las «X»
-// (C3FH4X) no sacan GPIO12-17, que van a la Flash interna.
+// QFN32 de 5x5. Con la Flash dentro (C3FH4, C3FH8X) siguen saliendo los 22;
+// la C3FH4X (y la C3FH4AZ) no saca GPIO12-17: sus patillas 19-24 no están
+// conectadas [DS-C3 v2.4 tabla 1-1 y nota 9 de la tabla 2-1]. La «X» del
+// nombre es la revisión v1.1, no el encapsulado: la C3FH8X saca los 22. Lo
+// encontró el contraste con el datasheet (B4b de doc/analisis_build.md).
 inline constexpr Encapsulado ENC_C3_QFN32{"QFN32", 33, 22, {0x003FFFFFu}, true};
 inline constexpr Encapsulado ENC_C3_QFN32_X{"QFN32", 33, 16, {0x003C0FFFu}, true};
 
@@ -213,7 +216,7 @@ inline constexpr McuCapsC3 MCU_ESP32C3FH4{"ESP32-C3FH4", &RV_ESP32C3, 4u << 20, 
 // El de los módulos ESP32-C3-MINI-1 (la DevKitM-1): 4 MB dentro, 85 °C
 inline constexpr McuCapsC3 MCU_ESP32C3FN4{"ESP32-C3FN4", &RV_ESP32C3, 4u << 20, 4, ENC_C3_QFN32};
 inline constexpr McuCapsC3 MCU_ESP32C3FH4X{"ESP32-C3FH4X", &RV_ESP32C3, 4u << 20, 101, ENC_C3_QFN32_X};
-inline constexpr McuCapsC3 MCU_ESP32C3FH8X{"ESP32-C3FH8X", &RV_ESP32C3, 8u << 20, 101, ENC_C3_QFN32_X};
+inline constexpr McuCapsC3 MCU_ESP32C3FH8X{"ESP32-C3FH8X", &RV_ESP32C3, 8u << 20, 101, ENC_C3_QFN32};
 
 struct RegistroCatalogoC3 {
     RegistroCatalogoC3() {

@@ -520,7 +520,11 @@ private:
             gpio.conecta_funcion(t[k].p, t[k].i, t[k].pctl, fn);
         }
         // El ADC: los canales son los nodos de los pines, en modo analógico
-        for (unsigned c = 0; c < 20; ++c) gpio.conecta_analogica(AIN[c][0], AIN[c][1], "AIN");
+        // (con el nombre de TI de cada canal, para `--exporta-mcu`)
+        static constexpr const char* NOMBRE_AIN[20] = {
+            "AIN0", "AIN1", "AIN2", "AIN3", "AIN4", "AIN5", "AIN6", "AIN7", "AIN8", "AIN9",
+            "AIN10", "AIN11", "AIN12", "AIN13", "AIN14", "AIN15", "AIN16", "AIN17", "AIN18", "AIN19"};
+        for (unsigned c = 0; c < 20; ++c) gpio.conecta_analogica(AIN[c][0], AIN[c][1], NOMBRE_AIN[c]);
         for (AdcE4* a : {&adc0, &adc1}) {
             a->v_canal = [this](unsigned c) {
                 return c < 20 ? double(gpio.nodo_de(AIN[c][0], AIN[c][1]).voltage()) - double(gnda->voltage()) : 0.0;

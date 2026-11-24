@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El patillaje del ESP32-C3FH8X y lo que puede hacer cada patilla, contrastado con lo
+     que simula el modelo de mcu-sim. Lo genera biblioteca/herramientas/genera_mcus.py
+     (doc/analisis_build.md, B3 y B4): no se edita a mano. -->
+<mcu tipo="ESP32-C3FH8X" familia="ESP32C3" encapsulado="QFN32" patillas="33" fuente="Espressif ESP32-C3 Series Datasheet v2.4; ESP-IDF v5.3.1 (c8fc5f643b7a7b0d3b182d3df610844e3dc9bd74) gpio_sig_map.h" contrastado="si" version="1">
+  <patilla n="1" nombre="LNA_IN" clase="control" nodo=""/>
+  <patilla n="2" nombre="VDD3P3" clase="alimentacion" nodo="VDD3P3"/>
+  <patilla n="3" nombre="VDD3P3" clase="alimentacion" nodo="VDD3P3"/>
+  <patilla n="4" nombre="XTAL_32K_P/GPIO0" clase="es" nodo="GPIO0">
+    <funcion nombre="ADC1_CH0" analogica="si" simulada="si"/>
+    <funcion nombre="XTAL_32K_P" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="5" nombre="XTAL_32K_N/GPIO1" clase="es" nodo="GPIO1">
+    <funcion nombre="ADC1_CH1" analogica="si" simulada="si"/>
+    <funcion nombre="XTAL_32K_N" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="6" nombre="GPIO2" clase="es" nodo="GPIO2">
+    <funcion nombre="FSPIQ" modo="2" simulada="no"/>
+    <funcion nombre="ADC1_CH2" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="7" nombre="CHIP_EN" clase="reset" nodo="CHIP_PU"/>
+  <patilla n="8" nombre="GPIO3" clase="es" nodo="GPIO3">
+    <funcion nombre="ADC1_CH3" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="9" nombre="MTMS/GPIO4" clase="es" nodo="GPIO4">
+    <funcion nombre="MTMS" modo="0" simulada="no"/>
+    <funcion nombre="FSPIHD" modo="2" simulada="no"/>
+    <funcion nombre="ADC1_CH4" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="10" nombre="MTDI/GPIO5" clase="es" nodo="GPIO5">
+    <funcion nombre="MTDI" modo="0" simulada="no"/>
+    <funcion nombre="FSPIWP" modo="2" simulada="no"/>
+    <funcion nombre="ADC2_CH0" analogica="si" simulada="si"/>
+  </patilla>
+  <patilla n="11" nombre="VDD3P3_RTC" clase="alimentacion" nodo="VDD3P3_RTC"/>
+  <patilla n="12" nombre="MTCK/GPIO6" clase="es" nodo="GPIO6">
+    <funcion nombre="MTCK" modo="0" simulada="no"/>
+    <funcion nombre="FSPICLK" modo="2" simulada="no"/>
+  </patilla>
+  <patilla n="13" nombre="MTDO/GPIO7" clase="es" nodo="GPIO7">
+    <funcion nombre="MTDO" modo="0" simulada="no"/>
+    <funcion nombre="FSPID" modo="2" simulada="no"/>
+  </patilla>
+  <patilla n="14" nombre="GPIO8" clase="es" nodo="GPIO8"/>
+  <patilla n="15" nombre="GPIO9" clase="es" nodo="GPIO9"/>
+  <patilla n="16" nombre="GPIO10" clase="es" nodo="GPIO10">
+    <funcion nombre="FSPICS0" modo="2" simulada="no"/>
+  </patilla>
+  <patilla n="17" nombre="VDD3P3_CPU" clase="alimentacion" nodo=""/>
+  <patilla n="18" nombre="VDD_SPI/GPIO11" clase="es" nodo="GPIO11"/>
+  <patilla n="19" nombre="SPIHD/GPIO12" clase="es" nodo="GPIO12">
+    <funcion nombre="SPIHD" modo="0" simulada="no"/>
+  </patilla>
+  <patilla n="20" nombre="SPIWP/GPIO13" clase="es" nodo="GPIO13">
+    <funcion nombre="SPIWP" modo="0" simulada="no"/>
+  </patilla>
+  <patilla n="21" nombre="SPICS0/GPIO14" clase="es" nodo="GPIO14">
+    <funcion nombre="SPICS0" modo="0" simulada="no"/>
+  </patilla>
+  <patilla n="22" nombre="SPICLK/GPIO15" clase="es" nodo="GPIO15">
+    <funcion nombre="SPICLK" modo="0" simulada="no"/>
+  </patilla>
+  <patilla n="23" nombre="SPID/GPIO16" clase="es" nodo="GPIO16">
+    <funcion nombre="SPID" modo="0" simulada="no"/>
+  </patilla>
+  <patilla n="24" nombre="SPIQ/GPIO17" clase="es" nodo="GPIO17">
+    <funcion nombre="SPIQ" modo="0" simulada="no"/>
+  </patilla>
+  <patilla n="25" nombre="GPIO18" clase="es" nodo="GPIO18">
+    <funcion nombre="USB_D-" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="26" nombre="GPIO19" clase="es" nodo="GPIO19">
+    <funcion nombre="USB_D+" analogica="si" simulada="no"/>
+  </patilla>
+  <patilla n="27" nombre="U0RXD/GPIO20" clase="es" nodo="GPIO20">
+    <funcion nombre="U0RXD" modo="0" simulada="si"/>
+  </patilla>
+  <patilla n="28" nombre="U0TXD/GPIO21" clase="es" nodo="GPIO21">
+    <funcion nombre="U0TXD" modo="0" simulada="si"/>
+  </patilla>
+  <patilla n="29" nombre="XTAL_N" clase="control" nodo=""/>
+  <patilla n="30" nombre="XTAL_P" clase="control" nodo=""/>
+  <patilla n="31" nombre="VDDA" clase="alimentacion" nodo="VDDA"/>
+  <patilla n="32" nombre="VDDA" clase="alimentacion" nodo="VDDA"/>
+  <patilla n="33" nombre="GND" clase="alimentacion" nodo="GND"/>
+  <mapeo tipo="matriz" puertos="">
+    <funcion nombre="SPIQ_IN" modo="0" simulada="no" sentido="entrada"/>
+    <funcion nombre="SPIQ_OUT" modo="0" simulada="no" sentido="salida"/>
+    <funcion nombre="SPID_IN" modo="1" simulada="no" sentido="entrada"/>
+    <funcion nombre="SPID_OUT" modo="1" simulada="no" sentido="salida"/>
+    <funcion nombre="SPIHD_IN" modo="2" simulada="no" sentido="entrada"/>
+    <funcion nombre="SPIHD_OUT" modo="2" simulada="no" sentido="salida"/>
+    <funcion nombre="SPIWP_IN" modo="3" simulada="no" sentido="entrada"/>
+    <funcion nombre="SPIWP_OUT" modo="3" simulada="no" sentido="salida"/>
+    <funcion nombre="SPICLK_OUT" modo="4" simulada="no" sentido="salida"/>
+    <funcion nombre="SPICS0_OUT" modo="5" simulada="no" sentido="salida"/>
+    <funcion nombre="U0RXD_IN" modo="6" simulada="si" sentido="entrada"/>
+    <funcion nombre="U0TXD_OUT" modo="6" simulada="si" sentido="salida"/>
+    <funcion nombre="U0CTS_IN" modo="7" simulada="no" sentido="entrada"/>
+    <funcion nombre="U0RTS_OUT" modo="7" simulada="no" sentido="salida"/>
+    <funcion nombre="U0DSR_IN" modo="8" simulada="no" sentido="entrada"/>
+    <funcion nombre="U0DTR_OUT" modo="8" simulada="no" sentido="salida"/>
+    <funcion nombre="U1RXD_IN" modo="9" simulada="si" sentido="entrada"/>
+    <funcion nombre="U1TXD_OUT" modo="9" simulada="si" sentido="salida"/>
+    <funcion nombre="U1CTS_IN" modo="10" simulada="no" sentido="entrada"/>
+    <funcion nombre="U1RTS_OUT" modo="10" simulada="no" sentido="salida"/>
+    <funcion nombre="U1DSR_IN" modo="11" simulada="no" sentido="entrada"/>
+    <funcion nombre="U1DTR_OUT" modo="11" simulada="no" sentido="salida"/>
+    <funcion nombre="I2S_MCLK_IN" modo="12" simulada="si" sentido="entrada"/>
+    <funcion nombre="I2S_MCLK_OUT" modo="12" simulada="si" sentido="salida"/>
+    <funcion nombre="I2SO_BCK_IN" modo="13" simulada="si" sentido="entrada"/>
+    <funcion nombre="I2SO_BCK_OUT" modo="13" simulada="si" sentido="salida"/>
+    <funcion nombre="I2SO_WS_IN" modo="14" simulada="si" sentido="entrada"/>
+    <funcion nombre="I2SO_WS_OUT" modo="14" simulada="si" sentido="salida"/>
+    <funcion nombre="I2SI_SD_IN" modo="15" simulada="si" sentido="entrada"/>
+    <funcion nombre="I2SO_SD_OUT" modo="15" simulada="si" sentido="salida"/>
+    <funcion nombre="I2SI_BCK_IN" modo="16" simulada="si" sentido="entrada"/>
+    <funcion nombre="I2SI_BCK_OUT" modo="16" simulada="si" sentido="salida"/>
+    <funcion nombre="I2SI_WS_IN" modo="17" simulada="si" sentido="entrada"/>
+    <funcion nombre="I2SI_WS_OUT" modo="17" simulada="si" sentido="salida"/>
+    <funcion nombre="GPIO_BT_PRIORITY" modo="18" simulada="no"/>
+    <funcion nombre="GPIO_WLAN_PRIO" modo="18" simulada="no"/>
+    <funcion nombre="GPIO_BT_ACTIVE" modo="19" simulada="no"/>
+    <funcion nombre="GPIO_WLAN_ACTIVE" modo="19" simulada="no"/>
+    <funcion nombre="CPU_GPIO_IN0" modo="28" simulada="no"/>
+    <funcion nombre="CPU_GPIO_OUT0" modo="28" simulada="no"/>
+    <funcion nombre="CPU_GPIO_IN1" modo="29" simulada="no"/>
+    <funcion nombre="CPU_GPIO_OUT1" modo="29" simulada="no"/>
+    <funcion nombre="CPU_GPIO_IN2" modo="30" simulada="no"/>
+    <funcion nombre="CPU_GPIO_OUT2" modo="30" simulada="no"/>
+    <funcion nombre="CPU_GPIO_IN3" modo="31" simulada="no"/>
+    <funcion nombre="CPU_GPIO_OUT3" modo="31" simulada="no"/>
+    <funcion nombre="CPU_GPIO_IN4" modo="32" simulada="no"/>
+    <funcion nombre="CPU_GPIO_OUT4" modo="32" simulada="no"/>
+    <funcion nombre="CPU_GPIO_IN5" modo="33" simulada="no"/>
+    <funcion nombre="CPU_GPIO_OUT5" modo="33" simulada="no"/>
+    <funcion nombre="CPU_GPIO_IN6" modo="34" simulada="no"/>
+    <funcion nombre="CPU_GPIO_OUT6" modo="34" simulada="no"/>
+    <funcion nombre="CPU_GPIO_IN7" modo="35" simulada="no"/>
+    <funcion nombre="CPU_GPIO_OUT7" modo="35" simulada="no"/>
+    <funcion nombre="USB_JTAG_TCK_OUT" modo="36" simulada="no" sentido="salida"/>
+    <funcion nombre="USB_JTAG_TMS_OUT" modo="37" simulada="no" sentido="salida"/>
+    <funcion nombre="USB_JTAG_TDI_OUT" modo="38" simulada="no" sentido="salida"/>
+    <funcion nombre="USB_JTAG_TDO_OUT" modo="39" simulada="no" sentido="salida"/>
+    <funcion nombre="USB_EXTPHY_OEN" modo="40" simulada="no"/>
+    <funcion nombre="USB_EXTPHY_VP" modo="40" simulada="no"/>
+    <funcion nombre="USB_EXTPHY_SPEED" modo="41" simulada="no"/>
+    <funcion nombre="USB_EXTPHY_VM" modo="41" simulada="no"/>
+    <funcion nombre="USB_EXTPHY_RCV" modo="42" simulada="no"/>
+    <funcion nombre="USB_EXTPHY_VPO" modo="42" simulada="no"/>
+    <funcion nombre="USB_EXTPHY_VMO" modo="43" simulada="no"/>
+    <funcion nombre="USB_EXTPHY_SUSPND" modo="44" simulada="no"/>
+    <funcion nombre="EXT_ADC_START" modo="45" simulada="no"/>
+    <funcion nombre="LEDC_LS_SIG_OUT0" modo="45" simulada="si" sentido="salida"/>
+    <funcion nombre="LEDC_LS_SIG_OUT1" modo="46" simulada="si" sentido="salida"/>
+    <funcion nombre="LEDC_LS_SIG_OUT2" modo="47" simulada="si" sentido="salida"/>
+    <funcion nombre="LEDC_LS_SIG_OUT3" modo="48" simulada="si" sentido="salida"/>
+    <funcion nombre="LEDC_LS_SIG_OUT4" modo="49" simulada="si" sentido="salida"/>
+    <funcion nombre="LEDC_LS_SIG_OUT5" modo="50" simulada="si" sentido="salida"/>
+    <funcion nombre="RMT_SIG_IN0" modo="51" simulada="no"/>
+    <funcion nombre="RMT_SIG_OUT0" modo="51" simulada="si" sentido="salida"/>
+    <funcion nombre="RMT_SIG_IN1" modo="52" simulada="no"/>
+    <funcion nombre="RMT_SIG_OUT1" modo="52" simulada="si" sentido="salida"/>
+    <funcion nombre="I2CEXT0_SCL_IN" modo="53" simulada="si" sentido="entrada"/>
+    <funcion nombre="I2CEXT0_SCL_OUT" modo="53" simulada="si" sentido="salida"/>
+    <funcion nombre="I2CEXT0_SDA_IN" modo="54" simulada="si" sentido="entrada"/>
+    <funcion nombre="I2CEXT0_SDA_OUT" modo="54" simulada="si" sentido="salida"/>
+    <funcion nombre="GPIO_SD0_OUT" modo="55" simulada="no" sentido="salida"/>
+    <funcion nombre="GPIO_SD1_OUT" modo="56" simulada="no" sentido="salida"/>
+    <funcion nombre="GPIO_SD2_OUT" modo="57" simulada="no" sentido="salida"/>
+    <funcion nombre="GPIO_SD3_OUT" modo="58" simulada="no" sentido="salida"/>
+    <funcion nombre="I2SO_SD1_OUT" modo="59" simulada="si" sentido="salida"/>
+    <funcion nombre="FSPICLK_IN" modo="63" simulada="no" sentido="entrada"/>
+    <funcion nombre="FSPICLK_OUT" modo="63" simulada="si" sentido="salida"/>
+    <funcion nombre="FSPIQ_IN" modo="64" simulada="si" sentido="entrada"/>
+    <funcion nombre="FSPIQ_OUT" modo="64" simulada="no" sentido="salida"/>
+    <funcion nombre="FSPID_IN" modo="65" simulada="no" sentido="entrada"/>
+    <funcion nombre="FSPID_OUT" modo="65" simulada="si" sentido="salida"/>
+    <funcion nombre="FSPIHD_IN" modo="66" simulada="no" sentido="entrada"/>
+    <funcion nombre="FSPIHD_OUT" modo="66" simulada="no" sentido="salida"/>
+    <funcion nombre="FSPIWP_IN" modo="67" simulada="no" sentido="entrada"/>
+    <funcion nombre="FSPIWP_OUT" modo="67" simulada="no" sentido="salida"/>
+    <funcion nombre="FSPICS0_IN" modo="68" simulada="no" sentido="entrada"/>
+    <funcion nombre="FSPICS0_OUT" modo="68" simulada="si" sentido="salida"/>
+    <funcion nombre="FSPICS1_OUT" modo="69" simulada="no" sentido="salida"/>
+    <funcion nombre="FSPICS2_OUT" modo="70" simulada="no" sentido="salida"/>
+    <funcion nombre="FSPICS3_OUT" modo="71" simulada="no" sentido="salida"/>
+    <funcion nombre="FSPICS4_OUT" modo="72" simulada="no" sentido="salida"/>
+    <funcion nombre="FSPICS5_OUT" modo="73" simulada="no" sentido="salida"/>
+    <funcion nombre="TWAI_RX" modo="74" simulada="si" sentido="entrada"/>
+    <funcion nombre="TWAI_TX" modo="74" simulada="si" sentido="salida"/>
+    <funcion nombre="TWAI_BUS_OFF_ON" modo="75" simulada="no"/>
+    <funcion nombre="TWAI_CLKOUT" modo="76" simulada="no"/>
+    <funcion nombre="BT_AUDIO0_IRQ" modo="77" simulada="no"/>
+    <funcion nombre="PCMFSYNC_IN" modo="77" simulada="no" sentido="entrada"/>
+    <funcion nombre="BT_AUDIO1_IRQ" modo="78" simulada="no"/>
+    <funcion nombre="PCMCLK_IN" modo="78" simulada="no" sentido="entrada"/>
+    <funcion nombre="BT_AUDIO2_IRQ" modo="79" simulada="no"/>
+    <funcion nombre="PCMDIN" modo="79" simulada="no"/>
+    <funcion nombre="BLE_AUDIO0_IRQ" modo="80" simulada="no"/>
+    <funcion nombre="RW_WAKEUP_REQ" modo="80" simulada="no"/>
+    <funcion nombre="BLE_AUDIO1_IRQ" modo="81" simulada="no"/>
+    <funcion nombre="BLE_AUDIO2_IRQ" modo="82" simulada="no"/>
+    <funcion nombre="PCMFSYNC_OUT" modo="83" simulada="no" sentido="salida"/>
+    <funcion nombre="PCMCLK_OUT" modo="84" simulada="no" sentido="salida"/>
+    <funcion nombre="PCMDOUT" modo="85" simulada="no"/>
+    <funcion nombre="BLE_AUDIO_SYNC0_P" modo="86" simulada="no"/>
+    <funcion nombre="BLE_AUDIO_SYNC1_P" modo="87" simulada="no"/>
+    <funcion nombre="BLE_AUDIO_SYNC2_P" modo="88" simulada="no"/>
+    <funcion nombre="ANT_SEL0" modo="89" simulada="no"/>
+    <funcion nombre="ANT_SEL1" modo="90" simulada="no"/>
+    <funcion nombre="ANT_SEL2" modo="91" simulada="no"/>
+    <funcion nombre="ANT_SEL3" modo="92" simulada="no"/>
+    <funcion nombre="ANT_SEL4" modo="93" simulada="no"/>
+    <funcion nombre="ANT_SEL5" modo="94" simulada="no"/>
+    <funcion nombre="ANT_SEL6" modo="95" simulada="no"/>
+    <funcion nombre="ANT_SEL7" modo="96" simulada="no"/>
+    <funcion nombre="SIG_IN_FUNC97" modo="97" simulada="no"/>
+    <funcion nombre="SIG_IN_FUNC_97" modo="97" simulada="no"/>
+    <funcion nombre="SIG_IN_FUNC98" modo="98" simulada="no"/>
+    <funcion nombre="SIG_IN_FUNC_98" modo="98" simulada="no"/>
+    <funcion nombre="SIG_IN_FUNC99" modo="99" simulada="no"/>
+    <funcion nombre="SIG_IN_FUNC_99" modo="99" simulada="no"/>
+    <funcion nombre="SIG_IN_FUNC100" modo="100" simulada="no"/>
+    <funcion nombre="SIG_IN_FUNC_100" modo="100" simulada="no"/>
+    <funcion nombre="SYNCERR" modo="101" simulada="no"/>
+    <funcion nombre="SYNCFOUND_FLAG" modo="102" simulada="no"/>
+    <funcion nombre="EVT_CNTL_IMMEDIATE_ABORT" modo="103" simulada="no"/>
+    <funcion nombre="LINKLBL" modo="104" simulada="no"/>
+    <funcion nombre="DATA_EN" modo="105" simulada="no"/>
+    <funcion nombre="DATA" modo="106" simulada="no"/>
+    <funcion nombre="PKT_TX_ON" modo="107" simulada="no"/>
+    <funcion nombre="PKT_RX_ON" modo="108" simulada="no"/>
+    <funcion nombre="RW_TX_ON" modo="109" simulada="no"/>
+    <funcion nombre="RW_RX_ON" modo="110" simulada="no"/>
+    <funcion nombre="EVT_REQ_P" modo="111" simulada="no"/>
+    <funcion nombre="EVT_STOP_P" modo="112" simulada="no"/>
+    <funcion nombre="BT_MODE_ON" modo="113" simulada="no"/>
+    <funcion nombre="GPIO_LC_DIAG0" modo="114" simulada="no"/>
+    <funcion nombre="GPIO_LC_DIAG1" modo="115" simulada="no"/>
+    <funcion nombre="GPIO_LC_DIAG2" modo="116" simulada="no"/>
+    <funcion nombre="CH_IDX" modo="117" simulada="no"/>
+    <funcion nombre="RX_WINDOW" modo="118" simulada="no"/>
+    <funcion nombre="UPDATE_RX" modo="119" simulada="no"/>
+    <funcion nombre="RX_STATUS" modo="120" simulada="no"/>
+    <funcion nombre="CLK_GPIO" modo="121" simulada="no"/>
+    <funcion nombre="NBT_BLE" modo="122" simulada="no"/>
+    <funcion nombre="CLK_OUT_OUT1" modo="123" simulada="no"/>
+    <funcion nombre="CLK_OUT_OUT2" modo="124" simulada="no"/>
+    <funcion nombre="CLK_OUT_OUT3" modo="125" simulada="no"/>
+    <funcion nombre="SPICS1_OUT" modo="126" simulada="no" sentido="salida"/>
+    <funcion nombre="USB_JTAG_TRST_OUT" modo="127" simulada="no" sentido="salida"/>
+    <funcion nombre="SIG_GPIO_OUT" modo="128" simulada="no" sentido="salida"/>
+  </mapeo>
+</mcu>

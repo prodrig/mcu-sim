@@ -57,8 +57,13 @@ def main():
             sin_fuente.append(m.tipo)
             continue
         try:
-            comun.contrasta(chip, m, fuente.simulado_por_periferico(m.familia),
-                            nombres_iguales=getattr(fuente, "NOMBRES_IGUALES", {}).get(m.familia, False))
+            if hasattr(fuente, "contrasta"):
+                # La fuente tiene su propio contraste (TI y Espressif: por
+                # número Y por nombre, y el PMAP o la matriz)
+                fuente.contrasta(chip, m)
+            else:
+                comun.contrasta(chip, m, fuente.simulado_por_periferico(m.familia),
+                                nombres_iguales=getattr(fuente, "NOMBRES_IGUALES", {}).get(m.familia, False))
         except comun.ErrorContraste as e:
             errores.append(str(e))
             continue

@@ -231,8 +231,9 @@ public:
                 pad[p][i] = q;
             }
         // Los cristales: LFXIN/LFXOUT y HFXOUT/HFXIN, primarias de PJ.0-PJ.3
+        static constexpr const char* CRISTAL[4] = {"LFXIN", "LFXOUT", "HFXOUT", "HFXIN"};
         for (unsigned i = 0; i < 4; ++i) {
-            FuncionP4 f; f.analogica = true; f.nombre = "cristal";
+            FuncionP4 f; f.analogica = true; f.nombre = CRISTAL[i];
             conecta_funcion(p4::PUERTO_J, i, 1, f);
         }
         SC_METHOD(cristales_proc); sensitive << aplica_ev_;

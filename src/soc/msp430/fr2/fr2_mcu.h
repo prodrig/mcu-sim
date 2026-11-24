@@ -220,7 +220,22 @@ public:
             inv.fijas.push_back(f);
         };
         static const char* const RELOJ[] = {"MCLK", "SMCLK", "ACLK"};
-        static const char* const SR[] = {"SRSCG1", "SRSCG0", "SROSCOFF", "SRCPUOFF"};
+        // El bit del SR de la función 14 va como su MÁSCARA (0x80 SCG1, 0x40
+        // SCG0, 0x20 OSCOFF, 0x10 CPUOFF), no como índice
+        auto sr = [](unsigned m) -> std::string {
+            switch (m) {
+            case 0x80: return "SRSCG1";
+            case 0x40: return "SRSCG0";
+            case 0x20: return "SROSCOFF";
+            case 0x10: return "SRCPUOFF";
+            default: return "SR";
+            }
+        };
+        // Las salidas del ESI (función 16): 0-4 ESITEST0-4, 5 ESIC1OUT, 6 ESIC2OUT
+        auto esi = [](unsigned k) -> std::string {
+            if (k < 5) return "ESITEST" + std::to_string(k);
+            return k == 5 ? "ESIC1OUT" : k == 6 ? "ESIC2OUT" : "ESI" + std::to_string(k);
+        };
         for (unsigned k = 0; k < c.nfn; ++k) {
             const Fr2Fn& f = c.fn[k];
             const int modo = f.sel & 0x03;
@@ -235,13 +250,16 @@ public:
             case 5: n = timer(f.mod) + "CLK"; break;
             case 7: n = "COMP" + std::to_string(f.mod) + ".O"; break;
             case 8: n = f.n ? "MFM.TX" : "MFM.RX"; break;
-            case 9: n = timer(f.mod) + "TRG"; break;
+            // La entrada que pone en alta impedancia las salidas del Timer_B:
+            // TBxTRG en los datasheets de las FR2/FR4, TBxOUTH en los de las
+            // FR5/FR6
+            case 9: n = timer(f.mod) + (c.fr5 ? "OUTH" : "TRG"); break;
             case 10: n = "COUT"; break;
             case 11: n = timer(f.mod) + ".CCI" + std::to_string(f.n) + "B"; break;
             case 12: n = "DMAE0"; break;
             case 13: n = "RTCCLK"; break;
-            case 14: n = f.n < 4 ? SR[f.n] : "SR"; break;
-            case 16: n = "ESI" + std::to_string(f.n); break;
+            case 14: n = sr(f.n); break;
+            case 16: n = esi(f.n); break;
             default: n = "tipo" + std::to_string(f.tipo); break;
             }
             pon(f.pin, modo, n, f.tipo == 3, "fr2:" + std::to_string(f.tipo));

@@ -294,7 +294,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all biblioteca biblioteca-mcus biblioteca-comprueba exporta-mcu-comprueba testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 fr2311-slaa754 testf5 testf5-build testfr2 testfr2-build testfr4 testfr4-build testfr2311 testfr2311-build testfr2355 testfr2355-build testfr2476 testfr2476-build testfr5 testfr5-build testezfet testezfet-build ezfet-tilib rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash fr5-bsl-python g2-bsl-python fr2-bsl-python test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all biblioteca biblioteca-mcus biblioteca-comprueba biblioteca-fuentes exporta-mcu-comprueba testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 fr2311-slaa754 testf5 testf5-build testfr2 testfr2-build testfr4 testfr4-build testfr2311 testfr2311-build testfr2355 testfr2355-build testfr2476 testfr2476-build testfr5 testfr5-build testezfet testezfet-build ezfet-tilib rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash fr5-bsl-python g2-bsl-python fr2-bsl-python test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -356,11 +356,23 @@ biblioteca: $(MCUSIM)
 	$(MCUSIM) --exporta-piezas $(BIBLIOTECA)/piezas
 
 # biblioteca/mcus (fases B3 y B4): el patillaje de cada MCU desde su fuente
-# (Open Pin Data, SysConfig, los datasheets), CONTRASTADO con lo que simula el
-# modelo (--exporta-mcu), y sus dos dibujos. Si un contraste falla, acaba mal
-# y dice cuál: biblioteca/herramientas/genera_mcus.py
+# (Open Pin Data para ST; los datasheets para TI y Espressif, y ESP-IDF para
+# la matriz de los ESP32), CONTRASTADO con lo que simula el modelo
+# (--exporta-mcu), y sus dos dibujos. Si un contraste falla, acaba mal y dice
+# cuál: biblioteca/herramientas/genera_mcus.py
 biblioteca-mcus: exporta-mcu-comprueba
 	$(PYTHON) biblioteca/herramientas/genera_mcus.py $(B)/mcus-modelo $(BIBLIOTECA)/mcus
+
+# Las transcripciones de los datasheets de TI y Espressif
+# (biblioteca/fuentes/ti y esp/*.pines, fase B4b): de los PDF de doc/refs,
+# que no se versionan. Se versiona lo transcrito. pdfplumber; leer un
+# datasheet lleva minutos, y REFS_CACHE guarda sus tablas para la siguiente
+#   make biblioteca-fuentes REFS=../doc/refs && git diff biblioteca/fuentes
+REFS ?= ../doc/refs
+REFS_CACHE ?= $(B)/refs-tablas
+biblioteca-fuentes:
+	$(PYTHON) biblioteca/herramientas/extrae_ti.py $(REFS) --cache $(REFS_CACHE)
+	$(PYTHON) biblioteca/herramientas/extrae_esp.py $(REFS) --cache $(REFS_CACHE)
 
 biblioteca-comprueba: $(MCUSIM) exporta-mcu-comprueba
 	@rm -rf $(B)/biblioteca-nueva && mkdir -p $(B)/biblioteca-nueva/piezas

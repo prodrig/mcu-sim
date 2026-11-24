@@ -1,0 +1,162 @@
+# MSP430FR4133, LQFP64: el patillaje del datasheet de TI SLAS865F.
+# Lo escribe biblioteca/herramientas/extrae_ti.py; no se edita a mano.
+# patilla POSICION NOMBRE         (el nombre, como en la tabla de patillas)
+# funcion PAD MODO NOMBRE [analogica]   (MODO: el número que la elige;
+#                                       - si no se elige con PxSEL/PCTL)
+# pmap MNEMONICO VALOR               (el PMAP: el valor de PxMAPy)
+documento SLAS865F
+encapsulado LQFP64 PM
+patilla 1 P4.7/R13
+patilla 2 P4.6/R23
+patilla 3 P4.5/R33
+patilla 4 P4.4/LCDCAP1
+patilla 5 P4.3/LCDCAP0
+patilla 6 P4.2/XOUT
+patilla 7 P4.1/XIN
+patilla 8 DVSS
+patilla 9 DVCC
+patilla 10 RST/NMI/SBWTDIO
+patilla 11 TEST/SBWTCK
+patilla 12 P4.0/TA1.1
+patilla 13 P8.3/TA1.2
+patilla 14 P8.2/TA1CLK
+patilla 15 P8.1/ACLK/A9
+patilla 16 P8.0/SMCLK/A8
+patilla 17 P1.7/TA0.1/TDO/A7
+patilla 18 P1.6/TA0.2/TDI/TCLK/A6
+patilla 19 P1.5/TA0CLK/TMS/A5
+patilla 20 P1.4/MCLK/TCK/A4/VREF+
+patilla 21 P1.3/UCA0STE/A3
+patilla 22 P1.2/UCA0CLK/A2
+patilla 23 P1.1/UCA0RXD/UCA0SOMI/A1/Veref+
+patilla 24 P1.0/UCA0TXD/UCA0SIMO/A0/Veref-
+patilla 25 P5.7/L39
+patilla 26 P5.6/L38
+patilla 27 P5.5/L37
+patilla 28 P5.4/L36
+patilla 29 P5.3/UCB0SOMI/UCB0SCL/L35
+patilla 30 P5.2/UCB0SIMO/UCB0SDA/L34
+patilla 31 P5.1/UCB0CLK/L33
+patilla 32 P5.0/UCB0STE/L32
+patilla 33 P2.7/L31
+patilla 34 P2.6/L30
+patilla 35 P2.5/L29
+patilla 36 P2.4/L28
+patilla 37 P2.3/L27
+patilla 38 P2.2/L26
+patilla 39 P2.1/L25
+patilla 40 P2.0/L24
+patilla 41 P6.7/L23
+patilla 42 P6.6/L22
+patilla 43 P6.5/L21
+patilla 44 P6.4/L20
+patilla 45 P6.3/L19
+patilla 46 P6.2/L18
+patilla 47 P6.1/L17
+patilla 48 P6.0/L16
+patilla 49 P3.7/L15
+patilla 50 P3.6/L14
+patilla 51 P3.5/L13
+patilla 52 P3.4/L12
+patilla 53 P3.3/L11
+patilla 54 P3.2/L10
+patilla 55 P3.1/L9
+patilla 56 P3.0/L8
+patilla 57 P7.7/L7
+patilla 58 P7.6/L6
+patilla 59 P7.5/L5
+patilla 60 P7.4/L4
+patilla 61 P7.3/L3
+patilla 62 P7.2/L2
+patilla 63 P7.1/L1
+patilla 64 P7.0/L0
+funcion P1.0 1 UCA0TXD
+funcion P1.0 1 UCA0SIMO
+funcion P1.0 - A0 analogica
+funcion P1.1 1 UCA0RXD
+funcion P1.1 1 UCA0SOMI
+funcion P1.1 - A1 analogica
+funcion P1.2 1 UCA0CLK
+funcion P1.2 - A2 analogica
+funcion P1.3 1 UCA0STE
+funcion P1.3 - A3 analogica
+funcion P1.4 1 MCLK
+funcion P1.4 - A4 analogica
+funcion P1.4 - VREF+ analogica
+funcion P1.4 - TCK
+funcion P1.5 1 TA0CLK
+funcion P1.5 - A5 analogica
+funcion P1.5 - TMS
+funcion P1.6 1 TA0.CCI2A
+funcion P1.6 1 TA0.2
+funcion P1.6 - A6 analogica
+funcion P1.6 - TDI
+funcion P1.6 - TCLK
+funcion P1.7 1 TA0.CCI1A
+funcion P1.7 1 TA0.1
+funcion P1.7 - A7 analogica
+funcion P1.7 - TDO
+funcion P2.0 - L24 analogica
+funcion P2.1 - L25 analogica
+funcion P2.2 - L26 analogica
+funcion P2.3 - L27 analogica
+funcion P2.4 - L28 analogica
+funcion P2.5 - L29 analogica
+funcion P2.6 - L30 analogica
+funcion P2.7 - L31 analogica
+funcion P3.0 - L8 analogica
+funcion P3.1 - L9 analogica
+funcion P3.2 - L10 analogica
+funcion P3.3 - L11 analogica
+funcion P3.4 - L12 analogica
+funcion P3.5 - L13 analogica
+funcion P3.6 - L14 analogica
+funcion P3.7 - L15 analogica
+funcion P4.0 1 TA1.CCI1A
+funcion P4.0 1 TA1.1
+funcion P4.1 1 XIN analogica
+funcion P4.2 1 XOUT analogica
+funcion P4.3 - LCDCAP0 analogica
+funcion P4.4 - LCDCAP1 analogica
+funcion P4.5 - R33 analogica
+funcion P4.6 - R23 analogica
+funcion P4.7 - R13 analogica
+funcion P5.0 1 UCB0STE
+funcion P5.0 - L32 analogica
+funcion P5.1 1 UCB0CLK
+funcion P5.1 - L33 analogica
+funcion P5.2 1 UCB0SIMO
+funcion P5.2 1 UCB0SDA
+funcion P5.2 - L34 analogica
+funcion P5.3 1 UCB0SOMI
+funcion P5.3 1 UCB0SCL
+funcion P5.3 - L35 analogica
+funcion P5.4 - L36 analogica
+funcion P5.5 - L37 analogica
+funcion P5.6 - L38 analogica
+funcion P5.7 - L39 analogica
+funcion P6.0 - L16 analogica
+funcion P6.1 - L17 analogica
+funcion P6.2 - L18 analogica
+funcion P6.3 - L19 analogica
+funcion P6.4 - L20 analogica
+funcion P6.5 - L21 analogica
+funcion P6.6 - L22 analogica
+funcion P6.7 - L23 analogica
+funcion P7.0 - L0 analogica
+funcion P7.1 - L1 analogica
+funcion P7.2 - L2 analogica
+funcion P7.3 - L3 analogica
+funcion P7.4 - L4 analogica
+funcion P7.5 - L5 analogica
+funcion P7.6 - L6 analogica
+funcion P7.7 - L7 analogica
+funcion P8.0 1 SMCLK
+funcion P8.0 - A8 analogica
+funcion P8.1 1 ACLK
+funcion P8.1 - A9 analogica
+funcion P8.2 1 TA1CLK
+funcion P8.3 1 TA1.CCI2A
+funcion P8.3 1 TA1.2
+funcion P1.1 - Veref+ analogica
+funcion P1.0 - Veref- analogica

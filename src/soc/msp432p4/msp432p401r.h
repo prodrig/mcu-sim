@@ -579,6 +579,12 @@ private:
         {{7, 1}, {7, 0}, {6, 7}, {6, 6}, {6, 5}, {6, 4}, {9, 5}, {9, 4}},   // C0.0-C0.7
         {{5, 7}, {5, 6}, {5, 5}, {5, 4}, {5, 3}, {5, 2}, {4, 7}, {4, 6}},   // C1.0-C1.7
     };
+    // Los nombres de TI de cada canal, para `--exporta-mcu` (B4b de
+    // doc/analisis_build.md: se contrastan con el datasheet por nombre)
+    static constexpr const char* NOMBRE_CE[2][8] = {
+        {"C0.0", "C0.1", "C0.2", "C0.3", "C0.4", "C0.5", "C0.6", "C0.7"},
+        {"C1.0", "C1.1", "C1.2", "C1.3", "C1.4", "C1.5", "C1.6", "C1.7"},
+    };
     void conecta_resto() {
         aes.irq(s_irq_[p4::IRQ_AES256]);
         rtc.irq(s_irq_[p4::IRQ_RTC_C]);
@@ -596,7 +602,7 @@ private:
             for (unsigned c = 0; c < 8; ++c) {
                 const unsigned p = CANAL_CE[k][c][0], i = CANAL_CE[k][c][1];
                 if (dio.funcion_de(p, i, 3)) continue;           // P5.6/P5.7: ya son VREF
-                FuncionP4 f; f.analogica = true; f.nombre = "C";
+                FuncionP4 f; f.analogica = true; f.nombre = NOMBRE_CE[k][c];
                 dio.conecta_funcion(p, i, 3, f);
             }
         }
@@ -631,13 +637,19 @@ private:
         {8, 1}, {8, 0},                                                 // A16-A17: P9.1, P9.0
         {7, 7}, {7, 6}, {7, 5}, {7, 4}, {7, 3}, {7, 2},                 // A18-A23: P8.7-P8.2
     };
+    static constexpr const char* NOMBRE_ADC[24] = {
+        "A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11",
+        "A12", "A13", "A14", "A15", "A16", "A17", "A18", "A19", "A20", "A21", "A22", "A23"};
     void conecta_analogicos() {
         for (unsigned c = 0; c < 24; ++c) {
-            FuncionP4 f; f.analogica = true; f.nombre = "A";
+            FuncionP4 f; f.analogica = true; f.nombre = NOMBRE_ADC[c];
             dio.conecta_funcion(CANAL_ADC[c][0], CANAL_ADC[c][1], 3, f);
         }
+        // P5.6 y P5.7: las referencias, y la entrada C1.7/C1.6 del COMP_E1
+        // (que lee la tensión del nodo, como sus otros canales)
+        static constexpr const char* NOMBRE_VREF[2] = {"VREF+/VeREF+/C1.7", "VREF-/VeREF-/C1.6"};
         for (unsigned i = 6; i < 8; ++i) {
-            FuncionP4 f; f.analogica = true; f.nombre = "VREF";
+            FuncionP4 f; f.analogica = true; f.nombre = NOMBRE_VREF[i - 6];
             dio.conecta_funcion(4, i, 3, f);
         }
         adc.irq(s_irq_[p4::IRQ_ADC14]);
@@ -766,7 +778,10 @@ private:
         dio.conecta_funcion(5, 6, 1, ta2.fn_ta(3));
         dio.conecta_funcion(5, 7, 1, ta2.fn_ta(4));
         dio.conecta_funcion(7, 1, 2, ta2.fn_ta(0));
-        dio.conecta_funcion(3, 2, 1, ta2.fn_taclk());
+        // TA2CLK en P4.2 es la SECUNDARIA (P4SEL1 = 1, P4SEL0 = 0); la
+        // primaria es ACLK [DS SLAS826E tabla 6-70]. Lo encontró el contraste
+        // con el datasheet (B4b de doc/analisis_build.md): estaba en la 1
+        dio.conecta_funcion(3, 2, 2, ta2.fn_taclk());
         dio.conecta_funcion(9, 4, 1, ta3.fn_ta(0));
         dio.conecta_funcion(9, 5, 1, ta3.fn_ta(1));
         dio.conecta_funcion(7, 2, 1, ta3.fn_ta(2));

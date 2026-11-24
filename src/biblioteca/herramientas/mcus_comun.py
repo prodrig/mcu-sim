@@ -48,6 +48,7 @@ class Funcion:
         self.analogica = analogica
         self.simulada = False
         self.por = ""               # "periferico" si se decide así
+        self.sentido = ""           # en la matriz de un ESP32: entrada o salida
 
 
 class Patilla:
@@ -94,8 +95,10 @@ class Modelo:
                              for a in d.getElementsByTagName("alimentacion")]
         self.mapeables = []
         self.mapeo = None
+        self.puertos_mapeo = ""
         for m in d.getElementsByTagName("mapeo"):
             self.mapeo = m.getAttribute("tipo")
+            self.puertos_mapeo = m.getAttribute("puertos")
             for f in m.getElementsByTagName("funcion"):
                 mm = f.getAttribute("modo")
                 self.mapeables.append((int(mm) if mm else None, f.getAttribute("nombre"),
@@ -215,6 +218,8 @@ def mcu_xml(chip):
         a += ' simulada="%s"' % ("si" if f.simulada else "no")
         if f.por:
             a += ' por="%s"' % f.por
+        if f.sentido:
+            a += ' sentido="%s"' % f.sentido
         return "%s<funcion%s/>\n" % (sangria, a)
 
     def orden(f):
@@ -275,6 +280,11 @@ def geometria(encapsulado, posiciones):
     g = {}
     if tipo in ("qfp", "qfn"):
         n = len(posiciones)
+        # Una QFN con 4k+1 patillas: la última es la almohadilla de debajo
+        # (la 33 del QFN32 de los ESP32, a GND), en el centro
+        almohadilla = tipo == "qfn" and n % 4 == 1
+        if almohadilla:
+            n -= 1
         k = n // 4
         L = cuerpo
         pata = 1.0 if tipo == "qfp" else 0.0
@@ -300,6 +310,9 @@ def geometria(encapsulado, posiciones):
             else:
                 y0 = (-largo if lado == "a" else L) if tipo == "qfp" else (0 if lado == "a" else L - largo)
                 res[pos] = (x - ancho / 2, y0, ancho, largo, lado)
+        if almohadilla:
+            a = L * 0.6
+            res[str(n + 1)] = ((L - a) / 2, (L - a) / 2, a, a, "c")
         return res, (0.0, 0.0, L, L), tipo
     if tipo in ("dip", "sop"):
         n = len(posiciones)
@@ -383,10 +396,22 @@ def svg(chip, detalle):
         if tipo == "bga":
             out.append('  <circle%s cx="%s" cy="%s" r="%s" fill="%s"/>\n' %
                        (attr_id, _f(x + w / 2), _f(y + h / 2), _f(w / 2), color_pata))
+        elif lado == "c":
+            # La almohadilla de debajo de una QFN: vista desde arriba no se
+            # ve; su contorno, discontinuo
+            out.append('  <rect%s x="%s" y="%s" width="%s" height="%s" fill="none" stroke="%s" '
+                       'stroke-width="%s" stroke-dasharray="%s %s"/>\n' %
+                       (attr_id, _f(x), _f(y), _f(w), _f(h), color_pata, _f(paso * 0.15),
+                        _f(paso * 0.6), _f(paso * 0.4)))
         else:
             out.append('  <rect%s x="%s" y="%s" width="%s" height="%s" fill="%s"/>\n' %
                        (attr_id, _f(x), _f(y), _f(w), _f(h), color_pata))
         if not detalle:
+            continue
+        if lado == "c" and tipo != "bga":
+            rotulos.append('  <text x="%s" y="%s" font-size="%s" text-anchor="middle" fill="#ddd">%s</text>\n'
+                           % (_f(x + w / 2), _f(y + h - letra * 0.5), _f(letra * 0.8),
+                              escape("%s %s (debajo)" % (p.pos, p.nombre))))
             continue
         texto = escape("%s %s" % (p.pos, p.nombre))
         col = "#1a5fb4" if p.clase == "es" else ("#c01c28" if p.clase == "alimentacion" else "#6a3d9a")

@@ -1,0 +1,163 @@
+# MSP430FR2355, LQFP48: el patillaje del datasheet de TI SLASEC4D.
+# Lo escribe biblioteca/herramientas/extrae_ti.py; no se edita a mano.
+# patilla POSICION NOMBRE         (el nombre, como en la tabla de patillas)
+# funcion PAD MODO NOMBRE [analogica]   (MODO: el número que la elige;
+#                                       - si no se elige con PxSEL/PCTL)
+# pmap MNEMONICO VALOR               (el PMAP: el valor de PxMAPy)
+documento SLASEC4D
+encapsulado LQFP48 PT
+patilla 1 P1.2/UCB0SIMO/UCB0SDA/TB0TRG/OA0-/A2/Veref-
+patilla 2 P1.1/UCB0CLK/ACLK/OA0O/COMP0.1/A1
+patilla 3 P1.0/UCB0STE/SMCLK/COMP0.0/A0/Veref+
+patilla 4 TEST/SBWTCK
+patilla 5 RST/NMI/SBWTDIO
+patilla 6 DVCC
+patilla 7 DVSS
+patilla 8 P2.7/TB0CLK/XIN
+patilla 9 P2.6/MCLK/XOUT
+patilla 10 P2.5/COMP1.0
+patilla 11 P2.4/COMP1.1
+patilla 12 P4.7/UCB1SOMI/UCB1SCL
+patilla 13 P4.6/UCB1SIMO/UCB1SDA
+patilla 14 P4.5/UCB1CLK
+patilla 15 P4.4/UCB1STE
+patilla 16 P6.6/TB3CLK
+patilla 17 P6.5/TB3.6
+patilla 18 P6.4/TB3.5
+patilla 19 P6.3/TB3.4
+patilla 20 P6.2/TB3.3
+patilla 21 P6.1/TB3.2
+patilla 22 P6.0/TB3.1
+patilla 23 P4.3/UCA1TXD/UCA1SIMO/UCA1TXD
+patilla 24 P4.2/UCA1RXD/UCA1SOMI/UCA1RXD
+patilla 25 P4.1/UCA1CLK
+patilla 26 P4.0/UCA1STE/ISOTXD/ISORXD
+patilla 27 P2.3/TB1TRG
+patilla 28 P2.2/TB1CLK
+patilla 29 P2.1/TB1.2/COMP1.O
+patilla 30 P2.0/TB1.1/COMP0.O
+patilla 31 P1.7/UCA0TXD/UCA0SIMO/TB0.2/TDO/OA1+/A7/VREF+
+patilla 32 P1.6/UCA0RXD/UCA0SOMI/TB0.1/TDI/TCLK/OA1-/A6
+patilla 33 P1.5/UCA0CLK/TMS/OA1O/A5
+patilla 34 P1.4/UCA0STE/TCK/A4
+patilla 35 P3.7/OA3+
+patilla 36 P3.6/OA3-
+patilla 37 P3.5/OA3O
+patilla 38 P3.4/SMCLK
+patilla 39 P5.4
+patilla 40 P5.3/TB2TRG/A11
+patilla 41 P5.2/TB2CLK/A10
+patilla 42 P5.1/TB2.2/MFM.TX/A9
+patilla 43 P5.0/TB2.1/MFM.RX/A8
+patilla 44 P3.3/OA2+
+patilla 45 P3.2/OA2-
+patilla 46 P3.1/OA2O
+patilla 47 P3.0/MCLK
+patilla 48 P1.3/UCB0SOMI/UCB0SCL/OA0+/A3
+funcion P1.0 1 UCB0STE
+funcion P1.0 2 SMCLK
+funcion P1.0 3 COMP0.0 analogica
+funcion P1.0 3 A0 analogica
+funcion P1.0 3 Veref+ analogica
+funcion P1.1 1 UCB0CLK
+funcion P1.1 2 ACLK
+funcion P1.1 3 OA0O analogica
+funcion P1.1 3 COMP0.1 analogica
+funcion P1.1 3 A1 analogica
+funcion P1.2 1 UCB0SIMO
+funcion P1.2 1 UCB0SDA
+funcion P1.2 2 TB0TRG
+funcion P1.2 3 OA0- analogica
+funcion P1.2 3 A2 analogica
+funcion P1.2 3 Veref- analogica
+funcion P1.3 1 UCB0SOMI
+funcion P1.3 1 UCB0SCL
+funcion P1.3 3 OA0+ analogica
+funcion P1.3 3 A3 analogica
+funcion P1.4 1 UCA0STE
+funcion P1.4 3 A4 analogica
+funcion P1.4 - TCK
+funcion P1.5 1 UCA0CLK
+funcion P1.5 3 OA1O analogica
+funcion P1.5 3 A5 analogica
+funcion P1.5 - TMS
+funcion P1.6 1 UCA0RXD
+funcion P1.6 1 UCA0SOMI
+funcion P1.6 2 TB0.CCI1A
+funcion P1.6 2 TB0.1
+funcion P1.6 3 OA1- analogica
+funcion P1.6 3 A6 analogica
+funcion P1.6 - TDI
+funcion P1.6 - TCLK
+funcion P1.7 1 UCA0TXD
+funcion P1.7 1 UCA0SIMO
+funcion P1.7 2 TB0.CCI2A
+funcion P1.7 2 TB0.2
+funcion P1.7 3 OA1+ analogica
+funcion P1.7 3 A7 analogica
+funcion P1.7 3 VREF+ analogica
+funcion P1.7 - TDO
+funcion P2.0 1 TB1.CCI1A
+funcion P2.0 1 TB1.1
+funcion P2.0 2 COMP0.O
+funcion P2.1 1 TB1.CCI2A
+funcion P2.1 1 TB1.2
+funcion P2.1 2 COMP1.O
+funcion P2.2 1 TB1CLK
+funcion P2.3 1 TB1TRG
+funcion P2.4 3 COMP1.1 analogica
+funcion P2.5 3 COMP1.0 analogica
+funcion P2.6 1 MCLK
+funcion P2.6 2 XOUT
+funcion P2.7 1 TB0CLK
+funcion P2.7 2 XIN
+funcion P3.0 1 MCLK
+funcion P3.1 3 OA2O analogica
+funcion P3.2 3 OA2- analogica
+funcion P3.3 3 OA2+ analogica
+funcion P3.4 1 SMCLK
+funcion P3.5 3 OA3O analogica
+funcion P3.6 3 OA3- analogica
+funcion P3.7 3 OA3+ analogica
+funcion P4.0 1 UCA1STE
+funcion P4.0 2 ISORXD
+funcion P4.0 2 TB3.CCI2B
+funcion P4.0 2 ISOTXD
+funcion P4.1 1 UCA1CLK
+funcion P4.2 1 UCA1RXD
+funcion P4.2 1 UCA1SOMI
+funcion P4.2 2 UCA1RXD
+funcion P4.3 1 UCA1TXD
+funcion P4.3 1 UCA1SIMO
+funcion P4.3 2 UCA1TXD
+funcion P4.4 1 UCB1STE
+funcion P4.5 1 UCB1CLK
+funcion P4.6 1 UCB1SIMO
+funcion P4.6 1 UCB1SDA
+funcion P4.7 1 UCB1SOMI
+funcion P4.7 1 UCB1SCL
+funcion P5.0 1 TB2.CCI1A
+funcion P5.0 1 TB2.1
+funcion P5.0 2 MFM.RX
+funcion P5.0 3 A8 analogica
+funcion P5.1 1 TB2.CCI2A
+funcion P5.1 1 TB2.2
+funcion P5.1 2 MFM.TX
+funcion P5.1 3 A9 analogica
+funcion P5.2 1 TB2CLK
+funcion P5.2 3 A10 analogica
+funcion P5.3 1 TB2TRG
+funcion P5.3 3 A11 analogica
+funcion P6.0 1 TB3.CCI1A
+funcion P6.0 1 TB3.1
+funcion P6.1 1 TB3.CCI2A
+funcion P6.1 1 TB3.2
+funcion P6.2 1 TB3.CCI3A
+funcion P6.2 1 TB3.3
+funcion P6.3 1 TB3.CCI4A
+funcion P6.3 1 TB3.4
+funcion P6.4 1 TB3.CCI5A
+funcion P6.4 1 TB3.5
+funcion P6.5 1 TB3.CCI6A
+funcion P6.5 1 TB3.6
+funcion P6.6 1 TB3CLK

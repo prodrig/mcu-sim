@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 204.2 204.2" width="20.42mm" height="20.42mm">
+<!-- MSP430FR2433, VQFN24: el dibujo detallado de mcu-sim-build (doc/analisis_build.md, B3 y B4).
+     Lo genera biblioteca/herramientas/genera_mcus.py: no se edita a mano.
+     Unidades de 0.1 mm. Cada patilla es $.N, con N su posicion. -->
+<g id="$" transform="translate(82.1,82.1)" font-family="sans-serif">
+  <rect x="0" y="0" width="40" height="40" rx="0.8" fill="#2b2b2b" stroke="#111" stroke-width="0.5"/>
+  <circle cx="6.2" cy="6.2" r="1.2" fill="#555"/>
+  <rect id="$.1" x="0" y="6.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.2" x="0" y="11.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.3" x="0" y="16.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.4" x="0" y="21.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.5" x="0" y="26.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.6" x="0" y="31.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.7" x="6.1" y="35" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.8" x="11.1" y="35" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.9" x="16.1" y="35" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.10" x="21.1" y="35" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.11" x="26.1" y="35" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.12" x="31.1" y="35" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.13" x="35" y="31.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.14" x="35" y="26.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.15" x="35" y="21.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.16" x="35" y="16.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.17" x="35" y="11.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.18" x="35" y="6.1" width="5" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.19" x="31.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.20" x="26.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.21" x="21.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.22" x="16.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.23" x="11.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <rect id="$.24" x="6.1" y="0" width="2.8" height="5" fill="#b8b8b8"/>
+  <text x="-2" y="8.6" font-size="3" text-anchor="end" fill="#6a3d9a">1 RST/NMI/SBWTDIO</text>
+  <text x="-2" y="13.6" font-size="3" text-anchor="end" fill="#6a3d9a">2 TEST/SBWTCK</text>
+  <text x="-2" y="18.6" font-size="3" text-anchor="end" fill="#1a5fb4">3 P1.4/UCA0TXD/UCA0SIMO/TA1.2/TCK/A4/VREF+</text>
+  <text x="-2" y="23.6" font-size="3" text-anchor="end" fill="#1a5fb4">4 P1.5/UCA0RXD/UCA0SOMI/TA1.1/TMS/A5</text>
+  <text x="-2" y="28.6" font-size="3" text-anchor="end" fill="#1a5fb4">5 P1.6/UCA0CLK/TA1CLK/TDI/TCLK/A6</text>
+  <text x="-2" y="33.5" font-size="3" text-anchor="end" fill="#1a5fb4">6 P1.7/UCA0STE/SMCLK/TDO/A7</text>
+  <text x="8.6" y="42" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,8.6,42)">7 P1.0/UCB0STE/TA0CLK/A0/Veref+</text>
+  <text x="13.6" y="42" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,13.6,42)">8 P1.1/UCB0CLK/TA0.1/A1</text>
+  <text x="18.6" y="42" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,18.6,42)">9 P1.2/UCB0SIMO/UCB0SDA/TA0.2/A2/Veref-</text>
+  <text x="23.6" y="42" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,23.6,42)">10 P1.3/UCB0SOMI/UCB0SCL/MCLK/A3</text>
+  <text x="28.6" y="42" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,28.6,42)">11 P2.2/ACLK</text>
+  <text x="33.5" y="42" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,33.5,42)">12 P3.0</text>
+  <text x="42" y="33.5" font-size="3" fill="#1a5fb4">13 P2.3</text>
+  <text x="42" y="28.6" font-size="3" fill="#1a5fb4">14 P3.1/UCA1STE</text>
+  <text x="42" y="23.6" font-size="3" fill="#1a5fb4">15 P2.4/UCA1CLK</text>
+  <text x="42" y="18.6" font-size="3" fill="#1a5fb4">16 P2.5/UCA1RXD/UCA1SOMI</text>
+  <text x="42" y="13.6" font-size="3" fill="#1a5fb4">17 P2.6/UCA1TXD/UCA1SIMO</text>
+  <text x="42" y="8.6" font-size="3" fill="#c01c28">18 DVSS</text>
+  <text x="33.5" y="-2" font-size="3" fill="#1a5fb4" transform="rotate(-90,33.5,-2)">19 P2.7</text>
+  <text x="28.6" y="-2" font-size="3" fill="#1a5fb4" transform="rotate(-90,28.6,-2)">20 P3.2</text>
+  <text x="23.6" y="-2" font-size="3" fill="#1a5fb4" transform="rotate(-90,23.6,-2)">21 P2.0/XOUT</text>
+  <text x="18.6" y="-2" font-size="3" fill="#1a5fb4" transform="rotate(-90,18.6,-2)">22 P2.1/XIN</text>
+  <text x="13.6" y="-2" font-size="3" fill="#c01c28" transform="rotate(-90,13.6,-2)">23 DVSS</text>
+  <text x="8.6" y="-2" font-size="3" fill="#c01c28" transform="rotate(-90,8.6,-2)">24 DVCC</text>
+  <text x="20" y="21.8" font-size="5" text-anchor="middle" fill="#ddd">MSP430FR2433</text>
+</g>
+</svg>

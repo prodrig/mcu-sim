@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 326.6 326.6" width="32.66mm" height="32.66mm">
+<!-- MSP430FR5994, LQFP80: el dibujo detallado de mcu-sim-build (doc/analisis_build.md, B3 y B4).
+     Lo genera biblioteca/herramientas/genera_mcus.py: no se edita a mano.
+     Unidades de 0.1 mm. Cada patilla es $.N, con N su posicion. -->
+<g id="$" transform="translate(103.3,103.3)" font-family="sans-serif">
+  <rect x="0" y="0" width="120" height="120" rx="2.4" fill="#2b2b2b" stroke="#111" stroke-width="0.5"/>
+  <circle cx="12.6" cy="12.6" r="3.6" fill="#555"/>
+  <rect id="$.1" x="-10" y="11.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.2" x="-10" y="16.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.3" x="-10" y="21.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.4" x="-10" y="26.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.5" x="-10" y="31.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.6" x="-10" y="36.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.7" x="-10" y="41.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.8" x="-10" y="46.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.9" x="-10" y="51.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.10" x="-10" y="56.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.11" x="-10" y="61.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.12" x="-10" y="66.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.13" x="-10" y="71.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.14" x="-10" y="76.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.15" x="-10" y="81.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.16" x="-10" y="86.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.17" x="-10" y="91.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.18" x="-10" y="96.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.19" x="-10" y="101.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.20" x="-10" y="106.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.21" x="11.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.22" x="16.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.23" x="21.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.24" x="26.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.25" x="31.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.26" x="36.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.27" x="41.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.28" x="46.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.29" x="51.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.30" x="56.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.31" x="61.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.32" x="66.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.33" x="71.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.34" x="76.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.35" x="81.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.36" x="86.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.37" x="91.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.38" x="96.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.39" x="101.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.40" x="106.1" y="120" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.41" x="120" y="106.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.42" x="120" y="101.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.43" x="120" y="96.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.44" x="120" y="91.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.45" x="120" y="86.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.46" x="120" y="81.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.47" x="120" y="76.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.48" x="120" y="71.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.49" x="120" y="66.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.50" x="120" y="61.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.51" x="120" y="56.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.52" x="120" y="51.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.53" x="120" y="46.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.54" x="120" y="41.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.55" x="120" y="36.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.56" x="120" y="31.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.57" x="120" y="26.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.58" x="120" y="21.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.59" x="120" y="16.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.60" x="120" y="11.1" width="10" height="2.8" fill="#b8b8b8"/>
+  <rect id="$.61" x="106.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.62" x="101.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.63" x="96.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.64" x="91.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.65" x="86.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.66" x="81.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.67" x="76.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.68" x="71.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.69" x="66.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.70" x="61.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.71" x="56.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.72" x="51.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.73" x="46.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.74" x="41.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.75" x="36.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.76" x="31.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.77" x="26.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.78" x="21.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.79" x="16.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <rect id="$.80" x="11.1" y="-10" width="2.8" height="10" fill="#b8b8b8"/>
+  <text x="-12" y="13.6" font-size="3" text-anchor="end" fill="#1a5fb4">1 P1.0/TA0.1/DMAE0/RTCCLK/A0/C0/VREF-/VeREF-</text>
+  <text x="-12" y="18.6" font-size="3" text-anchor="end" fill="#1a5fb4">2 P1.1/TA0.2/TA1CLK/COUT/A1/C1/VREF+/VeREF+</text>
+  <text x="-12" y="23.6" font-size="3" text-anchor="end" fill="#1a5fb4">3 P1.2/TA1.1/TA0CLK/COUT/A2/C2</text>
+  <text x="-12" y="28.6" font-size="3" text-anchor="end" fill="#1a5fb4">4 P3.0/A12/C12</text>
+  <text x="-12" y="33.5" font-size="3" text-anchor="end" fill="#1a5fb4">5 P3.1/A13/C13</text>
+  <text x="-12" y="38.5" font-size="3" text-anchor="end" fill="#1a5fb4">6 P3.2/A14/C14</text>
+  <text x="-12" y="43.6" font-size="3" text-anchor="end" fill="#1a5fb4">7 P3.3/A15/C15</text>
+  <text x="-12" y="48.6" font-size="3" text-anchor="end" fill="#1a5fb4">8 P6.0/UCA3TXD/UCA3SIMO</text>
+  <text x="-12" y="53.6" font-size="3" text-anchor="end" fill="#1a5fb4">9 P6.1/UCA3RXD/UCA3SOMI</text>
+  <text x="-12" y="58.6" font-size="3" text-anchor="end" fill="#1a5fb4">10 P6.2/UCA3CLK</text>
+  <text x="-12" y="63.6" font-size="3" text-anchor="end" fill="#1a5fb4">11 P6.3/UCA3STE</text>
+  <text x="-12" y="68.6" font-size="3" text-anchor="end" fill="#1a5fb4">12 P4.7</text>
+  <text x="-12" y="73.6" font-size="3" text-anchor="end" fill="#1a5fb4">13 P7.0/UCB2SIMO/UCB2SDA</text>
+  <text x="-12" y="78.6" font-size="3" text-anchor="end" fill="#1a5fb4">14 P7.1/UCB2SOMI/UCB2SCL</text>
+  <text x="-12" y="83.6" font-size="3" text-anchor="end" fill="#1a5fb4">15 P8.0</text>
+  <text x="-12" y="88.6" font-size="3" text-anchor="end" fill="#1a5fb4">16 P1.3/TA1.2/UCB0STE/A3/C3</text>
+  <text x="-12" y="93.6" font-size="3" text-anchor="end" fill="#1a5fb4">17 P1.4/TB0.1/UCA0STE/A4/C4</text>
+  <text x="-12" y="98.6" font-size="3" text-anchor="end" fill="#1a5fb4">18 P1.5/TB0.2/UCA0CLK/A5/C5</text>
+  <text x="-12" y="103.6" font-size="3" text-anchor="end" fill="#c01c28">19 DVSS2</text>
+  <text x="-12" y="108.6" font-size="3" text-anchor="end" fill="#c01c28">20 DVCC2</text>
+  <text x="13.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,13.6,132)">21 PJ.0/TDO/TB0OUTH/SMCLK/SRSCG1/C6</text>
+  <text x="18.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,18.6,132)">22 PJ.1/TDI/TCLK/MCLK/SRSCG0/C7</text>
+  <text x="23.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,23.6,132)">23 PJ.2/TMS/ACLK/SROSCOFF/C8</text>
+  <text x="28.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,28.6,132)">24 PJ.3/TCK/SRCPUOFF/C9</text>
+  <text x="33.5" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,33.5,132)">25 P7.2/UCB2CLK</text>
+  <text x="38.5" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,38.5,132)">26 P7.3/UCB2STE/TA4.1</text>
+  <text x="43.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,43.6,132)">27 P7.4/TA4.0/A16</text>
+  <text x="48.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,48.6,132)">28 P7.5/A17</text>
+  <text x="53.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,53.6,132)">29 P7.6/A18</text>
+  <text x="58.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,58.6,132)">30 P7.7/A19</text>
+  <text x="63.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,63.6,132)">31 P4.0/A8</text>
+  <text x="68.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,68.6,132)">32 P4.1/A9</text>
+  <text x="73.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,73.6,132)">33 P4.2/A10</text>
+  <text x="78.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,78.6,132)">34 P4.3/A11</text>
+  <text x="83.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,83.6,132)">35 P2.5/TB0.0/UCA1TXD/UCA1SIMO</text>
+  <text x="88.6" y="132" font-size="3" text-anchor="end" fill="#1a5fb4" transform="rotate(-90,88.6,132)">36 P2.6/TB0.1/UCA1RXD/UCA1SOMI</text>
+  <text x="93.6" y="132" font-size="3" text-anchor="end" fill="#6a3d9a" transform="rotate(-90,93.6,132)">37 TEST/SBWTCK</text>
+  <text x="98.6" y="132" font-size="3" text-anchor="end" fill="#6a3d9a" transform="rotate(-90,98.6,132)">38 RST/NMI/SBWTDIO</text>
+  <text x="103.6" y="132" font-size="3" text-anchor="end" fill="#c01c28" transform="rotate(-90,103.6,132)">39 DVSS3</text>
+  <text x="108.6" y="132" font-size="3" text-anchor="end" fill="#c01c28" transform="rotate(-90,108.6,132)">40 DVCC3</text>
+  <text x="132" y="108.6" font-size="3" fill="#1a5fb4">41 P2.0/TB0.6/UCA0TXD/BSLTX/UCA0SIMO/TB0CLK/ACLK</text>
+  <text x="132" y="103.6" font-size="3" fill="#1a5fb4">42 P2.1/TB0.0/UCA0RXD/BSLRX/UCA0SOMI</text>
+  <text x="132" y="98.6" font-size="3" fill="#1a5fb4">43 P2.2/TB0.2/UCB0CLK</text>
+  <text x="132" y="93.6" font-size="3" fill="#1a5fb4">44 P8.1</text>
+  <text x="132" y="88.6" font-size="3" fill="#1a5fb4">45 P8.2</text>
+  <text x="132" y="83.6" font-size="3" fill="#1a5fb4">46 P8.3</text>
+  <text x="132" y="78.6" font-size="3" fill="#1a5fb4">47 P3.4/TB0.3/SMCLK</text>
+  <text x="132" y="73.6" font-size="3" fill="#1a5fb4">48 P3.5/TB0.4/COUT</text>
+  <text x="132" y="68.6" font-size="3" fill="#1a5fb4">49 P3.6/TB0.5</text>
+  <text x="132" y="63.6" font-size="3" fill="#1a5fb4">50 P3.7/TB0.6</text>
+  <text x="132" y="58.6" font-size="3" fill="#1a5fb4">51 P1.6/TB0.3/UCB0SIMO/UCB0SDA/BSLSDA/TA0.0</text>
+  <text x="132" y="53.6" font-size="3" fill="#1a5fb4">52 P1.7/TB0.4/UCB0SOMI/UCB0SCL/BSLSCL/TA1.0</text>
+  <text x="132" y="48.6" font-size="3" fill="#1a5fb4">53 P5.0/UCB1SIMO/UCB1SDA</text>
+  <text x="132" y="43.6" font-size="3" fill="#1a5fb4">54 P5.1/UCB1SOMI/UCB1SCL</text>
+  <text x="132" y="38.5" font-size="3" fill="#1a5fb4">55 P5.2/UCB1CLK/TA4CLK</text>
+  <text x="132" y="33.5" font-size="3" fill="#1a5fb4">56 P5.3/UCB1STE</text>
+  <text x="132" y="28.6" font-size="3" fill="#1a5fb4">57 P4.4/TB0.5</text>
+  <text x="132" y="23.6" font-size="3" fill="#1a5fb4">58 P4.5</text>
+  <text x="132" y="18.6" font-size="3" fill="#1a5fb4">59 P4.6</text>
+  <text x="132" y="13.6" font-size="3" fill="#c01c28">60 DVSS1</text>
+  <text x="108.6" y="-12" font-size="3" fill="#c01c28" transform="rotate(-90,108.6,-12)">61 DVCC1</text>
+  <text x="103.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,103.6,-12)">62 P2.7</text>
+  <text x="98.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,98.6,-12)">63 P2.3/TA0.0/UCA1STE/A6/C10</text>
+  <text x="93.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,93.6,-12)">64 P2.4/TA1.0/UCA1CLK/A7/C11</text>
+  <text x="88.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,88.6,-12)">65 P5.4/UCA2TXD/UCA2SIMO/TB0OUTH</text>
+  <text x="83.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,83.6,-12)">66 P5.5/UCA2RXD/UCA2SOMI/ACLK</text>
+  <text x="78.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,78.6,-12)">67 P5.6/UCA2CLK/TA4.0/SMCLK</text>
+  <text x="73.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,73.6,-12)">68 P5.7/UCA2STE/TA4.1/MCLK</text>
+  <text x="68.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,68.6,-12)">69 P6.4/UCB3SIMO/UCB3SDA</text>
+  <text x="63.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,63.6,-12)">70 P6.5/UCB3SOMI/UCB3SCL</text>
+  <text x="58.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,58.6,-12)">71 P6.6/UCB3CLK</text>
+  <text x="53.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,53.6,-12)">72 P6.7/UCB3STE</text>
+  <text x="48.6" y="-12" font-size="3" fill="#c01c28" transform="rotate(-90,48.6,-12)">73 AVSS3</text>
+  <text x="43.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,43.6,-12)">74 PJ.6/HFXIN</text>
+  <text x="38.5" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,38.5,-12)">75 PJ.7/HFXOUT</text>
+  <text x="33.5" y="-12" font-size="3" fill="#c01c28" transform="rotate(-90,33.5,-12)">76 AVSS2</text>
+  <text x="28.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,28.6,-12)">77 PJ.4/LFXIN</text>
+  <text x="23.6" y="-12" font-size="3" fill="#1a5fb4" transform="rotate(-90,23.6,-12)">78 PJ.5/LFXOUT</text>
+  <text x="18.6" y="-12" font-size="3" fill="#c01c28" transform="rotate(-90,18.6,-12)">79 AVSS1</text>
+  <text x="13.6" y="-12" font-size="3" fill="#c01c28" transform="rotate(-90,13.6,-12)">80 AVCC1</text>
+  <text x="60" y="65.2" font-size="15" text-anchor="middle" fill="#ddd">MSP430FR5994</text>
+</g>
+</svg>

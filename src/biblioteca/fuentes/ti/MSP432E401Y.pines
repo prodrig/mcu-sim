@@ -1,0 +1,427 @@
+# MSP432E401Y, TQFP128: el patillaje del datasheet de TI SLASEN5.
+# Lo escribe biblioteca/herramientas/extrae_ti.py; no se edita a mano.
+# patilla POSICION NOMBRE         (el nombre, como en la tabla de patillas)
+# funcion PAD MODO NOMBRE [analogica]   (MODO: el número que la elige;
+#                                       - si no se elige con PxSEL/PCTL)
+# pmap MNEMONICO VALOR               (el PMAP: el valor de PxMAPy)
+documento SLASEN5
+encapsulado TQFP128 PINNUMBER
+patilla 1 PD0/AIN15/C0o/I2C7SCL/SSI2XDAT1/T0CCP0
+patilla 2 PD1/AIN14/C1o/I2C7SDA/SSI2XDAT0/T0CCP1
+patilla 3 PD2/AIN13/C2o/I2C8SCL/SSI2Fss/T1CCP0
+patilla 4 PD3/AIN12/I2C8SDA/SSI2Clk/T1CCP1
+patilla 5 PQ0/EPI0S20/SSI3Clk
+patilla 6 PQ1/EPI0S21/SSI3Fss
+patilla 7 VDD
+patilla 8 VDDA
+patilla 9 VREFA+
+patilla 10 GNDA
+patilla 11 PQ2/EPI0S22/SSI3XDAT0
+patilla 12 PE3/AIN0/U1DTR
+patilla 13 PE2/AIN1/U1DCD
+patilla 14 PE1/AIN2/U1DSR
+patilla 15 PE0/AIN3/U1RTS
+patilla 16 VDD
+patilla 17 GND
+patilla 18 PK0/AIN16/EPI0S0/U4Rx
+patilla 19 PK1/AIN17/EPI0S1/U4Tx
+patilla 20 PK2/AIN18/EPI0S2/U4RTS
+patilla 21 PK3/AIN19/EPI0S3/U4CTS
+patilla 22 PC7/C0-/EPI0S4/U5Tx
+patilla 23 PC6/C0+/EPI0S5/U5Rx
+patilla 24 PC5/C1+/EPI0S6/RTCCLK/U7Tx
+patilla 25 PC4/C1-/EPI0S7/U7Rx
+patilla 26 VDD
+patilla 27 PQ3/EPI0S23/SSI3XDAT1
+patilla 28 VDD
+patilla 29 PH0/EPI0S0/U0RTS
+patilla 30 PH1/EPI0S1/U0CTS
+patilla 31 PH2/EPI0S2/U0DCD
+patilla 32 PH3/EPI0S3/U0DSR
+patilla 33 PA0/CAN0Rx/I2C9SCL/T0CCP0/U0Rx
+patilla 34 PA1/CAN0Tx/I2C9SDA/T0CCP1/U0Tx
+patilla 35 PA2/I2C8SCL/SSI0Clk/T1CCP0/U4Rx
+patilla 36 PA3/I2C8SDA/SSI0Fss/T1CCP1/U4Tx
+patilla 37 PA4/I2C7SCL/SSI0XDAT0/T2CCP0/U3Rx
+patilla 38 PA5/I2C7SDA/SSI0XDAT1/T2CCP1/U3Tx
+patilla 39 VDD
+patilla 40 PA6/EPI0S8/I2C6SCL/SSI0XDAT2/T3CCP0/U2Rx/USB0EPEN
+patilla 41 PA7/EPI0S9/I2C6SDA/SSI0XDAT3/T3CCP1/U2Tx/USB0EPEN/USB0PFLT
+patilla 42 PF0/EN0LED0/M0PWM0/SSI3XDAT1/TRD2
+patilla 43 PF1/EN0LED2/M0PWM1/SSI3XDAT0/TRD1
+patilla 44 PF2/M0PWM2/SSI3Fss/TRD0
+patilla 45 PF3/M0PWM3/SSI3Clk/TRCLK
+patilla 46 PF4/EN0LED1/M0FAULT0/SSI3XDAT2/TRD3
+patilla 47 VDD
+patilla 48 GND
+patilla 49 PG0/EN0PPS/EPI0S11/I2C1SCL/M0PWM4
+patilla 50 PG1/EPI0S10/I2C1SDA/M0PWM5
+patilla 51 VDD
+patilla 52 VDD
+patilla 53 EN0RXIN
+patilla 54 EN0RXIP
+patilla 55 GND
+patilla 56 EN0TXON
+patilla 57 EN0TXOP
+patilla 58 GND
+patilla 59 RBIAS
+patilla 60 PK7/EPI0S24/I2C4SDA/M0FAULT2/RTCCLK/U0RI
+patilla 61 PK6/EN0LED1/EPI0S25/I2C4SCL/M0FAULT1
+patilla 62 PK5/EN0LED2/EPI0S31/I2C3SDA/M0PWM7
+patilla 63 PK4/EN0LED0/EPI0S32/I2C3SCL/M0PWM6
+patilla 64 WAKE
+patilla 65 HIB
+patilla 66 XOSC0
+patilla 67 XOSC1
+patilla 68 VBAT
+patilla 69 VDD
+patilla 70 RST
+patilla 71 PM7/T5CCP1/TMPR0/U0RI
+patilla 72 PM6/T5CCP0/TMPR1/U0DSR
+patilla 73 PM5/T4CCP1/TMPR2/U0DCD
+patilla 74 PM4/T4CCP0/TMPR3/U0CTS
+patilla 75 PM3/EPI0S12/T3CCP1
+patilla 76 PM2/EPI0S13/T3CCP0
+patilla 77 PM1/EPI0S14/T2CCP1
+patilla 78 PM0/EPI0S15/T2CCP0
+patilla 79 VDD
+patilla 80 GND
+patilla 81 PL0/EPI0S16/I2C2SDA/M0FAULT3/USB0D0
+patilla 82 PL1/EPI0S17/I2C2SCL/PhA0/USB0D1
+patilla 83 PL2/C0o/EPI0S18/PhB0/USB0D2
+patilla 84 PL3/C1o/EPI0S19/IDX0/USB0D3
+patilla 85 PL4/EPI0S26/T0CCP0/USB0D4
+patilla 86 PL5/EPI0S33/T0CCP1/USB0D5
+patilla 87 VDDC
+patilla 88 OSC0
+patilla 89 OSC1
+patilla 90 VDD
+patilla 91 PB2/EPI0S27/I2C0SCL/T5CCP0/USB0STP
+patilla 92 PB3/EPI0S28/I2C0SDA/T5CCP1/USB0CLK
+patilla 93 PL7/T1CCP1/USB0DM
+patilla 94 PL6/T1CCP0/USB0DP
+patilla 95 PB0/CAN1Rx/I2C5SCL/T4CCP0/U1Rx/USB0ID
+patilla 96 PB1/CAN1Tx/I2C5SDA/T4CCP1/U1Tx/USB0VBUS
+patilla 97 PC3/TDO/SWO
+patilla 98 PC2/TDI
+patilla 99 PC1/TMS/SWDIO
+patilla 100 PC0/TCK/SWCLK
+patilla 101 VDD
+patilla 102 PQ4/DIVSCLK/U1Rx
+patilla 103 PP2/EPI0S29/U0DTR/USB0NXT
+patilla 104 PP3/EPI0S30/RTCCLK/U0DCD/U1CTS/USB0DIR
+patilla 105 PP4/U0DSR/U3RTS/USB0D7
+patilla 106 PP5/I2C2SCL/U3CTS/USB0D6
+patilla 107 PN0/U1RTS
+patilla 108 PN1/U1CTS
+patilla 109 PN2/EPI0S29/U1DCD/U2RTS
+patilla 110 PN3/EPI0S30/U1DSR/U2CTS
+patilla 111 PN4/EPI0S34/I2C2SDA/U1DTR/U3RTS
+patilla 112 PN5/EPI0S35/I2C2SCL/U1RI/U3CTS
+patilla 113 VDD
+patilla 114 GND
+patilla 115 VDDC
+patilla 116 PJ0/EN0PPS/U3Rx
+patilla 117 PJ1/U3Tx
+patilla 118 PP0/C2+/SSI3XDAT2/U6Rx
+patilla 119 PP1/C2-/SSI3XDAT3/U6Tx
+patilla 120 PB5/AIN11/I2C5SDA/SSI1Clk/U0RTS
+patilla 121 PB4/AIN10/I2C5SCL/SSI1Fss/U0CTS
+patilla 122 VDD
+patilla 123 PE4/AIN9/SSI1XDAT0/U1RI
+patilla 124 PE5/AIN8/SSI1XDAT1
+patilla 125 PD4/AIN7/SSI1XDAT2/T3CCP0/U2Rx
+patilla 126 PD5/AIN6/SSI1XDAT3/T3CCP1/U2Tx
+patilla 127 PD6/AIN5/SSI2XDAT3/T4CCP0/U2RTS/USB0EPEN
+patilla 128 PD7/AIN4/NMI/SSI2XDAT2/T4CCP1/U2CTS/USB0PFLT
+funcion PA0 1 U0Rx
+funcion PA0 2 I2C9SCL
+funcion PA0 3 T0CCP0
+funcion PA0 7 CAN0Rx
+funcion PA1 1 U0Tx
+funcion PA1 2 I2C9SDA
+funcion PA1 3 T0CCP1
+funcion PA1 7 CAN0Tx
+funcion PA2 1 U4Rx
+funcion PA2 2 I2C8SCL
+funcion PA2 3 T1CCP0
+funcion PA2 15 SSI0Clk
+funcion PA3 1 U4Tx
+funcion PA3 2 I2C8SDA
+funcion PA3 3 T1CCP1
+funcion PA3 15 SSI0Fss
+funcion PA4 1 U3Rx
+funcion PA4 2 I2C7SCL
+funcion PA4 3 T2CCP0
+funcion PA4 15 SSI0XDAT0
+funcion PA5 1 U3Tx
+funcion PA5 2 I2C7SDA
+funcion PA5 3 T2CCP1
+funcion PA5 15 SSI0XDAT1
+funcion PA6 1 U2Rx
+funcion PA6 2 I2C6SCL
+funcion PA6 3 T3CCP0
+funcion PA6 5 USB0EPEN
+funcion PA6 13 SSI0XDAT2
+funcion PA6 15 EPI0S8
+funcion PA7 1 U2Tx
+funcion PA7 2 I2C6SDA
+funcion PA7 3 T3CCP1
+funcion PA7 5 USB0PFLT
+funcion PA7 11 USB0EPEN
+funcion PA7 13 SSI0XDAT3
+funcion PA7 15 EPI0S9
+funcion PB0 1 U1Rx
+funcion PB0 2 I2C5SCL
+funcion PB0 3 T4CCP0
+funcion PB0 7 CAN1Rx
+funcion PB0 - USB0ID analogica
+funcion PB1 1 U1Tx
+funcion PB1 2 I2C5SDA
+funcion PB1 3 T4CCP1
+funcion PB1 7 CAN1Tx
+funcion PB1 - USB0VBUS analogica
+funcion PB2 2 I2C0SCL
+funcion PB2 3 T5CCP0
+funcion PB2 14 USB0STP
+funcion PB2 15 EPI0S27
+funcion PB3 2 I2C0SDA
+funcion PB3 3 T5CCP1
+funcion PB3 14 USB0CLK
+funcion PB3 15 EPI0S28
+funcion PB4 1 U0CTS
+funcion PB4 2 I2C5SCL
+funcion PB4 15 SSI1Fss
+funcion PB4 - AIN10 analogica
+funcion PB5 1 U0RTS
+funcion PB5 2 I2C5SDA
+funcion PB5 15 SSI1Clk
+funcion PB5 - AIN11 analogica
+funcion PC0 1 TCK
+funcion PC0 1 SWCLK
+funcion PC1 1 TMS
+funcion PC1 1 SWDIO
+funcion PC2 1 TDI
+funcion PC3 1 TDO
+funcion PC3 1 SWO
+funcion PC4 1 U7Rx
+funcion PC4 15 EPI0S7
+funcion PC4 - C1- analogica
+funcion PC5 1 U7Tx
+funcion PC5 7 RTCCLK
+funcion PC5 15 EPI0S6
+funcion PC5 - C1+ analogica
+funcion PC6 1 U5Rx
+funcion PC6 15 EPI0S5
+funcion PC6 - C0+ analogica
+funcion PC7 1 U5Tx
+funcion PC7 15 EPI0S4
+funcion PC7 - C0- analogica
+funcion PD0 2 I2C7SCL
+funcion PD0 3 T0CCP0
+funcion PD0 5 C0o
+funcion PD0 15 SSI2XDAT1
+funcion PD0 - AIN15 analogica
+funcion PD1 2 I2C7SDA
+funcion PD1 3 T0CCP1
+funcion PD1 5 C1o
+funcion PD1 15 SSI2XDAT0
+funcion PD1 - AIN14 analogica
+funcion PD2 2 I2C8SCL
+funcion PD2 3 T1CCP0
+funcion PD2 5 C2o
+funcion PD2 15 SSI2Fss
+funcion PD2 - AIN13 analogica
+funcion PD3 2 I2C8SDA
+funcion PD3 3 T1CCP1
+funcion PD3 15 SSI2Clk
+funcion PD3 - AIN12 analogica
+funcion PD4 1 U2Rx
+funcion PD4 3 T3CCP0
+funcion PD4 15 SSI1XDAT2
+funcion PD4 - AIN7 analogica
+funcion PD5 1 U2Tx
+funcion PD5 3 T3CCP1
+funcion PD5 15 SSI1XDAT3
+funcion PD5 - AIN6 analogica
+funcion PD6 1 U2RTS
+funcion PD6 3 T4CCP0
+funcion PD6 5 USB0EPEN
+funcion PD6 15 SSI2XDAT3
+funcion PD6 - AIN5 analogica
+funcion PD7 1 U2CTS
+funcion PD7 3 T4CCP1
+funcion PD7 5 USB0PFLT
+funcion PD7 8 NMI
+funcion PD7 15 SSI2XDAT2
+funcion PD7 - AIN4 analogica
+funcion PE0 1 U1RTS
+funcion PE0 - AIN3 analogica
+funcion PE1 1 U1DSR
+funcion PE1 - AIN2 analogica
+funcion PE2 1 U1DCD
+funcion PE2 - AIN1 analogica
+funcion PE3 1 U1DTR
+funcion PE3 - AIN0 analogica
+funcion PE4 1 U1RI
+funcion PE4 15 SSI1XDAT0
+funcion PE4 - AIN9 analogica
+funcion PE5 15 SSI1XDAT1
+funcion PE5 - AIN8 analogica
+funcion PF0 5 EN0LED0
+funcion PF0 6 M0PWM0
+funcion PF0 14 SSI3XDAT1
+funcion PF0 15 TRD2
+funcion PF1 5 EN0LED2
+funcion PF1 6 M0PWM1
+funcion PF1 14 SSI3XDAT0
+funcion PF1 15 TRD1
+funcion PF2 6 M0PWM2
+funcion PF2 14 SSI3Fss
+funcion PF2 15 TRD0
+funcion PF3 6 M0PWM3
+funcion PF3 14 SSI3Clk
+funcion PF3 15 TRCLK
+funcion PF4 5 EN0LED1
+funcion PF4 6 M0FAULT0
+funcion PF4 14 SSI3XDAT2
+funcion PF4 15 TRD3
+funcion PG0 2 I2C1SCL
+funcion PG0 5 EN0PPS
+funcion PG0 6 M0PWM4
+funcion PG0 15 EPI0S11
+funcion PG1 2 I2C1SDA
+funcion PG1 6 M0PWM5
+funcion PG1 15 EPI0S10
+funcion PH0 1 U0RTS
+funcion PH0 15 EPI0S0
+funcion PH1 1 U0CTS
+funcion PH1 15 EPI0S1
+funcion PH2 1 U0DCD
+funcion PH2 15 EPI0S2
+funcion PH3 1 U0DSR
+funcion PH3 15 EPI0S3
+funcion PJ0 1 U3Rx
+funcion PJ0 5 EN0PPS
+funcion PJ1 1 U3Tx
+funcion PK0 1 U4Rx
+funcion PK0 15 EPI0S0
+funcion PK0 - AIN16 analogica
+funcion PK1 1 U4Tx
+funcion PK1 15 EPI0S1
+funcion PK1 - AIN17 analogica
+funcion PK2 1 U4RTS
+funcion PK2 15 EPI0S2
+funcion PK2 - AIN18 analogica
+funcion PK3 1 U4CTS
+funcion PK3 15 EPI0S3
+funcion PK3 - AIN19 analogica
+funcion PK4 2 I2C3SCL
+funcion PK4 5 EN0LED0
+funcion PK4 6 M0PWM6
+funcion PK4 15 EPI0S32
+funcion PK5 2 I2C3SDA
+funcion PK5 5 EN0LED2
+funcion PK5 6 M0PWM7
+funcion PK5 15 EPI0S31
+funcion PK6 2 I2C4SCL
+funcion PK6 5 EN0LED1
+funcion PK6 6 M0FAULT1
+funcion PK6 15 EPI0S25
+funcion PK7 1 U0RI
+funcion PK7 2 I2C4SDA
+funcion PK7 5 RTCCLK
+funcion PK7 6 M0FAULT2
+funcion PK7 15 EPI0S24
+funcion PL0 2 I2C2SDA
+funcion PL0 6 M0FAULT3
+funcion PL0 14 USB0D0
+funcion PL0 15 EPI0S16
+funcion PL1 2 I2C2SCL
+funcion PL1 6 PhA0
+funcion PL1 14 USB0D1
+funcion PL1 15 EPI0S17
+funcion PL2 5 C0o
+funcion PL2 6 PhB0
+funcion PL2 14 USB0D2
+funcion PL2 15 EPI0S18
+funcion PL3 5 C1o
+funcion PL3 6 IDX0
+funcion PL3 14 USB0D3
+funcion PL3 15 EPI0S19
+funcion PL4 3 T0CCP0
+funcion PL4 14 USB0D4
+funcion PL4 15 EPI0S26
+funcion PL5 3 T0CCP1
+funcion PL5 14 USB0D5
+funcion PL5 15 EPI0S33
+funcion PL6 3 T1CCP0
+funcion PL6 - USB0DP analogica
+funcion PL7 3 T1CCP1
+funcion PL7 - USB0DM analogica
+funcion PM0 3 T2CCP0
+funcion PM0 15 EPI0S15
+funcion PM1 3 T2CCP1
+funcion PM1 15 EPI0S14
+funcion PM2 3 T3CCP0
+funcion PM2 15 EPI0S13
+funcion PM3 3 T3CCP1
+funcion PM3 15 EPI0S12
+funcion PM4 1 U0CTS
+funcion PM4 3 T4CCP0
+funcion PM4 - TMPR3
+funcion PM5 1 U0DCD
+funcion PM5 3 T4CCP1
+funcion PM5 - TMPR2
+funcion PM6 1 U0DSR
+funcion PM6 3 T5CCP0
+funcion PM6 - TMPR1
+funcion PM7 1 U0RI
+funcion PM7 3 T5CCP1
+funcion PM7 - TMPR0
+funcion PN0 1 U1RTS
+funcion PN1 1 U1CTS
+funcion PN2 1 U1DCD
+funcion PN2 2 U2RTS
+funcion PN2 15 EPI0S29
+funcion PN3 1 U1DSR
+funcion PN3 2 U2CTS
+funcion PN3 15 EPI0S30
+funcion PN4 1 U1DTR
+funcion PN4 2 U3RTS
+funcion PN4 3 I2C2SDA
+funcion PN4 15 EPI0S34
+funcion PN5 1 U1RI
+funcion PN5 2 U3CTS
+funcion PN5 3 I2C2SCL
+funcion PN5 15 EPI0S35
+funcion PP0 1 U6Rx
+funcion PP0 15 SSI3XDAT2
+funcion PP0 - C2+ analogica
+funcion PP1 1 U6Tx
+funcion PP1 15 SSI3XDAT3
+funcion PP1 - C2- analogica
+funcion PP2 1 U0DTR
+funcion PP2 14 USB0NXT
+funcion PP2 15 EPI0S29
+funcion PP3 1 U1CTS
+funcion PP3 2 U0DCD
+funcion PP3 7 RTCCLK
+funcion PP3 14 USB0DIR
+funcion PP3 15 EPI0S30
+funcion PP4 1 U3RTS
+funcion PP4 2 U0DSR
+funcion PP4 14 USB0D7
+funcion PP5 1 U3CTS
+funcion PP5 2 I2C2SCL
+funcion PP5 14 USB0D6
+funcion PQ0 14 SSI3Clk
+funcion PQ0 15 EPI0S20
+funcion PQ1 14 SSI3Fss
+funcion PQ1 15 EPI0S21
+funcion PQ2 14 SSI3XDAT0
+funcion PQ2 15 EPI0S22
+funcion PQ3 14 SSI3XDAT1
+funcion PQ3 15 EPI0S23
+funcion PQ4 1 U1Rx
+funcion PQ4 7 DIVSCLK
