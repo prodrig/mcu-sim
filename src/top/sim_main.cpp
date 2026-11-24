@@ -134,6 +134,7 @@
 #include "../parts/frontera_gui.h"
 #include "../parts/enlace_gui.h"
 #include "../parts/exporta_piezas.h"
+#include "exporta_mcu.h"
 #include "../soc/stm32f4_mcu.h"
 #include "../soc/stm32f446.h"
 #include "../soc/msp432p4/msp432p4_mcu.h"
@@ -2466,6 +2467,10 @@ static const OpcionCli OPCIONES[] = {
      "escribe en la carpeta DIR, que tiene que existir, un TIPO.pieza.xml por cada "
      "tipo de componente: su ficha de --help como dato, para mcu-sim-build. No "
      "necesita placa"},
+    {"--exporta-mcu", "valor", "texto", "", "", "", false, false, "STM32F446RE",
+     "escribe por la salida, en XML, los pads que el MCU TIPO saca a su encapsulado "
+     "y las funciones que el modelo simula en cada uno, para mcu-sim-build. No "
+     "necesita placa"},
     {"--argumentos", "accion", "", "", "", "", false, false, "",
      "esta lista de opciones, en XML, para mcu-sim-gui"},
     {"--help", "accion", "", "", "", "", false, false, "",
@@ -2641,6 +2646,27 @@ int sc_main(int argc, char** argv) {
                 return 1;
             }
             std::printf("%u piezas en %s\n", n, dir.c_str());
+            return 0;
+        }
+        // `--exporta-mcu TIPO`: lo que el modelo sabe de los pines de un chip
+        // (top/exporta_mcu.h, fase B2 de doc/analisis_build.md). Construye el
+        // chip y no simula
+        else if (a == "--exporta-mcu" || a.rfind("--exporta-mcu=", 0) == 0) {
+            std::string tipo;
+            if (a.rfind("--exporta-mcu=", 0) == 0) tipo = a.substr(14);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') tipo = argv[++i];
+            if (tipo.empty()) {
+                std::fprintf(stderr, "--exporta-mcu: falta el tipo, como en --exporta-mcu "
+                             "STM32F446RE. Los que hay: %s\n", tipos_como_texto().c_str());
+                return 1;
+            }
+            std::string x;
+            const std::string e = stm32::exporta_mcu(tipo, x);
+            if (!e.empty()) {
+                std::fprintf(stderr, "--exporta-mcu: %s\n", e.c_str());
+                return 1;
+            }
+            std::fputs(x.c_str(), stdout);
             return 0;
         }
         else if (a == "--mcus") g_lista_mcus = true;
@@ -2988,6 +3014,8 @@ int sc_main(int argc, char** argv) {
                 "                                atributos admite en el XML\n"
                 "     sim --exporta-piezas DIR   la ficha de cada componente como\n"
                 "                                DIR/TIPO.pieza.xml, para mcu-sim-build\n"
+                "     sim --exporta-mcu TIPO     los pads de ese MCU y lo que el modelo\n"
+                "                                simula en cada uno, en XML\n"
                 "     sim --licencia             licencia de mcu-sim (AGPLv3), donde\n"
                 "                                esta el fuente y el software ajeno\n"
                 "                                que lleva dentro\n"

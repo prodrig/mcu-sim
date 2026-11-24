@@ -238,6 +238,24 @@ más valor tiene para un alumno. `SPI4_SCK` existe en el F446 y el modelo la
 tiene, pero el F446RE no la saca. Un periférico que el chip tiene y el modelo
 todavía no simula debe verse en gris, no como si funcionara.
 
+**Lo que dio B2** (`--exporta-mcu`, `soc/inventario_pines.h`). Los 65 MCU
+se exportan, con tantos pads como dice su encapsulado. Lo que el modelo sabe
+decir de sus funciones no es igual en todas las familias, y eso cambia B3 y
+B4:
+
+| Familia | Funciones que el modelo inventaría | Consecuencia |
+| :--- | :--- | :--- |
+| STM32F4, F446 | La tabla AF del `PinMux`: (pad, AF) → señal de SystemC (`usart2.tx_out`), **sin el nombre del manual** | B3 cruza con Open Pin Data **por el número de AF** |
+| STM32F3 | La misma, **con el nombre** (`USART2_TX`), porque su tabla ya sale de Open Pin Data | B3 cruza por AF y por nombre |
+| MSP432P4 | Las fijas del DIO por PxSEL y las **29 mapeables del PMAP** (`P2 P3 P7`), con su nombre corto (`simo`) y su señal | B4 cruza con SysConfig |
+| MSP432E4 | Las del GPIO por PCTL y las analógicas | B4 cruza con SysConfig |
+| ESP32-C3/C6 | Solo la función 0 directa del IO_MUX (U0TXD, U0RXD). **La matriz no**: sus señales no están en una tabla del modelo | B4 tiene que **dar al modelo la tabla de señales** de la matriz o contrastar por periférico |
+| MSP430 (los diez) | **Ninguna**: cada SoC decide la función de un pin en su código (PxSEL, PxSEL2) | B4 tiene que **dar a cada SoC su tabla de funciones**. Es lo que el modelo usaría para decidir, y de paso lo que `--exporta-mcu` vuelca. O se contrasta por periférico |
+
+Lo analógico de los STM32 (entradas del ADC, salidas del DAC) tampoco está en
+el inventario: va por `bind_analog`, fuera de la tabla AF. B3 lo marca como
+simulado si el periférico está en el chip.
+
 **El PMAP (N3)** es una tercera clase: el pin no tiene una lista fija de
 funciones, sino **una lista de las mapeables**, que el firmware elige al
 arrancar. El XML del MCU lo dice como lista aparte por puerto mapeable
@@ -836,7 +854,7 @@ orden sea claro.
 | :--- | :--- | :--- | :--- | :--- |
 | **B0** | los dos | Este análisis y las ramas `build` | `doc/analisis_build.md` en las dos | — |
 | **B1** ✔ | mcu-sim | `--exporta-piezas DIR`: un `.pieza.xml` por tipo, desde la ficha, con el analizador de terminales agrupados | `src/biblioteca/piezas/*.pieza.xml` (sin `<forma>`) | Prueba nueva: los 76 tipos están, **toda** fila de terminales se analiza, y cada terminal y atributo de la ficha está. Lo versionado coincide con lo regenerado |
-| **B2** | mcu-sim | `--exporta-mcu TIPO`: patillas soldadas y funciones **simuladas** | La salida, en XML | Pruebas por familia: el recuento de pads coincide con `Encapsulado::n_gpio` (lo mismo que T128) |
+| **B2** ✔ | mcu-sim | `--exporta-mcu TIPO`: patillas soldadas y funciones **simuladas** | La salida, en XML | Pruebas por familia: el recuento de pads coincide con `Encapsulado::n_gpio` (lo mismo que T128) |
 | **B3** | mcu-sim | Datos de ST: `herramientas/exporta_mcus_st.py` sobre Open Pin Data (commit fijado) + B2 | `mcus/STM32*.mcu.xml` y `*.detalle.svg`/`*.simple.svg` de los 46 | **Contraste**: toda función simulada existe en Open Pin Data con el mismo AF, y todo pad soldado tiene patilla |
 | **B4** | mcu-sim | Datos de TI y Espressif, con PMAP y matriz | Los `.mcu.xml` y SVG de MSP432, MSP430 y ESP32 | El mismo contraste que B3. Las mapeables del P401R coinciden con `PmapP4::PM_*` |
 | **B5** | mcu-sim | SVG de las piezas no paramétricas y `<forma>` de todas | `piezas/*.svg` y `<forma>` en cada `.pieza.xml` | Prueba: cada `<ancla>` existe en su SVG, y el SVG cumple el perfil de autor (sin filtros ni máscaras, con viewBox y mm) |

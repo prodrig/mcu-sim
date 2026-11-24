@@ -108,6 +108,14 @@ public:
                      l |= c->rst_n.value_changed_event();
                  }}};
     }
+    // B2: sin inventario. El SoC decide la funcion de un pin con su codigo
+    // (PxSEL, PxSEL2...), sin una tabla que recorrer
+    InventarioPines inventario_pines() override {
+        InventarioPines inv;
+        inv.motivo = "el modelo del MSP430 decide la funcion de cada pin en el codigo de su "
+                     "SoC, sin una tabla que recorrer";
+        return inv;
+    }
     std::vector<std::string> limitaciones() const override {
         return {"el USB: la reanudacion remota la contesta el anfitrion al momento",
                 "el BSL de Flash es el B1 de mcu-sim (el USB de MSPDebugStack; --bsl FICHERO para el de TI): no carga el RAM BSL de las herramientas"};

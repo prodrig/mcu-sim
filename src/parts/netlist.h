@@ -290,6 +290,9 @@ public:
     }
     // Cuántos NOMBRES hay dados de alta.
     unsigned size() const { return unsigned(m_.size()); }
+    // Todos, por orden de nombre: f(nodo). Lo usa `--exporta-mcu` para saber
+    // las patillas de alimentación y control que registra un chip
+    template <class F> void recorre(F f) const { for (const auto& kv : m_) f(kv.second); }
     // Cuántos nodos ELÉCTRICOS distintos. No es lo mismo: un mismo AnalogNet
     // puede tener varios nombres —el desnudo y el cualificado cuando hay un
     // solo MCU, o un puente y cada uno de los pads que lo forman—, y decir

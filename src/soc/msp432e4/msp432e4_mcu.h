@@ -85,6 +85,28 @@ public:
         return {chip_->core.nucleo_congelable(std::string(chip_->name()) + ".core")};
     }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
+    // B2: las funciones del GPIO, por PCTL, y las analógicas (AMSEL)
+    InventarioPines inventario_pines() override {
+        InventarioPines inv;
+        inv.hay = true;
+        const std::string chip = chip_->name();
+        chip_->gpio.recorre_fijas([&](unsigned p, unsigned i, unsigned pctl, const FuncionE4& fn) {
+            FuncionDePin f;
+            f.puerto = p; f.pin = i; f.modo = int(pctl);
+            f.nombre = fn.nombre ? fn.nombre : "";
+            f.senal = senal_de(fn, chip);
+            f.analogica = fn.analogica;
+            inv.fijas.push_back(f);
+        });
+        chip_->gpio.recorre_analogicas([&](unsigned p, unsigned i, const char* n) {
+            FuncionDePin f;
+            f.puerto = p; f.pin = i;
+            f.nombre = n ? n : "";
+            f.analogica = true;
+            inv.fijas.push_back(f);
+        });
+        return inv;
+    }
 
     void registra_nodos(const std::string& prefijo, NodeMap& n) override {
         ContextoNomenclatura& c = ContextoNomenclatura::g();

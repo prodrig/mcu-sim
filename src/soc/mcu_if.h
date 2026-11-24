@@ -43,6 +43,7 @@
 #include "../common/depuracion.h"   // DebugCaps (E0.1: ya no el Cortex entero)
 #include "mcu_desc.h"
 #include "../common/congela.h"
+#include "inventario_pines.h"
 
 namespace stm32 {
 
@@ -150,6 +151,16 @@ public:
     // Es el mismo recurso que `Encapsulado::verificado`: preferimos un aviso
     // repetido a un alumno desarrollando contra algo que no esta.
     virtual std::vector<std::string> limitaciones() const { return {}; }
+
+    // --- 6a. Lo que SIMULA en cada pin (B2 de doc/analisis_build.md) -------
+    // Para `--exporta-mcu`: qué funciones de periférico registra el modelo
+    // en cada pad, con su número de selección (soc/inventario_pines.h). Una
+    // familia que no lo sabe decir lo dice, con el porqué.
+    virtual InventarioPines inventario_pines() {
+        InventarioPines i;
+        i.motivo = "esta familia no tiene todavia inventario de funciones de pin";
+        return i;
+    }
 
     // --- 6b. Los núcleos que la depuración puede parar ---------------------
     // Para --stopped-core-stops-sim (common/congela.h): con uno parado, el

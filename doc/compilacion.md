@@ -51,6 +51,9 @@ make test446fw          # lo mismo para la del F446
 make test417fw          # y para la del F415/F417
 make fw                 # solo los firmwares de todas las suites y placas, sin simular
 make cleanfw            # borrarlos todos (deja el arbol como recien clonado)
+make biblioteca         # las fichas de las piezas para mcu-sim-build (doc/analisis_build.md, B1)
+make biblioteca-comprueba  # ¿estan al dia las versionadas?
+make exporta-mcu-comprueba # lo que el modelo simula en los pines de los 65 MCU (B2)
 make hash               # los vectores de MD5 y SHA-1, que no necesitan SystemC
 make cryp               # los de AES, DES y TDES, en las dos direcciones
 ```

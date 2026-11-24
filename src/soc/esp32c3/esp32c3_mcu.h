@@ -101,6 +101,25 @@ public:
                  }}};
     }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
+    // B2: la función 0 del IO_MUX de cada pin. La matriz GPIO no: el modelo
+    // no tiene una tabla de sus señales que recorrer
+    InventarioPines inventario_pines() override {
+        InventarioPines inv;
+        inv.hay = true;
+        for (unsigned p = 0; p < chip_->gpio.n_pines(); ++p) {
+            const PinEsp& x = chip_->gpio.pin_esp(p);
+            if (x.tipo == PinEsp::NoModelada || x.tipo == PinEsp::Gpio) continue;
+            FuncionDePin f;
+            f.puerto = 0; f.pin = p; f.modo = 0;
+            f.nombre = x.fn0 ? x.fn0 : "";
+            inv.fijas.push_back(f);
+        }
+        inv.mapeo = "matriz";
+        inv.mapeo_inventariado = false;
+        inv.motivo_mapeo = "las senales de la matriz GPIO estan repartidas por el SoC, sin una "
+                           "tabla del modelo que recorrer";
+        return inv;
+    }
 
     void registra_nodos(const std::string& prefijo, NodeMap& n) override {
         ContextoNomenclatura& c = ContextoNomenclatura::g();

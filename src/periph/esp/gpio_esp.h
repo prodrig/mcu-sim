@@ -185,6 +185,8 @@ public:
     }
 
     unsigned n_pines() const { return n_; }
+    // La función 0 de un pin, para `--exporta-mcu` (B2 de doc/analisis_build.md)
+    const PinEsp& pin_esp(unsigned p) const { return pines_[p]; }
     analog_net_if& nodo_de(unsigned p) { return *nodo.at(p); }
     bool nivel(unsigned p) const { return p < n_ && s_din_[p].read(); }
     uint32_t out() const { return out_; }

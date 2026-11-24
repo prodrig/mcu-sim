@@ -8,7 +8,7 @@ para que otro programa sepa qué piezas hay y cómo se conectan.
 | Carpeta | Qué hay | Fase | Cómo se hace |
 | :--- | :--- | :--- | :--- |
 | `piezas/` | `TIPO.pieza.xml`: la ficha de cada tipo de componente —la misma que imprime `mcu-sim --help TIPO`— con sus terminales, sus atributos y su omisión | B1 | **Generado**: `make biblioteca` |
-| `mcus/` | El patillaje de cada MCU y sus dos dibujos | B3, B4 | *(pendiente)* |
+| `mcus/` | El patillaje de cada MCU y sus dos dibujos | B3, B4 | *(pendiente)*. Lo que el modelo **simula** en cada pin ya lo dice `mcu-sim --exporta-mcu TIPO` (B2), y es con lo que se contrastará |
 | `conectores/` | Los perfiles de conector (morpho, Arduino, BoosterPack) y sus conjuntos | B6 | *(pendiente)* |
 
 ## `piezas/`

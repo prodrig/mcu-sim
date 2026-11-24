@@ -257,6 +257,18 @@ public:
     void conecta_mapeable(unsigned pm, const FuncionP4& f) {
         if (pm < 32) mapeadas_[pm] = f;
     }
+    // Lo registrado, para `--exporta-mcu` (soc/inventario_pines.h, B2 de
+    // doc/analisis_build.md): f(puerto, pin, func, funcion) de cada función
+    // fija, y f(valor, funcion) de cada mapeable por el PMAP
+    template <class F> void recorre_fijas(F f) const {
+        for (const auto& kv : fijas_)
+            f(kv.first >> 8, (kv.first >> 4) & 0xFu, kv.first & 0xFu, kv.second);
+    }
+    template <class F> void recorre_mapeables(F f) const {
+        for (unsigned v = 1; v < 32; ++v)
+            if (mapeadas_[v].out || mapeadas_[v].in || mapeadas_[v].analogica)
+                f(v, mapeadas_[v]);
+    }
     // El PMAP ha cambiado: hay que volver a mirar los pines
     void mapa_cambiado() {
         aplica_ev_.notify(sc_core::SC_ZERO_TIME);

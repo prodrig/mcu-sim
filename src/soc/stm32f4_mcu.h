@@ -87,6 +87,21 @@ public:
     std::vector<congela::Nucleo> nucleos() override {
         return {dut_->core.nucleo_congelable(std::string(dut_->name()) + ".core")};
     }
+    // B2: la tabla AF del PinMux. Sin nombres: el F4 registra señales, y la
+    // clave para contrastar con Open Pin Data es el número de AF
+    InventarioPines inventario_pines() override {
+        InventarioPines inv;
+        inv.hay = true;
+        const std::string chip = dut_->name();
+        dut_->pinmux.recorre_af([&](unsigned p, unsigned i, uint8_t af, const AfEndpoint& ep) {
+            FuncionDePin f;
+            f.puerto = p; f.pin = i; f.modo = af;
+            if (ep.nombre) f.nombre = ep.nombre;
+            f.senal = senal_de(ep, chip);
+            inv.fijas.push_back(f);
+        });
+        return inv;
+    }
     std::vector<std::string> limitaciones() const override {
         return dut_->limitaciones();
     }

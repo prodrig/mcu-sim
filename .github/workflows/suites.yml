@@ -209,9 +209,9 @@ jobs:
       # que ser las que vuelca este mcu-sim. Si alguien cambia una ficha y no
       # regenera, falla aqui. Solo en Linux: el volcado no depende de la
       # plataforma.
-      - name: La biblioteca de mcu-sim-build, al dia
+      - name: La biblioteca de mcu-sim-build, al dia, y los pines de los 65 MCU
         working-directory: src
-        run: make -f Makefile.mcu-sim biblioteca-comprueba
+        run: make -f Makefile.mcu-sim biblioteca-comprueba exporta-mcu-comprueba
 
       # -----------------------------------------------------------------
       # testserie OTRA VEZ, CON UN LOOPBACK LENTO. En la D5 del puente UART

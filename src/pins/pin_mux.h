@@ -418,6 +418,13 @@ SC_MODULE(PinMux), public af_sel_if {
     bool tiene_af(unsigned port, unsigned pin, uint8_t af) const {
         return af_tab_.find(key(port, pin, af)) != af_tab_.end();
     }
+    // Todo lo registrado, en orden (puerto, pin, AF): f(puerto, pin, af, ep).
+    // Lo usa `--exporta-mcu` para decir qué funciones alternativas SIMULA el
+    // modelo en cada pin (soc/inventario_pines.h, B2 de doc/analisis_build.md)
+    template <class F> void recorre_af(F f) const {
+        for (const auto& kv : af_tab_)
+            f(kv.first >> 12, (kv.first >> 4) & 0xFFu, uint8_t(kv.first & 0xFu), kv.second);
+    }
     // Ruta analógica (ADC/DAC/HSE/LSE): devuelve el nodo del pin, sea propio o
     // compartido con otro pad.
     analog_net_if& analog(unsigned port, unsigned pin) { return *nodo[port][pin]; }

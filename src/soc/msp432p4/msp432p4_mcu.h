@@ -102,6 +102,34 @@ public:
         return {chip_->core.nucleo_congelable(std::string(chip_->name()) + ".core")};
     }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
+    // B2: las funciones fijas del DIO, por PxSEL, y las mapeables del PMAP
+    InventarioPines inventario_pines() override {
+        InventarioPines inv;
+        inv.hay = true;
+        const std::string chip = chip_->name();
+        chip_->dio.recorre_fijas([&](unsigned p, unsigned i, unsigned func, const FuncionP4& fn) {
+            FuncionDePin f;
+            f.puerto = p; f.pin = i; f.modo = int(func);
+            f.nombre = fn.nombre ? fn.nombre : "";
+            f.senal = senal_de(fn, chip);
+            f.analogica = fn.analogica;
+            inv.fijas.push_back(f);
+        });
+        inv.mapeo = "pmap";
+        for (unsigned p = 0; p < 11; ++p)
+            if (PmapP4::mapeable(p))
+                inv.puertos_mapeables += (inv.puertos_mapeables.empty() ? "P" : " P") +
+                                         std::to_string(p + 1);
+        chip_->dio.recorre_mapeables([&](unsigned v, const FuncionP4& fn) {
+            FuncionDePin f;
+            f.modo = int(v);
+            f.nombre = fn.nombre ? fn.nombre : "";
+            f.senal = senal_de(fn, chip);
+            f.analogica = fn.analogica;
+            inv.mapeables.push_back(f);
+        });
+        return inv;
+    }
 
     // Los nodos, con los nombres del P4. Se asegura además de que el contexto
     // de nomenclatura sabe de este chip con este prefijo: si la placa no se

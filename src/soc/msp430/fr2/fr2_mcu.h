@@ -182,6 +182,14 @@ public:
                      l |= c->rst_n.value_changed_event();
                  }}};
     }
+    // B2: sin inventario. El SoC decide la funcion de un pin con su codigo
+    // (PxSEL, PxSEL2...), sin una tabla que recorrer
+    InventarioPines inventario_pines() override {
+        InventarioPines inv;
+        inv.motivo = "el modelo del MSP430 decide la funcion de cada pin en el codigo de su "
+                     "SoC, sin una tabla que recorrer";
+        return inv;
+    }
     std::vector<std::string> limitaciones() const override {
         if (caps_.chip->fr5)
             return {"el BSL de ROM es el B1 de mcu-sim (--bsl FICHERO para el volcado de un chip): con el vector de reset borrado no se arranca solo",

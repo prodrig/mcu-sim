@@ -27,6 +27,10 @@ struct AfEndpoint {
     sc_core::sc_signal<bool>* oe  = nullptr;
     sc_core::sc_signal<bool>* in  = nullptr;
     bool idle_in = true;
+    // Cómo se llama la función en el manual -`USART2_TX`-, si quien la
+    // registra lo sabe (el F3, de su tabla de Open Pin Data). Solo lo lee
+    // `--exporta-mcu` (soc/inventario_pines.h, B2 de doc/analisis_build.md)
+    const char* nombre = nullptr;
 };
 
 // Interfaz que el puerto GPIO usa para publicar su selección de AF por pin.

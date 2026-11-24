@@ -133,6 +133,16 @@ public:
     void conecta_funcion(unsigned p, unsigned i, unsigned pctl, const FuncionE4& f) {
         fijas_[clave(p, i, pctl)] = f;
     }
+    // Lo registrado, para `--exporta-mcu` (soc/inventario_pines.h, B2 de
+    // doc/analisis_build.md): f(puerto, pin, pctl, funcion) y f(puerto, pin,
+    // nombre) de cada analógica
+    template <class F> void recorre_fijas(F f) const {
+        for (const auto& kv : fijas_)
+            f(kv.first >> 8, (kv.first >> 4) & 0xFu, kv.first & 0xFu, kv.second);
+    }
+    template <class F> void recorre_analogicas(F f) const {
+        for (const auto& kv : analogicas_) f(kv.first / NB, kv.first % NB, kv.second);
+    }
     // La función analógica de un pin (AMSEL): ADC, comparador, USB...
     void conecta_analogica(unsigned p, unsigned i, const char* nombre) {
         analogicas_[p * NB + i] = nombre;

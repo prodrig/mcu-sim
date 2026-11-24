@@ -122,6 +122,14 @@ public:
     std::string describe_opcion(const std::string& clave) const override {
         return clave == "bsl" ? chip_->bsl_origen : std::string();
     }
+    // B2: sin inventario. El SoC decide la funcion de un pin con su codigo
+    // (PxSEL, PxSEL2...), sin una tabla que recorrer
+    InventarioPines inventario_pines() override {
+        InventarioPines inv;
+        inv.motivo = "el modelo del MSP430 decide la funcion de cada pin en el codigo de su "
+                     "SoC, sin una tabla que recorrer";
+        return inv;
+    }
     std::vector<std::string> limitaciones() const override {
         return {"el disparo del ADC10 por el Timer_A (SHSx) y la deteccion de baudios de la USCI_A0 no se modelan",
                 "el BSL de ROM es el B1 de mcu-sim (--bsl FICHERO para el volcado de un chip); NMI por RST/NMI no se modela",

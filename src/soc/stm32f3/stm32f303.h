@@ -634,8 +634,11 @@ private:
         pinmux.connect_af(0,  8, 0, af(&rcc.mco_sig, &s_true_, nullptr));
         // EVENTOUT (AF15), en los pines en que la base de pines la pone
         for (const PinAf& x : tabla_af())
-            if (x.af == 15 && std::strcmp(x.senal, "EVENTOUT") == 0)
-                pinmux.connect_af(x.puerto, x.pin, 15, af(&s_evt_out_, &s_true_, nullptr));
+            if (x.af == 15 && std::strcmp(x.senal, "EVENTOUT") == 0) {
+                AfEndpoint ep = af(&s_evt_out_, &s_true_, nullptr);
+                ep.nombre = x.senal;
+                pinmux.connect_af(x.puerto, x.pin, 15, ep);
+            }
     }
 
     // =======================================================================
@@ -1148,7 +1151,10 @@ private:
     void conecta_pines_s3() {
         for (const PinAf& x : tabla_af()) {
             AfEndpoint ep;
-            if (endpoint(x.senal, ep)) pinmux.connect_af(x.puerto, x.pin, x.af, ep);
+            if (endpoint(x.senal, ep)) {
+                ep.nombre = x.senal;      // el de Open Pin Data, para --exporta-mcu
+                pinmux.connect_af(x.puerto, x.pin, x.af, ep);
+            }
         }
     }
 

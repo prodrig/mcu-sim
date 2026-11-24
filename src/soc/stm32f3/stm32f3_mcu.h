@@ -83,6 +83,21 @@ public:
         return {chip_->core.nucleo_congelable(std::string(chip_->name()) + ".core")};
     }
     std::vector<std::string> limitaciones() const override { return chip_->limitaciones(); }
+    // B2: la tabla AF del PinMux, con el nombre de cada función: la tabla del
+    // F3 sale de Open Pin Data (gen_pines.py)
+    InventarioPines inventario_pines() override {
+        InventarioPines inv;
+        inv.hay = true;
+        const std::string chip = chip_->name();
+        chip_->pinmux.recorre_af([&](unsigned p, unsigned i, uint8_t af, const AfEndpoint& ep) {
+            FuncionDePin f;
+            f.puerto = p; f.pin = i; f.modo = af;
+            if (ep.nombre) f.nombre = ep.nombre;
+            f.senal = senal_de(ep, chip);
+            inv.fijas.push_back(f);
+        });
+        return inv;
+    }
 
     void registra_nodos(const std::string& prefijo, NodeMap& n) override {
         n.registra_mcu(prefijo, chip_->pinmux, chip_->pwr_pads);
