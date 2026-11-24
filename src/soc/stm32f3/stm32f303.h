@@ -1149,7 +1149,17 @@ private:
         return false;
     }
     void conecta_pines_s3() {
+        // La tabla es la de toda la familia. Las funciones de un periférico que
+        // esta línea no tiene (`mcu.sin`: el TIM8 del F302 [PINDATA]) no se
+        // registran: el periférico tiene sus ventanas reservadas y no se
+        // mueve, y su función en el pin no existe en el chip. Lo vio el
+        // contraste de B3 (doc/analisis_build.md)
+        const std::string sin = std::string(" ") + mcu.sin + " ";
         for (const PinAf& x : tabla_af()) {
+            const char* barra = std::strchr(x.senal, '_');
+            if (barra && sin.find(" " + std::string(x.senal, size_t(barra - x.senal)) + " ") !=
+                             std::string::npos)
+                continue;
             AfEndpoint ep;
             if (endpoint(x.senal, ep)) {
                 ep.nombre = x.senal;      // el de Open Pin Data, para --exporta-mcu

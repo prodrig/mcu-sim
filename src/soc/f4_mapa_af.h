@@ -351,13 +351,22 @@ inline void SocF4::bind_mapa_af() {
     pinmux.connect_af(2,  7, 6, AfEndpoint{&spi3.mck_out, &spi3.mck_oe, nullptr, false});
     // Bloques de extension: su dato va por el pin MISO del SPI padre, y el CK y
     // el WS los toman de los mismos pines que el bloque principal.
-    // I2S2ext (AF6): SD en PB14 o PC2 [IR, §2.1]
-    pinmux.connect_af(1, 14, 6, af_spi(i2s2ext.miso_out, i2s2ext.miso_oe, i2s2ext.miso_in));
-    pinmux.connect_af(2,  2, 6, af_spi(i2s2ext.miso_out, i2s2ext.miso_oe, i2s2ext.miso_in));
+    // Solo si el chip los tiene: el F446 no [DS10693], y su función en el pin
+    // no existe. Lo vio el contraste con Open Pin Data (B3 de
+    // doc/analisis_build.md)
+    if (mcu.perif.i2sext) {
+        // I2S2ext (AF6): SD en PB14 o PC2 [IR, §2.1]
+        pinmux.connect_af(1, 14, 6, af_spi(i2s2ext.miso_out, i2s2ext.miso_oe, i2s2ext.miso_in));
+        pinmux.connect_af(2,  2, 6, af_spi(i2s2ext.miso_out, i2s2ext.miso_oe, i2s2ext.miso_in));
 
-    // I2S3ext (AF7): SD en PB4 o PC11 [IR, tabla AF: AF7 incluye I2S3ext]
-    pinmux.connect_af(1,  4, 7, af_spi(i2s3ext.miso_out, i2s3ext.miso_oe, i2s3ext.miso_in));
-    pinmux.connect_af(2, 11, 7, af_spi(i2s3ext.miso_out, i2s3ext.miso_oe, i2s3ext.miso_in));
+        // I2S3ext: SD en PB4 por AF7 y en PC11 por AF5 [Open Pin Data, GPIO-
+        // STM32F417_gpio_v1_0_Modes: I2S3_ext_SD]. En PC11 estuvo por AF7, y
+        // como la tabla es un mapa PISABA el USART3_RX de ese pin, que es el
+        // AF7 de PC11: el USART3 no recibía por PC11. Lo vio el contraste de
+        // B3 (doc/analisis_build.md)
+        pinmux.connect_af(1,  4, 7, af_spi(i2s3ext.miso_out, i2s3ext.miso_oe, i2s3ext.miso_in));
+        pinmux.connect_af(2, 11, 5, af_spi(i2s3ext.miso_out, i2s3ext.miso_oe, i2s3ext.miso_in));
+    }
 
     // TODO(F4/F5): resto de la tabla AF (TIM CHx, CAN, SDIO, FSMC, ETH, ULPI,
     //           DCMI, RTC_AF1...) conforme se implemente cada periférico.

@@ -1,0 +1,416 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- El patillaje del STM32F303CB y lo que puede hacer cada patilla, contrastado con lo
+     que simula el modelo de mcu-sim. Lo genera biblioteca/herramientas/genera_mcus.py
+     (doc/analisis_build.md, B3 y B4): no se edita a mano. -->
+<mcu tipo="STM32F303CB" familia="STM32F3" encapsulado="LQFP48" patillas="48" fuente="STM32_open_pin_data@45c04599e2e0a788c5ed9b6218dc5a28a36041f7:STM32F303C(B-C)Tx.xml" contrastado="si" version="1">
+  <patilla n="1" nombre="VBAT" clase="alimentacion" nodo="VBAT"/>
+  <patilla n="2" nombre="PC13" clase="es" nodo="PC13">
+    <funcion nombre="TIM1_CH1N" modo="4" simulada="si"/>
+    <funcion nombre="RTC_OUT_ALARM" simulada="no" por="periferico"/>
+    <funcion nombre="RTC_OUT_CALIB" simulada="no" por="periferico"/>
+    <funcion nombre="RTC_TAMP1" simulada="no" por="periferico"/>
+    <funcion nombre="RTC_TS" simulada="no" por="periferico"/>
+    <funcion nombre="SYS_WKUP2" simulada="no" por="periferico"/>
+  </patilla>
+  <patilla n="3" nombre="PC14-OSC32_IN" clase="es" nodo="PC14">
+    <funcion nombre="RCC_OSC32_IN" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="4" nombre="PC15-OSC32_OUT" clase="es" nodo="PC15">
+    <funcion nombre="ADC1_EXTI15" simulada="no" por="periferico"/>
+    <funcion nombre="ADC2_EXTI15" simulada="no" por="periferico"/>
+    <funcion nombre="RCC_OSC32_OUT" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="5" nombre="PF0-OSC_IN" clase="es" nodo="PF0">
+    <funcion nombre="I2C2_SDA" modo="4" simulada="si"/>
+    <funcion nombre="TIM1_CH3N" modo="6" simulada="si"/>
+    <funcion nombre="RCC_OSC_IN" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="6" nombre="PF1-OSC_OUT" clase="es" nodo="PF1">
+    <funcion nombre="I2C2_SCL" modo="4" simulada="si"/>
+    <funcion nombre="RCC_OSC_OUT" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="7" nombre="NRST" clase="reset" nodo="NRST"/>
+  <patilla n="8" nombre="VSSA/VREF-" clase="alimentacion" nodo="VSSA"/>
+  <patilla n="9" nombre="VDDA/VREF+" clase="alimentacion" nodo="VDDA"/>
+  <patilla n="10" nombre="PA0" clase="es" nodo="PA0">
+    <funcion nombre="TIM2_CH1" modo="1" simulada="no"/>
+    <funcion nombre="TIM2_ETR" modo="1" simulada="si"/>
+    <funcion nombre="TSC_G1_IO1" modo="3" simulada="no"/>
+    <funcion nombre="USART2_CTS" modo="7" simulada="si"/>
+    <funcion nombre="COMP1_OUT" modo="8" simulada="si"/>
+    <funcion nombre="TIM8_BKIN" modo="9" simulada="si"/>
+    <funcion nombre="TIM8_ETR" modo="10" simulada="si"/>
+    <funcion nombre="ADC1_IN1" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP1_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP7_INP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="RTC_TAMP2" simulada="no" por="periferico"/>
+    <funcion nombre="SYS_WKUP1" simulada="no" por="periferico"/>
+  </patilla>
+  <patilla n="11" nombre="PA1" clase="es" nodo="PA1">
+    <funcion nombre="RTC_REFIN" modo="0" simulada="no"/>
+    <funcion nombre="TIM2_CH2" modo="1" simulada="si"/>
+    <funcion nombre="TSC_G1_IO2" modo="3" simulada="no"/>
+    <funcion nombre="USART2_DE" modo="7" simulada="no"/>
+    <funcion nombre="USART2_RTS" modo="7" simulada="si"/>
+    <funcion nombre="TIM15_CH1N" modo="9" simulada="si"/>
+    <funcion nombre="ADC1_IN2" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP1_INP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP1_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP1_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="12" nombre="PA2" clase="es" nodo="PA2">
+    <funcion nombre="TIM2_CH3" modo="1" simulada="si"/>
+    <funcion nombre="TSC_G1_IO3" modo="3" simulada="no"/>
+    <funcion nombre="USART2_TX" modo="7" simulada="si"/>
+    <funcion nombre="COMP2_OUT" modo="8" simulada="si"/>
+    <funcion nombre="TIM15_CH1" modo="9" simulada="si"/>
+    <funcion nombre="ADC1_IN3" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="ADC3_EXTI2" simulada="no" por="periferico"/>
+    <funcion nombre="ADC4_EXTI2" simulada="no" por="periferico"/>
+    <funcion nombre="COMP2_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP1_VOUT" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="13" nombre="PA3" clase="es" nodo="PA3">
+    <funcion nombre="TIM2_CH4" modo="1" simulada="si"/>
+    <funcion nombre="TSC_G1_IO4" modo="3" simulada="no"/>
+    <funcion nombre="USART2_RX" modo="7" simulada="si"/>
+    <funcion nombre="TIM15_CH2" modo="9" simulada="si"/>
+    <funcion nombre="ADC1_IN4" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP2_INP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP1_VINM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP1_VINM_SEC" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP1_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP1_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="14" nombre="PA4" clase="es" nodo="PA4">
+    <funcion nombre="TIM3_CH2" modo="2" simulada="si"/>
+    <funcion nombre="TSC_G2_IO1" modo="3" simulada="no"/>
+    <funcion nombre="SPI1_NSS" modo="5" simulada="si"/>
+    <funcion nombre="I2S3_WS" modo="6" simulada="no"/>
+    <funcion nombre="SPI3_NSS" modo="6" simulada="si"/>
+    <funcion nombre="USART2_CK" modo="7" simulada="si"/>
+    <funcion nombre="ADC2_IN1" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP1_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP2_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP3_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP4_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP5_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP6_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP7_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="DAC_OUT1" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP4_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP4_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="15" nombre="PA5" clase="es" nodo="PA5">
+    <funcion nombre="TIM2_CH1" modo="1" simulada="no"/>
+    <funcion nombre="TIM2_ETR" modo="1" simulada="si"/>
+    <funcion nombre="TSC_G2_IO2" modo="3" simulada="no"/>
+    <funcion nombre="SPI1_SCK" modo="5" simulada="si"/>
+    <funcion nombre="ADC2_IN2" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP1_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP2_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP3_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP4_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP5_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP6_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP7_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="DAC_OUT2" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP1_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP1_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP2_VINM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP2_VINM_SEC" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="16" nombre="PA6" clase="es" nodo="PA6">
+    <funcion nombre="TIM16_CH1" modo="1" simulada="si"/>
+    <funcion nombre="TIM3_CH1" modo="2" simulada="si"/>
+    <funcion nombre="TSC_G2_IO3" modo="3" simulada="no"/>
+    <funcion nombre="TIM8_BKIN" modo="4" simulada="si"/>
+    <funcion nombre="SPI1_MISO" modo="5" simulada="si"/>
+    <funcion nombre="TIM1_BKIN" modo="6" simulada="si"/>
+    <funcion nombre="COMP1_OUT" modo="8" simulada="si"/>
+    <funcion nombre="ADC2_IN3" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP2_VOUT" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="17" nombre="PA7" clase="es" nodo="PA7">
+    <funcion nombre="TIM17_CH1" modo="1" simulada="si"/>
+    <funcion nombre="TIM3_CH2" modo="2" simulada="si"/>
+    <funcion nombre="TSC_G2_IO4" modo="3" simulada="no"/>
+    <funcion nombre="TIM8_CH1N" modo="4" simulada="si"/>
+    <funcion nombre="SPI1_MOSI" modo="5" simulada="si"/>
+    <funcion nombre="TIM1_CH1N" modo="6" simulada="si"/>
+    <funcion nombre="COMP2_OUT" modo="8" simulada="si"/>
+    <funcion nombre="ADC2_IN4" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP2_INP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP1_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP1_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP2_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP2_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="18" nombre="PB0" clase="es" nodo="PB0">
+    <funcion nombre="TIM3_CH3" modo="2" simulada="si"/>
+    <funcion nombre="TSC_G3_IO2" modo="3" simulada="no"/>
+    <funcion nombre="TIM8_CH2N" modo="4" simulada="si"/>
+    <funcion nombre="TIM1_CH2N" modo="6" simulada="si"/>
+    <funcion nombre="ADC3_IN12" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP4_INP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP2_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP2_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="19" nombre="PB1" clase="es" nodo="PB1">
+    <funcion nombre="TIM3_CH4" modo="2" simulada="si"/>
+    <funcion nombre="TSC_G3_IO3" modo="3" simulada="no"/>
+    <funcion nombre="TIM8_CH3N" modo="4" simulada="si"/>
+    <funcion nombre="TIM1_CH3N" modo="6" simulada="si"/>
+    <funcion nombre="COMP4_OUT" modo="8" simulada="si"/>
+    <funcion nombre="ADC3_IN1" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VOUT" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="20" nombre="PB2" clase="es" nodo="PB2">
+    <funcion nombre="TSC_G3_IO4" modo="3" simulada="no"/>
+    <funcion nombre="ADC2_IN12" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="ADC3_EXTI2" simulada="no" por="periferico"/>
+    <funcion nombre="ADC4_EXTI2" simulada="no" por="periferico"/>
+    <funcion nombre="COMP4_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINM_SEC" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="21" nombre="PB10" clase="es" nodo="PB10">
+    <funcion nombre="TIM2_CH3" modo="1" simulada="si"/>
+    <funcion nombre="TSC_SYNC" modo="3" simulada="no"/>
+    <funcion nombre="USART3_TX" modo="7" simulada="si"/>
+    <funcion nombre="COMP5_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINM_SEC" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP4_VINM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP4_VINM_SEC" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="22" nombre="PB11" clase="es" nodo="PB11">
+    <funcion nombre="TIM2_CH4" modo="1" simulada="si"/>
+    <funcion nombre="TSC_G6_IO1" modo="3" simulada="no"/>
+    <funcion nombre="USART3_RX" modo="7" simulada="si"/>
+    <funcion nombre="ADC1_EXTI11" simulada="no" por="periferico"/>
+    <funcion nombre="ADC2_EXTI11" simulada="no" por="periferico"/>
+    <funcion nombre="COMP6_INP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP4_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP4_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="23" nombre="VSS" clase="alimentacion" nodo="VSS"/>
+  <patilla n="24" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="25" nombre="PB12" clase="es" nodo="PB12">
+    <funcion nombre="TSC_G6_IO2" modo="3" simulada="no"/>
+    <funcion nombre="I2C2_SMBA" modo="4" simulada="no"/>
+    <funcion nombre="I2S2_WS" modo="5" simulada="no"/>
+    <funcion nombre="SPI2_NSS" modo="5" simulada="si"/>
+    <funcion nombre="TIM1_BKIN" modo="6" simulada="si"/>
+    <funcion nombre="USART3_CK" modo="7" simulada="si"/>
+    <funcion nombre="ADC4_IN3" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP3_INM" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP4_VOUT" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="26" nombre="PB13" clase="es" nodo="PB13">
+    <funcion nombre="TSC_G6_IO3" modo="3" simulada="no"/>
+    <funcion nombre="I2S2_CK" modo="5" simulada="no"/>
+    <funcion nombre="SPI2_SCK" modo="5" simulada="si"/>
+    <funcion nombre="TIM1_CH1N" modo="6" simulada="si"/>
+    <funcion nombre="USART3_CTS" modo="7" simulada="si"/>
+    <funcion nombre="ADC3_IN5" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP5_INP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP3_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP4_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP4_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="27" nombre="PB14" clase="es" nodo="PB14">
+    <funcion nombre="TIM15_CH1" modo="1" simulada="si"/>
+    <funcion nombre="TSC_G6_IO4" modo="3" simulada="no"/>
+    <funcion nombre="I2S2_ext_SD" modo="5" simulada="no"/>
+    <funcion nombre="SPI2_MISO" modo="5" simulada="si"/>
+    <funcion nombre="TIM1_CH2N" modo="6" simulada="si"/>
+    <funcion nombre="USART3_DE" modo="7" simulada="no"/>
+    <funcion nombre="USART3_RTS" modo="7" simulada="si"/>
+    <funcion nombre="ADC4_IN4" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP3_INP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP2_VINP" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="OPAMP2_VINP_SEC" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="28" nombre="PB15" clase="es" nodo="PB15">
+    <funcion nombre="RTC_REFIN" modo="0" simulada="no"/>
+    <funcion nombre="TIM15_CH2" modo="1" simulada="si"/>
+    <funcion nombre="TIM15_CH1N" modo="2" simulada="si"/>
+    <funcion nombre="TIM1_CH3N" modo="4" simulada="si"/>
+    <funcion nombre="I2S2_SD" modo="5" simulada="no"/>
+    <funcion nombre="SPI2_MOSI" modo="5" simulada="si"/>
+    <funcion nombre="ADC1_EXTI15" simulada="no" por="periferico"/>
+    <funcion nombre="ADC2_EXTI15" simulada="no" por="periferico"/>
+    <funcion nombre="ADC4_IN5" analogica="si" simulada="si" por="periferico"/>
+    <funcion nombre="COMP6_INM" analogica="si" simulada="si" por="periferico"/>
+  </patilla>
+  <patilla n="29" nombre="PA8" clase="es" nodo="PA8">
+    <funcion nombre="RCC_MCO" modo="0" simulada="si"/>
+    <funcion nombre="I2C2_SMBA" modo="4" simulada="no"/>
+    <funcion nombre="I2S2_MCK" modo="5" simulada="si"/>
+    <funcion nombre="TIM1_CH1" modo="6" simulada="si"/>
+    <funcion nombre="USART1_CK" modo="7" simulada="si"/>
+    <funcion nombre="COMP3_OUT" modo="8" simulada="si"/>
+    <funcion nombre="TIM4_ETR" modo="10" simulada="si"/>
+  </patilla>
+  <patilla n="30" nombre="PA9" clase="es" nodo="PA9">
+    <funcion nombre="TSC_G4_IO1" modo="3" simulada="no"/>
+    <funcion nombre="I2C2_SCL" modo="4" simulada="si"/>
+    <funcion nombre="I2S3_MCK" modo="5" simulada="si"/>
+    <funcion nombre="TIM1_CH2" modo="6" simulada="si"/>
+    <funcion nombre="USART1_TX" modo="7" simulada="si"/>
+    <funcion nombre="COMP5_OUT" modo="8" simulada="si"/>
+    <funcion nombre="TIM15_BKIN" modo="9" simulada="si"/>
+    <funcion nombre="TIM2_CH3" modo="10" simulada="si"/>
+    <funcion nombre="DAC_EXTI9" simulada="no" por="periferico"/>
+  </patilla>
+  <patilla n="31" nombre="PA10" clase="es" nodo="PA10">
+    <funcion nombre="TIM17_BKIN" modo="1" simulada="si"/>
+    <funcion nombre="TSC_G4_IO2" modo="3" simulada="no"/>
+    <funcion nombre="I2C2_SDA" modo="4" simulada="si"/>
+    <funcion nombre="TIM1_CH3" modo="6" simulada="si"/>
+    <funcion nombre="USART1_RX" modo="7" simulada="si"/>
+    <funcion nombre="COMP6_OUT" modo="8" simulada="si"/>
+    <funcion nombre="TIM2_CH4" modo="10" simulada="si"/>
+    <funcion nombre="TIM8_BKIN" modo="11" simulada="si"/>
+  </patilla>
+  <patilla n="32" nombre="PA11" clase="es" nodo="PA11">
+    <funcion nombre="TIM1_CH1N" modo="6" simulada="si"/>
+    <funcion nombre="USART1_CTS" modo="7" simulada="si"/>
+    <funcion nombre="COMP1_OUT" modo="8" simulada="si"/>
+    <funcion nombre="CAN_RX" modo="9" simulada="si"/>
+    <funcion nombre="TIM4_CH1" modo="10" simulada="si"/>
+    <funcion nombre="TIM1_CH4" modo="11" simulada="si"/>
+    <funcion nombre="TIM1_BKIN2" modo="12" simulada="si"/>
+    <funcion nombre="USB_DM" modo="14" simulada="no"/>
+    <funcion nombre="ADC1_EXTI11" simulada="no" por="periferico"/>
+    <funcion nombre="ADC2_EXTI11" simulada="no" por="periferico"/>
+  </patilla>
+  <patilla n="33" nombre="PA12" clase="es" nodo="PA12">
+    <funcion nombre="TIM16_CH1" modo="1" simulada="si"/>
+    <funcion nombre="TIM1_CH2N" modo="6" simulada="si"/>
+    <funcion nombre="USART1_DE" modo="7" simulada="no"/>
+    <funcion nombre="USART1_RTS" modo="7" simulada="si"/>
+    <funcion nombre="COMP2_OUT" modo="8" simulada="si"/>
+    <funcion nombre="CAN_TX" modo="9" simulada="si"/>
+    <funcion nombre="TIM4_CH2" modo="10" simulada="si"/>
+    <funcion nombre="TIM1_ETR" modo="11" simulada="si"/>
+    <funcion nombre="USB_DP" modo="14" simulada="no"/>
+  </patilla>
+  <patilla n="34" nombre="PA13" clase="es" nodo="PA13">
+    <funcion nombre="SYS_JTMS-SWDIO" modo="0" simulada="si"/>
+    <funcion nombre="TIM16_CH1N" modo="1" simulada="si"/>
+    <funcion nombre="TSC_G4_IO3" modo="3" simulada="no"/>
+    <funcion nombre="IR_OUT" modo="5" simulada="si"/>
+    <funcion nombre="USART3_CTS" modo="7" simulada="si"/>
+    <funcion nombre="TIM4_CH3" modo="10" simulada="si"/>
+  </patilla>
+  <patilla n="35" nombre="VSS" clase="alimentacion" nodo="VSS"/>
+  <patilla n="36" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+  <patilla n="37" nombre="PA14" clase="es" nodo="PA14">
+    <funcion nombre="SYS_JTCK-SWCLK" modo="0" simulada="si"/>
+    <funcion nombre="TSC_G4_IO4" modo="3" simulada="no"/>
+    <funcion nombre="I2C1_SDA" modo="4" simulada="si"/>
+    <funcion nombre="TIM8_CH2" modo="5" simulada="si"/>
+    <funcion nombre="TIM1_BKIN" modo="6" simulada="si"/>
+    <funcion nombre="USART2_TX" modo="7" simulada="si"/>
+  </patilla>
+  <patilla n="38" nombre="PA15" clase="es" nodo="PA15">
+    <funcion nombre="SYS_JTDI" modo="0" simulada="si"/>
+    <funcion nombre="TIM2_CH1" modo="1" simulada="no"/>
+    <funcion nombre="TIM2_ETR" modo="1" simulada="si"/>
+    <funcion nombre="TIM8_CH1" modo="2" simulada="si"/>
+    <funcion nombre="I2C1_SCL" modo="4" simulada="si"/>
+    <funcion nombre="SPI1_NSS" modo="5" simulada="si"/>
+    <funcion nombre="I2S3_WS" modo="6" simulada="no"/>
+    <funcion nombre="SPI3_NSS" modo="6" simulada="si"/>
+    <funcion nombre="USART2_RX" modo="7" simulada="si"/>
+    <funcion nombre="TIM1_BKIN" modo="9" simulada="si"/>
+    <funcion nombre="ADC1_EXTI15" simulada="no" por="periferico"/>
+    <funcion nombre="ADC2_EXTI15" simulada="no" por="periferico"/>
+  </patilla>
+  <patilla n="39" nombre="PB3" clase="es" nodo="PB3">
+    <funcion nombre="SYS_JTDO-TRACESWO" modo="0" simulada="si"/>
+    <funcion nombre="TIM2_CH2" modo="1" simulada="si"/>
+    <funcion nombre="TIM4_ETR" modo="2" simulada="si"/>
+    <funcion nombre="TSC_G5_IO1" modo="3" simulada="no"/>
+    <funcion nombre="TIM8_CH1N" modo="4" simulada="si"/>
+    <funcion nombre="SPI1_SCK" modo="5" simulada="si"/>
+    <funcion nombre="I2S3_CK" modo="6" simulada="no"/>
+    <funcion nombre="SPI3_SCK" modo="6" simulada="si"/>
+    <funcion nombre="USART2_TX" modo="7" simulada="si"/>
+    <funcion nombre="TIM3_ETR" modo="10" simulada="si"/>
+  </patilla>
+  <patilla n="40" nombre="PB4" clase="es" nodo="PB4">
+    <funcion nombre="SYS_NJTRST" modo="0" simulada="si"/>
+    <funcion nombre="TIM16_CH1" modo="1" simulada="si"/>
+    <funcion nombre="TIM3_CH1" modo="2" simulada="si"/>
+    <funcion nombre="TSC_G5_IO2" modo="3" simulada="no"/>
+    <funcion nombre="TIM8_CH2N" modo="4" simulada="si"/>
+    <funcion nombre="SPI1_MISO" modo="5" simulada="si"/>
+    <funcion nombre="I2S3_ext_SD" modo="6" simulada="no"/>
+    <funcion nombre="SPI3_MISO" modo="6" simulada="si"/>
+    <funcion nombre="USART2_RX" modo="7" simulada="si"/>
+    <funcion nombre="TIM17_BKIN" modo="10" simulada="si"/>
+  </patilla>
+  <patilla n="41" nombre="PB5" clase="es" nodo="PB5">
+    <funcion nombre="TIM16_BKIN" modo="1" simulada="si"/>
+    <funcion nombre="TIM3_CH2" modo="2" simulada="si"/>
+    <funcion nombre="TIM8_CH3N" modo="3" simulada="si"/>
+    <funcion nombre="I2C1_SMBA" modo="4" simulada="no"/>
+    <funcion nombre="SPI1_MOSI" modo="5" simulada="si"/>
+    <funcion nombre="I2S3_SD" modo="6" simulada="no"/>
+    <funcion nombre="SPI3_MOSI" modo="6" simulada="si"/>
+    <funcion nombre="USART2_CK" modo="7" simulada="si"/>
+    <funcion nombre="TIM17_CH1" modo="10" simulada="si"/>
+  </patilla>
+  <patilla n="42" nombre="PB6" clase="es" nodo="PB6">
+    <funcion nombre="TIM16_CH1N" modo="1" simulada="si"/>
+    <funcion nombre="TIM4_CH1" modo="2" simulada="si"/>
+    <funcion nombre="TSC_G5_IO3" modo="3" simulada="no"/>
+    <funcion nombre="I2C1_SCL" modo="4" simulada="si"/>
+    <funcion nombre="TIM8_CH1" modo="5" simulada="si"/>
+    <funcion nombre="TIM8_ETR" modo="6" simulada="si"/>
+    <funcion nombre="USART1_TX" modo="7" simulada="si"/>
+    <funcion nombre="TIM8_BKIN2" modo="10" simulada="si"/>
+  </patilla>
+  <patilla n="43" nombre="PB7" clase="es" nodo="PB7">
+    <funcion nombre="TIM17_CH1N" modo="1" simulada="si"/>
+    <funcion nombre="TIM4_CH2" modo="2" simulada="si"/>
+    <funcion nombre="TSC_G5_IO4" modo="3" simulada="no"/>
+    <funcion nombre="I2C1_SDA" modo="4" simulada="si"/>
+    <funcion nombre="TIM8_BKIN" modo="5" simulada="si"/>
+    <funcion nombre="USART1_RX" modo="7" simulada="si"/>
+    <funcion nombre="TIM3_CH4" modo="10" simulada="si"/>
+  </patilla>
+  <patilla n="44" nombre="BOOT0" clase="arranque" nodo="BOOT0"/>
+  <patilla n="45" nombre="PB8" clase="es" nodo="PB8">
+    <funcion nombre="TIM16_CH1" modo="1" simulada="si"/>
+    <funcion nombre="TIM4_CH3" modo="2" simulada="si"/>
+    <funcion nombre="TSC_SYNC" modo="3" simulada="no"/>
+    <funcion nombre="I2C1_SCL" modo="4" simulada="si"/>
+    <funcion nombre="COMP1_OUT" modo="8" simulada="si"/>
+    <funcion nombre="CAN_RX" modo="9" simulada="si"/>
+    <funcion nombre="TIM8_CH2" modo="10" simulada="si"/>
+    <funcion nombre="TIM1_BKIN" modo="12" simulada="si"/>
+  </patilla>
+  <patilla n="46" nombre="PB9" clase="es" nodo="PB9">
+    <funcion nombre="TIM17_CH1" modo="1" simulada="si"/>
+    <funcion nombre="TIM4_CH4" modo="2" simulada="si"/>
+    <funcion nombre="I2C1_SDA" modo="4" simulada="si"/>
+    <funcion nombre="IR_OUT" modo="6" simulada="si"/>
+    <funcion nombre="COMP2_OUT" modo="8" simulada="si"/>
+    <funcion nombre="CAN_TX" modo="9" simulada="si"/>
+    <funcion nombre="TIM8_CH3" modo="10" simulada="si"/>
+    <funcion nombre="DAC_EXTI9" simulada="no" por="periferico"/>
+  </patilla>
+  <patilla n="47" nombre="VSS" clase="alimentacion" nodo="VSS"/>
+  <patilla n="48" nombre="VDD" clase="alimentacion" nodo="VDD"/>
+</mcu>

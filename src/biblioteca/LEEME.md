@@ -8,8 +8,27 @@ para que otro programa sepa qué piezas hay y cómo se conectan.
 | Carpeta | Qué hay | Fase | Cómo se hace |
 | :--- | :--- | :--- | :--- |
 | `piezas/` | `TIPO.pieza.xml`: la ficha de cada tipo de componente —la misma que imprime `mcu-sim --help TIPO`— con sus terminales, sus atributos y su omisión | B1 | **Generado**: `make biblioteca` |
-| `mcus/` | El patillaje de cada MCU y sus dos dibujos | B3, B4 | *(pendiente)*. Lo que el modelo **simula** en cada pin ya lo dice `mcu-sim --exporta-mcu TIPO` (B2), y es con lo que se contrastará |
+| `mcus/` | `TIPO.mcu.xml` (el patillaje y lo que hace cada patilla, contrastado con lo que simula el modelo), `TIPO.detalle.svg` y `TIPO.simple.svg` | B3 (los 44 STM32), B4 (TI y Espressif: pendiente) | **Generado**: `make biblioteca-mcus` |
 | `conectores/` | Los perfiles de conector (morpho, Arduino, BoosterPack) y sus conjuntos | B6 | *(pendiente)* |
+
+## `mcus/`
+
+**No se edita a mano.** `biblioteca/herramientas/genera_mcus.py` hace tres cosas:
+* toma lo que el modelo simula (`mcu-sim --exporta-mcu`, de
+  `make exporta-mcu-comprueba`);
+* busca la fuente de cada MCU: Open Pin Data para ST, en `fuentes/st/`;
+* las **contrasta** y escribe los tres ficheros.
+
+Si el modelo simula una función que la fuente no tiene en ese pad con ese
+número, el contraste falla y ese MCU no se publica. Así salieron cuatro
+fallos del modelo en B3; están en `doc/analisis_build.md`.
+
+En cada patilla, `simulada="si"` dice que el modelo la simula. `por="periferico"`
+dice que eso se decide por el periférico, porque no se elige con un número
+(una entrada del ADC, un oscilador).
+
+Los dos SVG están a escala, en unidades de 0,1 mm. Cada patilla es
+`id="$.N"`, con N su posición (`21`, o `A1` en una rejilla de bolas).
 
 ## `piezas/`
 

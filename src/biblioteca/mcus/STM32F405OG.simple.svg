@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" viewBox="0 0 56 52" width="5.60mm" height="5.20mm">
+<!-- STM32F405OG, WLCSP90: el dibujo simple de mcu-sim-build (doc/analisis_build.md, B3 y B4).
+     Lo genera biblioteca/herramientas/genera_mcus.py: no se edita a mano.
+     Unidades de 0.1 mm. Cada patilla es $.N, con N su posicion. -->
+<g id="$" transform="translate(6,6)" font-family="sans-serif">
+  <rect x="0" y="0" width="44" height="40" rx="0.8" fill="#2b2b2b" stroke="#111" stroke-width="0.5"/>
+  <circle cx="1.4" cy="1.4" r="1.2" fill="#555"/>
+  <circle cx="4" cy="4" r="1.2" fill="#c8c8c8"/>
+  <circle cx="8" cy="4" r="1.2" fill="#c8c8c8"/>
+  <circle cx="12" cy="4" r="1.2" fill="#c8c8c8"/>
+  <circle cx="16" cy="4" r="1.2" fill="#c8c8c8"/>
+  <circle cx="20" cy="4" r="1.2" fill="#c8c8c8"/>
+  <circle cx="24" cy="4" r="1.2" fill="#c8c8c8"/>
+  <circle cx="28" cy="4" r="1.2" fill="#c8c8c8"/>
+  <circle cx="32" cy="4" r="1.2" fill="#c8c8c8"/>
+  <circle cx="36" cy="4" r="1.2" fill="#c8c8c8"/>
+  <circle cx="40" cy="4" r="1.2" fill="#c8c8c8"/>
+  <circle cx="4" cy="8" r="1.2" fill="#c8c8c8"/>
+  <circle cx="8" cy="8" r="1.2" fill="#c8c8c8"/>
+  <circle cx="12" cy="8" r="1.2" fill="#c8c8c8"/>
+  <circle cx="16" cy="8" r="1.2" fill="#c8c8c8"/>
+  <circle cx="20" cy="8" r="1.2" fill="#c8c8c8"/>
+  <circle cx="24" cy="8" r="1.2" fill="#c8c8c8"/>
+  <circle cx="28" cy="8" r="1.2" fill="#c8c8c8"/>
+  <circle cx="32" cy="8" r="1.2" fill="#c8c8c8"/>
+  <circle cx="36" cy="8" r="1.2" fill="#c8c8c8"/>
+  <circle cx="40" cy="8" r="1.2" fill="#c8c8c8"/>
+  <circle cx="4" cy="12" r="1.2" fill="#c8c8c8"/>
+  <circle cx="8" cy="12" r="1.2" fill="#c8c8c8"/>
+  <circle cx="12" cy="12" r="1.2" fill="#c8c8c8"/>
+  <circle cx="16" cy="12" r="1.2" fill="#c8c8c8"/>
+  <circle cx="20" cy="12" r="1.2" fill="#c8c8c8"/>
+  <circle cx="24" cy="12" r="1.2" fill="#c8c8c8"/>
+  <circle cx="28" cy="12" r="1.2" fill="#c8c8c8"/>
+  <circle cx="32" cy="12" r="1.2" fill="#c8c8c8"/>
+  <circle cx="36" cy="12" r="1.2" fill="#c8c8c8"/>
+  <circle cx="40" cy="12" r="1.2" fill="#c8c8c8"/>
+  <circle cx="4" cy="16" r="1.2" fill="#c8c8c8"/>
+  <circle cx="8" cy="16" r="1.2" fill="#c8c8c8"/>
+  <circle cx="12" cy="16" r="1.2" fill="#c8c8c8"/>
+  <circle cx="16" cy="16" r="1.2" fill="#c8c8c8"/>
+  <circle cx="20" cy="16" r="1.2" fill="#c8c8c8"/>
+  <circle cx="24" cy="16" r="1.2" fill="#c8c8c8"/>
+  <circle cx="28" cy="16" r="1.2" fill="#c8c8c8"/>
+  <circle cx="32" cy="16" r="1.2" fill="#c8c8c8"/>
+  <circle cx="36" cy="16" r="1.2" fill="#c8c8c8"/>
+  <circle cx="40" cy="16" r="1.2" fill="#c8c8c8"/>
+  <circle cx="4" cy="20" r="1.2" fill="#c8c8c8"/>
+  <circle cx="8" cy="20" r="1.2" fill="#c8c8c8"/>
+  <circle cx="12" cy="20" r="1.2" fill="#c8c8c8"/>
+  <circle cx="16" cy="20" r="1.2" fill="#c8c8c8"/>
+  <circle cx="20" cy="20" r="1.2" fill="#c8c8c8"/>
+  <circle cx="24" cy="20" r="1.2" fill="#c8c8c8"/>
+  <circle cx="28" cy="20" r="1.2" fill="#c8c8c8"/>
+  <circle cx="32" cy="20" r="1.2" fill="#c8c8c8"/>
+  <circle cx="36" cy="20" r="1.2" fill="#c8c8c8"/>
+  <circle cx="40" cy="20" r="1.2" fill="#c8c8c8"/>
+  <circle cx="4" cy="24" r="1.2" fill="#c8c8c8"/>
+  <circle cx="8" cy="24" r="1.2" fill="#c8c8c8"/>
+  <circle cx="12" cy="24" r="1.2" fill="#c8c8c8"/>
+  <circle cx="16" cy="24" r="1.2" fill="#c8c8c8"/>
+  <circle cx="20" cy="24" r="1.2" fill="#c8c8c8"/>
+  <circle cx="24" cy="24" r="1.2" fill="#c8c8c8"/>
+  <circle cx="28" cy="24" r="1.2" fill="#c8c8c8"/>
+  <circle cx="32" cy="24" r="1.2" fill="#c8c8c8"/>
+  <circle cx="36" cy="24" r="1.2" fill="#c8c8c8"/>
+  <circle cx="40" cy="24" r="1.2" fill="#c8c8c8"/>
+  <circle cx="4" cy="28" r="1.2" fill="#c8c8c8"/>
+  <circle cx="8" cy="28" r="1.2" fill="#c8c8c8"/>
+  <circle cx="12" cy="28" r="1.2" fill="#c8c8c8"/>
+  <circle cx="16" cy="28" r="1.2" fill="#c8c8c8"/>
+  <circle cx="20" cy="28" r="1.2" fill="#c8c8c8"/>
+  <circle cx="24" cy="28" r="1.2" fill="#c8c8c8"/>
+  <circle cx="28" cy="28" r="1.2" fill="#c8c8c8"/>
+  <circle cx="32" cy="28" r="1.2" fill="#c8c8c8"/>
+  <circle cx="36" cy="28" r="1.2" fill="#c8c8c8"/>
+  <circle cx="40" cy="28" r="1.2" fill="#c8c8c8"/>
+  <circle cx="4" cy="32" r="1.2" fill="#c8c8c8"/>
+  <circle cx="8" cy="32" r="1.2" fill="#c8c8c8"/>
+  <circle cx="12" cy="32" r="1.2" fill="#c8c8c8"/>
+  <circle cx="16" cy="32" r="1.2" fill="#c8c8c8"/>
+  <circle cx="20" cy="32" r="1.2" fill="#c8c8c8"/>
+  <circle cx="24" cy="32" r="1.2" fill="#c8c8c8"/>
+  <circle cx="28" cy="32" r="1.2" fill="#c8c8c8"/>
+  <circle cx="32" cy="32" r="1.2" fill="#c8c8c8"/>
+  <circle cx="36" cy="32" r="1.2" fill="#c8c8c8"/>
+  <circle cx="40" cy="32" r="1.2" fill="#c8c8c8"/>
+  <circle cx="4" cy="36" r="1.2" fill="#c8c8c8"/>
+  <circle cx="8" cy="36" r="1.2" fill="#c8c8c8"/>
+  <circle cx="12" cy="36" r="1.2" fill="#c8c8c8"/>
+  <circle cx="16" cy="36" r="1.2" fill="#c8c8c8"/>
+  <circle cx="20" cy="36" r="1.2" fill="#c8c8c8"/>
+  <circle cx="24" cy="36" r="1.2" fill="#c8c8c8"/>
+  <circle cx="28" cy="36" r="1.2" fill="#c8c8c8"/>
+  <circle cx="32" cy="36" r="1.2" fill="#c8c8c8"/>
+  <circle cx="36" cy="36" r="1.2" fill="#c8c8c8"/>
+  <circle cx="40" cy="36" r="1.2" fill="#c8c8c8"/>
+  <text x="22" y="22.1" font-size="6" text-anchor="middle" fill="#ddd">STM32F405OG</text>
+</g>
+</svg>

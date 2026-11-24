@@ -765,31 +765,36 @@ inline void SocF4::bind_gpio_pins() {
         return af(nullptr, nullptr, i, false);
     };
     // Cada linea de datos sale en varios pines; el firmware elige uno. Todos
-    // se registran, porque todos son validos.
-    pinmux.connect_af(0,  9, 13, af_in(&dcmi.d_in[0]));    // PA9
-    pinmux.connect_af(2,  6, 13, af_in(&dcmi.d_in[0]));    // PC6
-    pinmux.connect_af(0, 10, 13, af_in(&dcmi.d_in[1]));    // PA10
-    pinmux.connect_af(2,  7, 13, af_in(&dcmi.d_in[1]));    // PC7
-    pinmux.connect_af(2,  8, 13, af_in(&dcmi.d_in[2]));    // PC8
-    pinmux.connect_af(4,  0, 13, af_in(&dcmi.d_in[2]));    // PE0
-    pinmux.connect_af(2,  9, 13, af_in(&dcmi.d_in[3]));    // PC9
-    pinmux.connect_af(4,  1, 13, af_in(&dcmi.d_in[3]));    // PE1
-    pinmux.connect_af(2, 11, 13, af_in(&dcmi.d_in[4]));    // PC11
-    pinmux.connect_af(4,  4, 13, af_in(&dcmi.d_in[4]));    // PE4
-    pinmux.connect_af(1,  6, 13, af_in(&dcmi.d_in[5]));    // PB6
-    pinmux.connect_af(1,  8, 13, af_in(&dcmi.d_in[6]));    // PB8
-    pinmux.connect_af(4,  5, 13, af_in(&dcmi.d_in[6]));    // PE5
-    pinmux.connect_af(1,  9, 13, af_in(&dcmi.d_in[7]));    // PB9
-    pinmux.connect_af(4,  6, 13, af_in(&dcmi.d_in[7]));    // PE6
-    pinmux.connect_af(2, 10, 13, af_in(&dcmi.d_in[8]));    // PC10
-    pinmux.connect_af(2, 12, 13, af_in(&dcmi.d_in[9]));    // PC12
-    pinmux.connect_af(1,  5, 13, af_in(&dcmi.d_in[10]));   // PB5
-    pinmux.connect_af(3,  2, 13, af_in(&dcmi.d_in[11]));   // PD2
-    // D12 y D13: sin pin en este encapsulado. Sus señales existen en el
-    // periférico y nadie las conduce nunca.
-    pinmux.connect_af(0,  4, 13, af_in(&dcmi.hsync_in));   // PA4
-    pinmux.connect_af(1,  7, 13, af_in(&dcmi.vsync_in));   // PB7
-    pinmux.connect_af(0,  6, 13, af_in(&dcmi.pixclk_in));  // PA6
+    // se registran, porque todos son validos. Solo si el chip tiene DCMI: el
+    // F405 y el F415 no la tienen [DS8626], su ventana esta tapada (arriba) y
+    // su funcion en el pin no existe. Lo vio el contraste con Open Pin Data
+    // (B3 de doc/analisis_build.md)
+    if (mcu.perif.dcmi) {
+        pinmux.connect_af(0,  9, 13, af_in(&dcmi.d_in[0]));    // PA9
+        pinmux.connect_af(2,  6, 13, af_in(&dcmi.d_in[0]));    // PC6
+        pinmux.connect_af(0, 10, 13, af_in(&dcmi.d_in[1]));    // PA10
+        pinmux.connect_af(2,  7, 13, af_in(&dcmi.d_in[1]));    // PC7
+        pinmux.connect_af(2,  8, 13, af_in(&dcmi.d_in[2]));    // PC8
+        pinmux.connect_af(4,  0, 13, af_in(&dcmi.d_in[2]));    // PE0
+        pinmux.connect_af(2,  9, 13, af_in(&dcmi.d_in[3]));    // PC9
+        pinmux.connect_af(4,  1, 13, af_in(&dcmi.d_in[3]));    // PE1
+        pinmux.connect_af(2, 11, 13, af_in(&dcmi.d_in[4]));    // PC11
+        pinmux.connect_af(4,  4, 13, af_in(&dcmi.d_in[4]));    // PE4
+        pinmux.connect_af(1,  6, 13, af_in(&dcmi.d_in[5]));    // PB6
+        pinmux.connect_af(1,  8, 13, af_in(&dcmi.d_in[6]));    // PB8
+        pinmux.connect_af(4,  5, 13, af_in(&dcmi.d_in[6]));    // PE5
+        pinmux.connect_af(1,  9, 13, af_in(&dcmi.d_in[7]));    // PB9
+        pinmux.connect_af(4,  6, 13, af_in(&dcmi.d_in[7]));    // PE6
+        pinmux.connect_af(2, 10, 13, af_in(&dcmi.d_in[8]));    // PC10
+        pinmux.connect_af(2, 12, 13, af_in(&dcmi.d_in[9]));    // PC12
+        pinmux.connect_af(1,  5, 13, af_in(&dcmi.d_in[10]));   // PB5
+        pinmux.connect_af(3,  2, 13, af_in(&dcmi.d_in[11]));   // PD2
+        // D12 y D13: sin pin en este encapsulado. Sus señales existen en el
+        // periférico y nadie las conduce nunca.
+        pinmux.connect_af(0,  4, 13, af_in(&dcmi.hsync_in));   // PA4
+        pinmux.connect_af(1,  7, 13, af_in(&dcmi.vsync_in));   // PB7
+        pinmux.connect_af(0,  6, 13, af_in(&dcmi.pixclk_in));  // PA6
+    }
 
     // -----------------------------------------------------------------------
     // El bus de memoria externa (AF12) [IR, §12.18, cap. 2]
