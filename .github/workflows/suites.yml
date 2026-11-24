@@ -169,7 +169,14 @@ jobs:
     name: Linux ${{ matrix.os }} (g++, libsystemc-dev)
     runs-on: ${{ matrix.os }}
     needs: rapidas
-    timeout-minutes: 45      # testf3, con los ejemplos de S3, son unos 9 min
+    # 90, no 45. Con los MSP430 y los ESP32 ya en main el trabajo no cabia: el
+    # 2026-11-23 (v0.6.0, ubuntu-26.04) las suites solas fueron 31 min -testf3
+    # 8, testc6 4, testf5 3, teste4 2-, la interoperabilidad, esptool y
+    # openocd-esp32 otros 12, y a los 45 la GUI se corto a medias SIN UN FALLO:
+    # GitHub lo cuenta como «The operation was canceled». Faltaban aun la GUI,
+    # OpenOCD y las sondas: unos 60 min en total, y los runners varian. Lo
+    # mismo que el de macOS.
+    timeout-minutes: 90
     strategy:
       fail-fast: false      # que una distribucion no tape a la otra
       matrix:
