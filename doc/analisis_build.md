@@ -238,6 +238,23 @@ más valor tiene para un alumno. `SPI4_SCK` existe en el F446 y el modelo la
 tiene, pero el F446RE no la saca. Un periférico que el chip tiene y el modelo
 todavía no simula debe verse en gris, no como si funcionara.
 
+**Lo que dio B3**: el contraste con Open Pin Data encontró **cuatro errores
+del modelo**, ya corregidos:
+* El **F302** registraba en sus pines las funciones del TIM8, el TIM7 y los
+  COMP/OPAMP que no tiene. Ahora `conecta_pines_s3` se salta las de
+  `mcu.sin`.
+* El **F405/F415** registraba la DCMI, que no tiene. Ahora solo se registra
+  con `mcu.perif.dcmi`.
+* El **F446** registraba el I2S2ext y el I2S3ext, que no tiene. Ahora solo
+  con `mcu.perif.i2sext`.
+* **Todos los F4 con I2Sext** ponían el I2S3ext_SD de PC11 en el AF7 en vez
+  del AF5. Como la tabla AF es un mapa, **pisaba el USART3_RX de PC11**: en
+  el modelo, el USART3 no recibía por ese pin.
+
+Ninguna de las cuatro mueve las suites (`test407`, `test417`, `test446` y
+`testf3`, al picosegundo). Lo que la familia tiene y un encapsulado no saca
+(el FSMC en un LQFP64) queda como aviso, no como error.
+
 **Lo que dio B2** (`--exporta-mcu`, `soc/inventario_pines.h`). Los 65 MCU
 se exportan, con tantos pads como dice su encapsulado. Lo que el modelo sabe
 decir de sus funciones no es igual en todas las familias, y eso cambia B3 y
@@ -249,8 +266,8 @@ B4:
 | STM32F3 | La misma, **con el nombre** (`USART2_TX`), porque su tabla ya sale de Open Pin Data | B3 cruza por AF y por nombre |
 | MSP432P4 | Las fijas del DIO por PxSEL y las **29 mapeables del PMAP** (`P2 P3 P7`), con su nombre corto (`simo`) y su señal | B4 cruza con SysConfig |
 | MSP432E4 | Las del GPIO por PCTL y las analógicas | B4 cruza con SysConfig |
-| ESP32-C3/C6 | Solo la función 0 directa del IO_MUX (U0TXD, U0RXD). **La matriz no**: sus señales no están en una tabla del modelo | B4 tiene que **dar al modelo la tabla de señales** de la matriz o contrastar por periférico |
-| MSP430 (los diez) | **Ninguna**: cada SoC decide la función de un pin en su código (PxSEL, PxSEL2) | B4 tiene que **dar a cada SoC su tabla de funciones**. Es lo que el modelo usaría para decidir, y de paso lo que `--exporta-mcu` vuelca. O se contrasta por periférico |
+| ESP32-C3/C6 | Solo la función 0 directa del IO_MUX (U0TXD, U0RXD). **La matriz no**: sus señales no están en una tabla del modelo | **Hecho en B4a**: `c3::SENALES` y `c6::SENALES`, con los nombres de ESP-IDF v5.3.1. El modelo habilita con ellas las salidas de la matriz |
+| MSP430 (los diez) | **Ninguna**: cada SoC decide la función de un pin en su código (PxSEL, PxSEL2) | **Hecho en B4a**. Los ocho FR2/FR4/FR5/FR6 ya decidían con una tabla (`ChipFr2::fn`), y solo faltaba volcarla. El G2553 (`g2553::FN`) y el F5529 (`f5529::FN` y `f5529::PMAP`) deciden ahora con la suya |
 
 Lo analógico de los STM32 (entradas del ADC, salidas del DAC) tampoco está en
 el inventario: va por `bind_analog`, fuera de la tabla AF. B3 lo marca como
@@ -429,8 +446,11 @@ piezas y pines de conector, y a `mcu-sim-build` le sirven para reabrirla.
   de los ESP32-C3/C6, con `puertos="GPIO0 … GPIO21"`.
 
 **Los dos SVG.** `detalle` es el encapsulado visto desde arriba, con cada
-patilla en su sitio, su número, su nombre y un id `$.PA5` (para las de
-alimentación repetidas, `$.VDD#19`, `$.VDD#32`). Se genera **entero** desde el
+patilla en su sitio, su número y su nombre. **Su id es su posición**: `$.21`,
+o `$.A1` en una rejilla de bolas. Es único aunque haya cuatro `VDD`, y no
+choca con las variantes (`@`) ni con los rótulos (`#`) del SVG de placa.
+El `.mcu.xml` dice qué nodo es cada posición. Este cambio respecto a la
+primera versión (`$.PA5`, `$.VDD#19`) se hizo en B3. Se genera **entero** desde el
 `.mcu.xml`: QFP y QFN cuadrados con la patilla 1 marcada, y TSSOP de dos
 lados. Los BGA (el UFBGA176 de los F407IG) se dibujan como rejilla con la
 bola como número (`A1`). `simple` es el cuadrado oscuro con la referencia,
@@ -855,8 +875,9 @@ orden sea claro.
 | **B0** | los dos | Este análisis y las ramas `build` | `doc/analisis_build.md` en las dos | — |
 | **B1** ✔ | mcu-sim | `--exporta-piezas DIR`: un `.pieza.xml` por tipo, desde la ficha, con el analizador de terminales agrupados | `src/biblioteca/piezas/*.pieza.xml` (sin `<forma>`) | Prueba nueva: los 76 tipos están, **toda** fila de terminales se analiza, y cada terminal y atributo de la ficha está. Lo versionado coincide con lo regenerado |
 | **B2** ✔ | mcu-sim | `--exporta-mcu TIPO`: patillas soldadas y funciones **simuladas** | La salida, en XML | Pruebas por familia: el recuento de pads coincide con `Encapsulado::n_gpio` (lo mismo que T128) |
-| **B3** | mcu-sim | Datos de ST: `herramientas/exporta_mcus_st.py` sobre Open Pin Data (commit fijado) + B2 | `mcus/STM32*.mcu.xml` y `*.detalle.svg`/`*.simple.svg` de los 46 | **Contraste**: toda función simulada existe en Open Pin Data con el mismo AF, y todo pad soldado tiene patilla |
-| **B4** | mcu-sim | Datos de TI y Espressif, con PMAP y matriz | Los `.mcu.xml` y SVG de MSP432, MSP430 y ESP32 | El mismo contraste que B3. Las mapeables del P401R coinciden con `PmapP4::PM_*` |
+| **B3** ✔ | mcu-sim | Datos de ST: `herramientas/exporta_mcus_st.py` sobre Open Pin Data (commit fijado) + B2 | `mcus/STM32*.mcu.xml` y `*.detalle.svg`/`*.simple.svg` de los 46 | **Contraste**: toda función simulada existe en Open Pin Data con el mismo AF, y todo pad soldado tiene patilla |
+| **B4a** ✔ | mcu-sim | La tabla de funciones de cada modelo MSP430 y la de la matriz de los ESP32, **usadas por el modelo** (decisión del autor, 24-11-2026) | Las tablas, y `--exporta-mcu` sin ninguna familia «sin inventario» | Las suites del G2553, el F5529, los C3/C6, `test430` y `testfr2`, al picosegundo |
+| **B4b** | mcu-sim | Datos de TI y Espressif, con PMAP y matriz | Los `.mcu.xml` y SVG de MSP432, MSP430 y ESP32 | El mismo contraste que B3. Las mapeables del P401R coinciden con `PmapP4::PM_*` |
 | **B5** | mcu-sim | SVG de las piezas no paramétricas y `<forma>` de todas | `piezas/*.svg` y `<forma>` en cada `.pieza.xml` | Prueba: cada `<ancla>` existe en su SVG, y el SVG cumple el perfil de autor (sin filtros ni máscaras, con viewBox y mm) |
 | **B6** | mcu-sim | Perfiles y conjuntos de conectores, con los `<cableado>` extraídos de las placas | `conectores/*` | Prueba: el `<cableado>` de cada conjunto coincide con el XML de su placa |
 | **B7** ✔ | mcu-sim | **`<build>` en placas y sistemas** (D2-B, §7): se admite, se comprueba y no sale en `T_PLACA` ni en el SVG. `doc/parts.md` §2 lo documenta | El parser, con su prueba (T134) y la de `mcu-sim-gui` | Una placa con `<build>` valida y simula igual que sin él. `T_PLACA` no lo lleva. Un `<build>` repetido, mal colocado o con `version` desconocida es un error. Una `<instancia>` que no está es un aviso. «Guardar en el XML» de la ventana lo deja intacto |
@@ -887,7 +908,7 @@ a `C:\ti`. **No falta nada que bloquee:**
 | :--- | :--- | :--- | :--- |
 | B3 (ST) | **STM32 Open Pin Data**, BSD-3-Clause: `mcu/*.xml` (patillas con `Position`, `Type` y `Signal`), `mcu/IP/GPIO-*_Modes.xml` (número de AF) y `boards/*.ioc` | GitHub, con un commit fijado | Fuente principal, por guion |
 | B3 (ST) | Descriptores de CubeMX | `doc/refs/cubemx/` | Contraste: deben coincidir con Open Pin Data en las F4 |
-| B4 (MSP432P401R) | **SysConfig 1.8**, `dist/deviceData/MSP432P401R/MSP432P401R.json`: 90 pines y sus `muxes`, con **todas las posiciones del PMAP** por pin (P2.0 tiene más de 30 modos), y los tres encapsulados (PZ100, RGC64 y ZXH80) con su numeración | `C:\ti\sysconfig_1_8_0` | **Fuente legible por máquina** para las E/S y sus funciones |
+| B4 (MSP432P401R) | **SysConfig 1.8**, `dist/deviceData/MSP432P401R/MSP432P401R.json`: los pines y sus `muxes`, con todas las funciones de cada pin, y los tres encapsulados (PZ100, RGC64 y ZXH80) con su numeración. **Pero su `mode` es un índice de SysConfig, no el PxSEL del chip**, y mezcla funciones de software (el chip select de SDSPI en todos los pines). Lo vio B4. Además, en el PZ100 no trae las patillas de alimentación | `C:\ti\sysconfig_1_8_0` | La lista de funciones de cada pin y su posición. El número que las elige sale de las tablas «Pin Functions» del datasheet |
 | B4 (MSP432P401R) | **SLAS826E**, el datasheet | `doc/refs/msp432/slas826e.pdf` | Las patillas que SysConfig no lista: en el PZ100 trae 78 de 100, y faltan las de alimentación, el reset y el cristal. También el contraste de las funciones fijas |
 | B4 (MSP432E401Y) | SysConfig 1.8, `MSP432E/MSP432E.json`: dos referencias y dos encapsulados | `C:\ti\sysconfig_1_8_0` | Igual que el P401R |
 | B4 (MSP432E401Y) | **SLASEN5**, el datasheet | `doc/refs/msp432/slasen5.pdf` | Igual que SLAS826 |

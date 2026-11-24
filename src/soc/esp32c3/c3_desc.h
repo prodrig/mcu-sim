@@ -73,6 +73,30 @@ constexpr unsigned SIG_TWAI = 74, SIG_LEDC0 = 45, SIG_RMT0 = 51, SIG_I2C_SCL = 5
 constexpr unsigned SIG_U0RXD = 6, SIG_U0TXD = 6, SIG_U1RXD = 9, SIG_U1TXD = 9,
                    SIG_CPU_GPIO0 = 28;
 constexpr unsigned N_GPIO = 22;
+// Las que el modelo conecta, con su nombre de ESP-IDF v5.3.1 [gpio_sig_map.h].
+// Las salidas se habilitan desde esta tabla (control_proc); las entradas son
+// las que leen los periféricos. Las de la I2S son las de I2sEsp (S_MCLK = 12,
+// S_O_BCK..S_I_WS = 13-17, S_SD1 = 59)
+inline constexpr SenalMatriz SENALES[] = {
+    {6, "U0TXD_OUT", true},          {6, "U0RXD_IN", false},
+    {9, "U1TXD_OUT", true},          {9, "U1RXD_IN", false},
+    {12, "I2S_MCLK_OUT", true},      {12, "I2S_MCLK_IN", false},
+    {13, "I2SO_BCK_OUT", true},      {13, "I2SO_BCK_IN", false},
+    {14, "I2SO_WS_OUT", true},       {14, "I2SO_WS_IN", false},
+    {15, "I2SO_SD_OUT", true},       {15, "I2SI_SD_IN", false},
+    {16, "I2SI_BCK_OUT", true},      {16, "I2SI_BCK_IN", false},
+    {17, "I2SI_WS_OUT", true},       {17, "I2SI_WS_IN", false},
+    {45, "LEDC_LS_SIG_OUT0", true},  {46, "LEDC_LS_SIG_OUT1", true},
+    {47, "LEDC_LS_SIG_OUT2", true},  {48, "LEDC_LS_SIG_OUT3", true},
+    {49, "LEDC_LS_SIG_OUT4", true},  {50, "LEDC_LS_SIG_OUT5", true},
+    {51, "RMT_SIG_OUT0", true},      {52, "RMT_SIG_OUT1", true},
+    {53, "I2CEXT0_SCL_OUT", true},   {53, "I2CEXT0_SCL_IN", false},
+    {54, "I2CEXT0_SDA_OUT", true},   {54, "I2CEXT0_SDA_IN", false},
+    {59, "I2SO_SD1_OUT", true},
+    {63, "FSPICLK_OUT", true},       {64, "FSPIQ_IN", false},
+    {65, "FSPID_OUT", true},         {68, "FSPICS0_OUT", true},
+    {74, "TWAI_TX", true},           {74, "TWAI_RX", false},
+};
 } // namespace c3
 
 // --- El núcleo -------------------------------------------------------------------

@@ -18,8 +18,11 @@
 #   * que el `modo` de cada función cabe en lo que elige el firmware de su
 #     familia: AF 0-15 en un STM32, PxSEL 1-3 en un MSP432P4, PCTL 1-15 en un
 #     MSP432E4, la función 0 del IO_MUX en un ESP32, y PxMAPy 1-31 en el PMAP;
-#   * que solo los MSP430 van sin inventario (y lo dicen), y que los demás
-#     tienen funciones: si una familia lo pierde, se ve aquí.
+#     y PxSEL1:PxSEL0 (o PxSEL + 2·PxSEL2) 1-3 en un MSP430; en una matriz,
+#     el índice de la señal, 0-127;
+#   * que ninguna familia va sin inventario (los MSP430 y la matriz de los
+#     ESP32 lo tienen desde B4), y que todas tienen funciones: si una lo
+#     pierde, se ve aquí.
 #
 # Termina con 0 si todo cuadra, y con una tabla de lo que hay.
 # =============================================================================
@@ -33,8 +36,9 @@ MODOS = [  # prefijo de familia, rango del modo de una funcion fija
     ("MSP432P4", 1, 3),
     ("MSP432E4", 1, 15),
     ("ESP32", 0, 0),
+    ("MSP430", 1, 3),
 ]
-SIN_INVENTARIO = ("MSP430",)   # familias que, hoy, lo dicen y no lo tienen
+SIN_INVENTARIO = ()   # familias que lo dicen y no lo tienen: desde B4, ninguna
 
 
 def tipos(sim):
@@ -97,8 +101,14 @@ def comprueba(tipo, texto, fallos):
                 if not m.isdigit() or not 1 <= int(m) <= 31:
                     mal("PxMAPy=%r fuera de 1-31" % m)
                     break
-        elif mp.getAttribute("inventario") == "no" and not mp.getAttribute("motivo"):
-            mal("una <mapeo> sin inventario y sin motivo")
+        elif mp.getAttribute("tipo") == "matriz":
+            if mp.getAttribute("inventario") == "no":
+                mal("la matriz sin inventario")
+            for f in fs:
+                m = f.getAttribute("modo")
+                if not m.isdigit() or not 0 <= int(m) <= 127:
+                    mal("indice de la matriz %r fuera de 0-127" % m)
+                    break
     alim = len(raiz.getElementsByTagName("alimentacion"))
     if not alim:
         mal("sin ninguna patilla de alimentacion")

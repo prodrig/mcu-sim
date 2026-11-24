@@ -62,6 +62,14 @@
 namespace stm32 {
 
 // La función 0 de un pin y su configuración tras el reset [TRM-C3 tabla 5.12-1]
+// Una señal de la matriz GPIO que el modelo conecta a un periférico: su índice
+// en GPIO_FUNCn_OUT_SEL / GPIO_FUNCy_IN_SEL, su nombre en ESP-IDF
+// (soc/gpio_sig_map.h, sin el _IDX) y si es la de salida o la de entrada del
+// índice. La tabla de cada chip (c3::SENALES, c6::SENALES) la USA el modelo
+// para habilitar las salidas de la matriz, y la vuelca `--exporta-mcu` (B4 de
+// doc/analisis_build.md): lo que no está en ella, el modelo no lo conecta
+struct SenalMatriz { uint16_t indice; const char* nombre; bool salida; };
+
 struct PinEsp {
     enum Tipo : uint8_t { Gpio, EntradaDirecta, SalidaDirecta, NoModelada };
     const char* fn0;        // "GPIO2", "U0TXD", "MTMS"...

@@ -857,17 +857,10 @@ private:
     void control_proc() {
         pon_relojes(20e6, 20e6);
         for (unsigned i = 0; i < 8; ++i) gpio.sig_oe[c3::SIG_CPU_GPIO0 + i].write(false);
-        gpio.sig_oe[c3::SIG_U0TXD].write(true);
-        gpio.sig_oe[c3::SIG_U1TXD].write(true);
-        for (unsigned c = 0; c < LedcEsp::N_CANALES; ++c) gpio.sig_oe[c3::SIG_LEDC0 + c].write(true);
-        for (unsigned c = 0; c < 2; ++c) gpio.sig_oe[c3::SIG_RMT0 + c].write(true);
-        gpio.sig_oe[c3::SIG_I2C_SCL].write(true);
-        gpio.sig_oe[c3::SIG_I2C_SDA].write(true);
-        gpio.sig_oe[c3::SIG_TWAI].write(true);
-        for (unsigned g : {c3::SIG_FSPICLK, c3::SIG_FSPID, c3::SIG_FSPICS0}) gpio.sig_oe[g].write(true);
-        for (unsigned g = I2sEsp::S_O_BCK; g <= I2sEsp::S_I_WS; ++g) gpio.sig_oe[g].write(true);   // I2S (E8)
-        gpio.sig_oe[I2sEsp::S_MCLK].write(true);
-        gpio.sig_oe[i2s.S_SD1].write(true);
+        // Las salidas de la matriz que el modelo conecta: las de su tabla
+        // (c3::SENALES, la que vuelca --exporta-mcu)
+        for (const SenalMatriz& s : c3::SENALES)
+            if (s.salida) gpio.sig_oe[s.indice].write(true);
         for (;;) {
             // Apagado o CHIP_PU bajo: todo quieto
             encendido_ = false;

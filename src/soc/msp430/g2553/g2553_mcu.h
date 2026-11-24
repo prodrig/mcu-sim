@@ -122,12 +122,20 @@ public:
     std::string describe_opcion(const std::string& clave) const override {
         return clave == "bsl" ? chip_->bsl_origen : std::string();
     }
-    // B2: sin inventario. El SoC decide la funcion de un pin con su codigo
-    // (PxSEL, PxSEL2...), sin una tabla que recorrer
+    // B4: las funciones de los pines, de la tabla del chip (g2553::FN), que es
+    // la que usa el modelo; `modo` es PxSEL + 2·PxSEL2 (1 o 3). Lo analógico
+    // (ADC10AE0, CAPD), sin modo
     InventarioPines inventario_pines() override {
         InventarioPines inv;
-        inv.motivo = "el modelo del MSP430 decide la funcion de cada pin en el codigo de su "
-                     "SoC, sin una tabla que recorrer";
+        inv.hay = true;
+        for (const g2553::Fn& f : g2553::FN) {
+            FuncionDePin x;
+            x.puerto = f.pin / 8; x.pin = f.pin % 8;
+            x.analogica = f.tipo == g2553::ANALOGICA;
+            x.modo = x.analogica ? -1 : int(f.sel | (f.sel2 << 1));
+            x.nombre = f.nombre;
+            inv.fijas.push_back(x);
+        }
         return inv;
     }
     std::vector<std::string> limitaciones() const override {

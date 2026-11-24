@@ -77,6 +77,56 @@ namespace stm32 {
 
 inline constexpr M430Caps M430_G2553 {"msp430g2553", M430Arq::CPU, m430::msp430g2553::DESC.errata, false};
 
+// --- La tabla de funciones de los pines --------------------------------------------
+// [DS SLAS735J, tablas «Port P1/P2 Pin Functions»]. La USA el modelo -lo que
+// conduce cada pin sale de ella (funcion), y a qué entrada de qué módulo va lo
+// que llega a un pin, también (entradas_proc)- y la vuelca `--exporta-mcu`
+// (B4 de doc/analisis_build.md). Lo que no está aquí, el modelo no lo simula:
+// ACLK en P1.0, ADC10CLK en P1.3, TA0CLK, los del P3 del encapsulado de 28.
+//   pin   puerto × 8 + bit (P1.0 = 0, P2.0 = 8)
+//   sel, sel2   los bits de PxSEL y PxSEL2 que la eligen
+//   dir   0 solo con PxDIR = 0 (una entrada), 1 solo con 1 (una salida), 2 con
+//         los dos
+//   tipo  1 la salida del CCR `n` del Timer `mod` (0 TA0, 1 TA1); 2 su entrada
+//         de captura A, 3 la B; 4 la línea `n` de la USCI_B0 (0 SIMO/SDA,
+//         1 SOMI/SCL, 2 CLK, 3 STE); 5 UCA0RXD; 6 UCA0TXD; 7 SMCLK (no se
+//         saca); 8 CAOUT; 9 analógica (la elige ADC10AE0 o CAPD, no PxSEL:
+//         sel = sel2 = 0)
+namespace g2553 {
+struct Fn { uint8_t pin, sel, sel2, dir, tipo, mod, n; const char* nombre; };
+enum : uint8_t { CCR_SAL = 1, CCI_A = 2, CCI_B = 3, LINEA_B0 = 4, UCA0_RX = 5, UCA0_TX = 6,
+                 SMCLK_SAL = 7, CAOUT = 8, ANALOGICA = 9 };
+inline constexpr Fn FN[] = {
+    // P1, SEL = 1: el Timer0_A3, SMCLK y CAOUT
+    {1, 1, 0, 1, CCR_SAL, 0, 0, "TA0.0"}, {1, 1, 0, 0, CCI_A, 0, 0, "TA0.CCI0A"},
+    {2, 1, 0, 1, CCR_SAL, 0, 1, "TA0.1"}, {2, 1, 0, 0, CCI_A, 0, 1, "TA0.CCI1A"},
+    {4, 1, 0, 1, SMCLK_SAL, 0, 0, "SMCLK"},
+    {5, 1, 0, 1, CCR_SAL, 0, 0, "TA0.0"},
+    {6, 1, 0, 1, CCR_SAL, 0, 1, "TA0.1"},
+    {7, 1, 0, 1, CAOUT, 0, 0, "CAOUT"},
+    // P1, SEL = SEL2 = 1: la USCI_A0 (UART) y la USCI_B0
+    {1, 1, 1, 2, UCA0_RX, 0, 0, "UCA0RXD"}, {2, 1, 1, 2, UCA0_TX, 0, 0, "UCA0TXD"},
+    {4, 1, 1, 2, LINEA_B0, 0, 3, "UCB0STE"}, {5, 1, 1, 2, LINEA_B0, 0, 2, "UCB0CLK"},
+    {6, 1, 1, 2, LINEA_B0, 0, 1, "UCB0SOMI/UCB0SCL"}, {7, 1, 1, 2, LINEA_B0, 0, 0, "UCB0SIMO/UCB0SDA"},
+    // P2, SEL = 1: el Timer1_A3, sus salidas y sus capturas A y B
+    {8, 1, 0, 1, CCR_SAL, 1, 0, "TA1.0"},  {8, 1, 0, 0, CCI_A, 1, 0, "TA1.CCI0A"},
+    {9, 1, 0, 1, CCR_SAL, 1, 1, "TA1.1"},  {9, 1, 0, 0, CCI_A, 1, 1, "TA1.CCI1A"},
+    {10, 1, 0, 1, CCR_SAL, 1, 1, "TA1.1"}, {10, 1, 0, 0, CCI_B, 1, 1, "TA1.CCI1B"},
+    {11, 1, 0, 1, CCR_SAL, 1, 0, "TA1.0"}, {11, 1, 0, 0, CCI_B, 1, 0, "TA1.CCI0B"},
+    {12, 1, 0, 1, CCR_SAL, 1, 2, "TA1.2"}, {12, 1, 0, 0, CCI_A, 1, 2, "TA1.CCI2A"},
+    {13, 1, 0, 1, CCR_SAL, 1, 2, "TA1.2"}, {13, 1, 0, 0, CCI_B, 1, 2, "TA1.CCI2B"},
+    // Lo analógico de P1: el ADC10 (A0-A7) y el Comp_A+ (CA0-CA7)
+    {0, 0, 0, 2, ANALOGICA, 0, 0, "A0"}, {1, 0, 0, 2, ANALOGICA, 0, 1, "A1"},
+    {2, 0, 0, 2, ANALOGICA, 0, 2, "A2"}, {3, 0, 0, 2, ANALOGICA, 0, 3, "A3"},
+    {4, 0, 0, 2, ANALOGICA, 0, 4, "A4"}, {5, 0, 0, 2, ANALOGICA, 0, 5, "A5"},
+    {6, 0, 0, 2, ANALOGICA, 0, 6, "A6"}, {7, 0, 0, 2, ANALOGICA, 0, 7, "A7"},
+    {0, 0, 0, 2, ANALOGICA, 1, 0, "CA0"}, {1, 0, 0, 2, ANALOGICA, 1, 1, "CA1"},
+    {2, 0, 0, 2, ANALOGICA, 1, 2, "CA2"}, {3, 0, 0, 2, ANALOGICA, 1, 3, "CA3"},
+    {4, 0, 0, 2, ANALOGICA, 1, 4, "CA4"}, {5, 0, 0, 2, ANALOGICA, 1, 5, "CA5"},
+    {6, 0, 0, 2, ANALOGICA, 1, 6, "CA6"}, {7, 0, 0, 2, ANALOGICA, 1, 7, "CA7"},
+};
+} // namespace g2553
+
 SC_MODULE(SocG2553), public m430_irq_if {
     static constexpr const m430::Desc430& DESC = m430::msp430g2553::DESC;
 
@@ -490,41 +540,34 @@ private:
     // P1.4-P1.7). CAPD desconecta el buffer de entrada (el pin es analógico).
     // Devuelve: 0 GPIO; 1 salida de función (nivel en `v`); 2 función que no
     // conduce (entrada o drenador abierto suelto); 3 conduce a 0 (I2C).
+    // La función se busca en la tabla (g2553::FN): la entrada con los SEL, SEL2
+    // y DIR del pin. Si no hay ninguna, el pin no conduce (XIN/XOUT, lo que el
+    // modelo no simula, una entrada de captura)
     int funcion(unsigned i, bool& v) const {
         const Puerto& x = pt_[i / 8];
         const unsigned b = i % 8;
-        const bool sel = (x.sel >> b) & 1u, sel2 = (x.sel2 >> b) & 1u, dir = (x.dir >> b) & 1u;
+        const unsigned sel = (x.sel >> b) & 1u, sel2 = (x.sel2 >> b) & 1u, dir = (x.dir >> b) & 1u;
         if (!sel && !sel2) return 0;
-        if (i < 8 && sel && sel2) {                                   // la USCI
-            switch (b) {
-            case 1: return 2;                                         // UCA0RXD
-            case 2: v = tx_nivel_; return 1;                          // UCA0TXD
-            case 4: if (ucb0.ste_oe.read()) { v = ucb0.ste_out.read(); return 1; } return 2;
-            case 5: if (ucb0.clk_oe.read()) { v = ucb0.clk_out.read(); return 1; } return 2;
-            case 6: case 7: {
-                const bool simo = b == 7;
-                const bool oe = simo ? ucb0.simo_oe.read() : ucb0.somi_oe.read();
-                const bool o = simo ? ucb0.simo_out.read() : ucb0.somi_out.read();
-                if (ucb0.en_i2c()) return oe ? 3 : 2;                 // drenador abierto
+        for (const g2553::Fn& f : g2553::FN) {
+            if (f.pin != i || f.sel != sel || f.sel2 != sel2 || (f.dir != 2 && f.dir != dir)) continue;
+            switch (f.tipo) {
+            case g2553::CCR_SAL: v = (f.mod ? ta1 : ta0).out[f.n].read(); return 1;
+            case g2553::UCA0_TX: v = tx_nivel_; return 1;
+            case g2553::CAOUT: v = ca_out_; return 1;
+            case g2553::SMCLK_SAL: v = false; return 2;                // SMCLK: no se saca
+            case g2553::LINEA_B0: {
+                bool oe = false, o = false;
+                switch (f.n) {
+                case 0: oe = ucb0.simo_oe.read(); o = ucb0.simo_out.read(); break;
+                case 1: oe = ucb0.somi_oe.read(); o = ucb0.somi_out.read(); break;
+                case 2: oe = ucb0.clk_oe.read(); o = ucb0.clk_out.read(); break;
+                default: oe = ucb0.ste_oe.read(); o = ucb0.ste_out.read(); break;
+                }
+                if (f.n <= 1 && ucb0.en_i2c()) return oe ? 3 : 2;      // drenador abierto
                 if (oe) { v = o; return 1; }
                 return 2;
             }
-            default: return 2;
-            }
-        }
-        if (sel && !sel2 && dir) {
-            if (i < 8) switch (b) {
-                case 1: case 5: v = ta0.out[0].read(); return 1;     // TA0.0
-                case 2: case 6: v = ta0.out[1].read(); return 1;     // TA0.1
-                case 4: v = false; return 2;                          // SMCLK (no se saca)
-                case 7: v = ca_out_; return 1;                        // CAOUT
-                default: return 2;
-            }
-            if (i < 16) switch (b) {
-                case 0: case 3: v = ta1.out[0].read(); return 1;     // TA1.0
-                case 1: case 2: v = ta1.out[1].read(); return 1;     // TA1.1
-                case 4: case 5: v = ta1.out[2].read(); return 1;     // TA1.2
-                default: return 2;                                    // XIN/XOUT
+            default: return 2;                                         // una entrada
             }
         }
         return 2;
@@ -571,15 +614,25 @@ private:
             x.in = n;
         }
         // A los módulos: las entradas de captura, la USCI_B0 y el comparador
-        const uint8_t p1 = pt_[0].in, p2 = pt_[1].in;
-        auto b = [](uint8_t v, unsigned k) { return ((v >> k) & 1u) != 0; };
-        ta0.cci_a[0].write(b(p1, 1)); ta0.cci_a[1].write(b(p1, 2));
-        ta0.cci_b[1].write(ca_out_);                                   // CCI1B: CAOUT
-        ta1.cci_a[0].write(b(p2, 0)); ta1.cci_b[0].write(b(p2, 3));
-        ta1.cci_a[1].write(b(p2, 1)); ta1.cci_b[1].write(b(p2, 2));
-        ta1.cci_a[2].write(b(p2, 4)); ta1.cci_b[2].write(b(p2, 5));
-        ucb0.ste_in.write(b(p1, 4)); ucb0.clk_in.write(b(p1, 5));
-        ucb0.somi_in.write(b(p1, 6)); ucb0.simo_in.write(b(p1, 7));
+        // Cada entrada de captura y cada línea de la USCI_B0, del pin que dice
+        // la tabla (g2553::FN), con el SEL que sea: el módulo decide si la mira
+        auto en = [this](unsigned i) { return ((pt_[i / 8].in >> (i % 8)) & 1u) != 0; };
+        for (const g2553::Fn& f : g2553::FN) {
+            switch (f.tipo) {
+            case g2553::CCI_A: (f.mod ? ta1 : ta0).cci_a[f.n].write(en(f.pin)); break;
+            case g2553::CCI_B: (f.mod ? ta1 : ta0).cci_b[f.n].write(en(f.pin)); break;
+            case g2553::LINEA_B0:
+                switch (f.n) {
+                case 0: ucb0.simo_in.write(en(f.pin)); break;
+                case 1: ucb0.somi_in.write(en(f.pin)); break;
+                case 2: ucb0.clk_in.write(en(f.pin)); break;
+                default: ucb0.ste_in.write(en(f.pin)); break;
+                }
+                break;
+            default: break;
+            }
+        }
+        ta0.cci_b[1].write(ca_out_);                                   // CCI1B: CAOUT, por dentro
         comparador();
     }
 

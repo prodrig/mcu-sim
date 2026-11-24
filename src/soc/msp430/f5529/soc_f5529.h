@@ -75,6 +75,93 @@ namespace stm32 {
 
 inline constexpr M430Caps M430_F5529 {"msp430f5529", M430Arq::CPUXV2, m430::msp430f5529::DESC.errata, true};
 
+// --- La tabla de funciones de los pines --------------------------------------------
+// [DS SLAS590P, «Terminal Functions» y tabla 9, el PMAP del puerto 4]. La USA
+// el modelo -lo que hace un pin con PxSEL = 1 sale de ella (funcion_de)- y la
+// vuelca `--exporta-mcu` (B4 de doc/analisis_build.md). Una entrada por pin:
+//   tipo  1 el CCR `n` del Timer `tim` (salida con DIR, captura sin él); 2 la
+//         línea `l1` de la USCI `u1` y, si la hay, la `l2` de la `u2` (0
+//         SIMO/TXD/SDA, 1 SOMI/RXD/SCL, 2 CLK, 3 STE); 3 analógica o cristal
+//         (el pin no conduce); 4 un reloj de salida que el modelo no saca
+//         (el pin no conduce) y, con `clk`, el TxCLK que da como entrada; 5
+//         CBOUT (salida con DIR) y el TxCLK `clk`
+//   nombre  lo que el modelo simula de esa entrada; nullptr si nada (el pin
+//         no conduce, sin más): esas no las vuelca --exporta-mcu
+// Lo que el datasheet da y no está, o está con nullptr, el modelo no lo
+// simula: ACLK, SMCLK, MCLK, SVMOUT, ADC12CLK, DMAE0, CBOUT1, RTCCLK...
+namespace f5529 {
+enum : uint8_t { TA0 = 0, TA1 = 1, TA2 = 2, TB0 = 3, UA0 = 0, UA1 = 1, UB0 = 2, UB1 = 3, NADA = 0xFF };
+struct FnPin { uint8_t tipo, tim, n, u1, l1, u2, l2, clk; const char* nombre; };
+struct FnFija { uint8_t pin; FnPin fn; };            // pin: puerto × 8 + bit (P1.0 = 0)
+struct FnMapeable { uint8_t valor; FnPin fn; };      // valor: el de P4MAPx
+inline constexpr FnFija FN[] = {
+    {0, {4, NADA, 0, NADA, 0, NADA, 0, TA0, "TA0CLK"}},
+    {1, {1, TA0, 0, NADA, 0, NADA, 0, NADA, "TA0.0"}},
+    {2, {1, TA0, 1, NADA, 0, NADA, 0, NADA, "TA0.1"}},
+    {3, {1, TA0, 2, NADA, 0, NADA, 0, NADA, "TA0.2"}},
+    {4, {1, TA0, 3, NADA, 0, NADA, 0, NADA, "TA0.3"}},
+    {5, {1, TA0, 4, NADA, 0, NADA, 0, NADA, "TA0.4"}},
+    {6, {5, NADA, 0, NADA, 0, NADA, 0, TA1, "CBOUT/TA1CLK"}},
+    {7, {1, TA1, 0, NADA, 0, NADA, 0, NADA, "TA1.0"}},
+    {8, {1, TA1, 1, NADA, 0, NADA, 0, NADA, "TA1.1"}},
+    {9, {1, TA1, 2, NADA, 0, NADA, 0, NADA, "TA1.2"}},
+    {10, {4, NADA, 0, NADA, 0, NADA, 0, TA2, "TA2CLK"}},
+    {11, {1, TA2, 0, NADA, 0, NADA, 0, NADA, "TA2.0"}},
+    {12, {1, TA2, 1, NADA, 0, NADA, 0, NADA, "TA2.1"}},
+    {13, {1, TA2, 2, NADA, 0, NADA, 0, NADA, "TA2.2"}},
+    {15, {2, NADA, 0, UB0, 3, UA0, 2, NADA, "UCB0STE/UCA0CLK"}},
+    {16, {2, NADA, 0, UB0, 0, NADA, 0, NADA, "UCB0SIMO/UCB0SDA"}},
+    {17, {2, NADA, 0, UB0, 1, NADA, 0, NADA, "UCB0SOMI/UCB0SCL"}},
+    {18, {2, NADA, 0, UB0, 2, UA0, 3, NADA, "UCB0CLK/UCA0STE"}},
+    {19, {2, NADA, 0, UA0, 0, NADA, 0, NADA, "UCA0TXD/UCA0SIMO"}},
+    {20, {2, NADA, 0, UA0, 1, NADA, 0, NADA, "UCA0RXD/UCA0SOMI"}},
+    {21, {1, TB0, 5, NADA, 0, NADA, 0, NADA, "TB0.5"}},
+    {22, {1, TB0, 6, NADA, 0, NADA, 0, NADA, "TB0.6"}},
+    {32, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A8/VeREF+"}},
+    {33, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A9/VeREF-"}},
+    {34, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "XT2IN"}},
+    {35, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "XT2OUT"}},
+    {36, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "XIN"}},
+    {37, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "XOUT"}},
+    {38, {1, TB0, 0, NADA, 0, NADA, 0, NADA, "TB0.0"}},
+    {39, {1, TB0, 1, NADA, 0, NADA, 0, NADA, "TB0.1"}},
+    {40, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A0/CB0"}},
+    {41, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A1/CB1"}},
+    {42, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A2/CB2"}},
+    {43, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A3/CB3"}},
+    {44, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A4/CB4"}},
+    {45, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A5/CB5"}},
+    {46, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A6/CB6"}},
+    {47, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A7/CB7"}},
+    {48, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A12/CB8"}},
+    {49, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A13/CB9"}},
+    {50, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A14/CB10"}},
+    {51, {3, NADA, 0, NADA, 0, NADA, 0, NADA, "A15/CB11"}},
+    {52, {1, TB0, 2, NADA, 0, NADA, 0, NADA, "TB0.2"}},
+    {53, {1, TB0, 3, NADA, 0, NADA, 0, NADA, "TB0.3"}},
+    {54, {1, TB0, 4, NADA, 0, NADA, 0, NADA, "TB0.4"}},
+    {55, {4, NADA, 0, NADA, 0, NADA, 0, NADA, nullptr}},
+};
+inline constexpr FnMapeable PMAP[] = {
+    {4, {1, TB0, 0, NADA, 0, NADA, 0, NADA, "PM_TB0CCR0A"}},
+    {5, {1, TB0, 1, NADA, 0, NADA, 0, NADA, "PM_TB0CCR1A"}},
+    {6, {1, TB0, 2, NADA, 0, NADA, 0, NADA, "PM_TB0CCR2A"}},
+    {7, {1, TB0, 3, NADA, 0, NADA, 0, NADA, "PM_TB0CCR3A"}},
+    {8, {1, TB0, 4, NADA, 0, NADA, 0, NADA, "PM_TB0CCR4A"}},
+    {9, {1, TB0, 5, NADA, 0, NADA, 0, NADA, "PM_TB0CCR5A"}},
+    {10, {1, TB0, 6, NADA, 0, NADA, 0, NADA, "PM_TB0CCR6A"}},
+    {11, {2, NADA, 0, UA1, 1, NADA, 0, NADA, "PM_UCA1RXD/PM_UCA1SOMI"}},
+    {12, {2, NADA, 0, UA1, 0, NADA, 0, NADA, "PM_UCA1TXD/PM_UCA1SIMO"}},
+    {13, {2, NADA, 0, UA1, 2, UB1, 3, NADA, "PM_UCA1CLK/PM_UCB1STE"}},
+    {14, {2, NADA, 0, UB1, 1, NADA, 0, NADA, "PM_UCB1SOMI/PM_UCB1SCL"}},
+    {15, {2, NADA, 0, UB1, 0, NADA, 0, NADA, "PM_UCB1SIMO/PM_UCB1SDA"}},
+    {16, {2, NADA, 0, UB1, 2, UA1, 3, NADA, "PM_UCB1CLK/PM_UCA1STE"}},
+    {3, {4, NADA, 0, NADA, 0, NADA, 0, NADA, nullptr}},
+    {18, {4, NADA, 0, NADA, 0, NADA, 0, NADA, nullptr}},
+    {31, {3, NADA, 0, NADA, 0, NADA, 0, NADA, nullptr}},
+};
+} // namespace f5529
+
 SC_MODULE(SocF5529), public m430_irq_if {
     static constexpr const m430::Desc430& DESC = m430::msp430f5529::DESC;
     static constexpr unsigned NPIN = 68;                 // P1-P8 (64) y PJ.0-PJ.3
@@ -941,61 +1028,33 @@ private:
             } else wait(1, sc_core::SC_MS);
         }
     }
+    // La función de un pin, de la tabla (f5529::FN, o f5529::PMAP en el P4)
+    TimerAP4* timer_(uint8_t k) const {
+        const TimerAP4* t[4] = {&ta0, &ta1, &ta2, &tb0};
+        return k < 4 ? const_cast<TimerAP4*>(t[k]) : nullptr;
+    }
+    UsciTi* usci_(uint8_t k) const {
+        const UsciTi* u[4] = {&ua0, &ua1, &ub0, &ub1};
+        return k < 4 ? const_cast<UsciTi*>(u[k]) : nullptr;
+    }
     Fn funcion_de(unsigned i) const {
         Fn f;
-        const unsigned p = i / 8, b = i % 8;
-        auto T = [&](const TimerAP4* t, unsigned n) { f.tipo = 1; f.t = const_cast<TimerAP4*>(t); f.n = n; };
-        auto U = [&](const UsciTi* a, int la, const UsciTi* c = nullptr, int lc = -1) {
-            f.tipo = 2; f.u[0] = LineaU{const_cast<UsciTi*>(a), la}; if (c) f.u[1] = LineaU{const_cast<UsciTi*>(c), lc};
-        };
-        switch (p) {
-        case 0:                                                       // P1
-            if (b >= 1 && b <= 5) T(&ta0, b - 1);
-            else if (b == 7) T(&ta1, 0);
-            else if (b == 0) { f.tipo = 4; f.clk = const_cast<TimerAP4*>(&ta0); }   // ACLK / TA0CLK
-            else if (b == 6) { f.tipo = 5; f.clk = const_cast<TimerAP4*>(&ta1); }   // CBOUT / TA1CLK
-            break;
-        case 1:                                                       // P2
-            if (b == 0) T(&ta1, 1);
-            else if (b == 1) T(&ta1, 2);
-            else if (b >= 3 && b <= 5) T(&ta2, b - 3);
-            else if (b == 2) { f.tipo = 4; f.clk = const_cast<TimerAP4*>(&ta2); }   // SMCLK / TA2CLK
-            else if (b == 7) U(&ub0, 3, &ua0, 2);
-            break;
-        case 2:                                                       // P3
-            if (b == 0) U(&ub0, 0);
-            else if (b == 1) U(&ub0, 1);
-            else if (b == 2) U(&ub0, 2, &ua0, 3);
-            else if (b == 3) U(&ua0, 0);
-            else if (b == 4) U(&ua0, 1);
-            else if (b == 5) T(&tb0, 5);
-            else if (b == 6) T(&tb0, 6);
-            break;
-        case 3: {                                                     // P4: el PMAP
-            const unsigned m = pmap_[b];
-            if (m >= 4 && m <= 10) T(&tb0, m - 4);
-            else if (m == 11) U(&ua1, 1);
-            else if (m == 12) U(&ua1, 0);
-            else if (m == 13) U(&ua1, 2, &ub1, 3);
-            else if (m == 14) U(&ub1, 1);
-            else if (m == 15) U(&ub1, 0);
-            else if (m == 16) U(&ub1, 2, &ua1, 3);
-            else if (m == 31) f.tipo = 3;
-            else if (m == 3 || m == 18) f.tipo = 4;
-            break;
+        const f5529::FnPin* e = nullptr;
+        if (i / 8 == 3) {                                             // P4: el PMAP
+            for (const f5529::FnMapeable& m : f5529::PMAP)
+                if (m.valor == pmap_[i % 8]) { e = &m.fn; break; }
+        } else {
+            for (const f5529::FnFija& x : f5529::FN)
+                if (x.pin == i) { e = &x.fn; break; }
         }
-        case 4:                                                       // P5
-            if (b <= 5) f.tipo = 3;                                   // VREF, XT2, XT1
-            else T(&tb0, b - 6);
-            break;
-        case 5: f.tipo = 3; break;                                    // P6: A0-A7
-        case 6:                                                       // P7
-            if (b <= 3) f.tipo = 3;
-            else if (b <= 6) T(&tb0, b - 2);
-            else f.tipo = 4;
-            break;
-        default: break;
+        if (!e) return f;
+        f.tipo = e->tipo;
+        if (e->tipo == 1) { f.t = timer_(e->tim); f.n = e->n; }
+        if (e->tipo == 2) {
+            f.u[0] = LineaU{usci_(e->u1), e->l1};
+            if (e->u2 != f5529::NADA) f.u[1] = LineaU{usci_(e->u2), e->l2};
         }
+        if (e->clk != f5529::NADA) f.clk = timer_(e->clk);
         return f;
     }
     static void linea_u(const LineaU& x, bool& oe, bool& o) {

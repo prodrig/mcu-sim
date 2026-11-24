@@ -22,11 +22,13 @@
 //   MSP432P4           las funciones fijas del DIO por (pad, PxSEL) y las
 //                      mapeables por el PMAP, cada una con su nombre
 //   MSP432E4           las del GPIO por (pad, PCTL), y las analógicas
-//   ESP32-C3/C6        la función 0 del IO_MUX de cada pin. La MATRIZ no:
-//                      sus señales no están en ninguna tabla del modelo
-//   MSP430             nada todavía: cada SoC decide la función de un pin con
-//                      su código (PxSEL, PxSEL2...), sin tabla que recorrer.
-//                      Su inventario dice por qué (`motivo`), y B4 lo resuelve
+//   ESP32-C3/C6        la función 0 del IO_MUX de cada pin y las señales
+//                      de la MATRIZ que conecta, de su tabla (c3::SENALES,
+//                      c6::SENALES), que es con la que habilita sus salidas
+//   MSP430             las de la tabla de cada chip, que es con la que el
+//                      modelo decide: la de los ocho FR2/FR4/FR5/FR6
+//                      (ChipFr2::fn) y, desde B4, la del G2553 (g2553::FN) y
+//                      la del F5529 (f5529::FN y su PMAP)
 //
 // EL FORMATO (`version="1"`):
 //
@@ -40,7 +42,8 @@
 //     <mapeo tipo="pmap" puertos="P2 P3 P7">
 //       <funcion modo="3" nombre="UCA0TXD" senal="eusci_a0.simo_out"/>
 //     </mapeo>
-//     <sin_inventario motivo="..."/>          (si la familia no lo tiene)
+//     <sin_inventario motivo="..."/>          (si la familia no lo tiene:
+//                                             desde B4, ninguna)
 //   </mcu>
 //
 // `modo` es el número con el que el firmware elige la función: la AF de un

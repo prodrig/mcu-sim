@@ -81,6 +81,47 @@ constexpr unsigned SIG_U0RXD = 6, SIG_U0TXD = 6, SIG_U1RXD = 9, SIG_U1TXD = 9,
                    SIG_FSPICS0 = 68, SIG_I2SO_SD1 = 18,
                    SIG_PWM0 = 87, SIG_PCNT = 101;   // E11 [gpio_sig_map.h]
 constexpr unsigned N_GPIO = 31;
+// Las que el modelo conecta, con su nombre de ESP-IDF v5.3.1 [gpio_sig_map.h].
+// Las salidas se habilitan desde esta tabla (control_proc); las entradas son
+// las que leen los periféricos. Las de la I2S son las de I2sEsp (S_MCLK = 12,
+// S_O_BCK..S_I_WS = 13-17) y S_SD1, que en el C6 es la 18
+inline constexpr SenalMatriz SENALES[] = {
+    {0, "LEDC_LS_SIG_OUT0", true},   {1, "LEDC_LS_SIG_OUT1", true},
+    {2, "LEDC_LS_SIG_OUT2", true},   {3, "LEDC_LS_SIG_OUT3", true},
+    {4, "LEDC_LS_SIG_OUT4", true},   {5, "LEDC_LS_SIG_OUT5", true},
+    {6, "U0TXD_OUT", true},          {6, "U0RXD_IN", false},
+    {9, "U1TXD_OUT", true},          {9, "U1RXD_IN", false},
+    {12, "I2S_MCLK_OUT", true},      {12, "I2S_MCLK_IN", false},
+    {13, "I2SO_BCK_OUT", true},      {13, "I2SO_BCK_IN", false},
+    {14, "I2SO_WS_OUT", true},       {14, "I2SO_WS_IN", false},
+    {15, "I2SO_SD_OUT", true},       {15, "I2SI_SD_IN", false},
+    {16, "I2SI_BCK_OUT", true},      {16, "I2SI_BCK_IN", false},
+    {17, "I2SI_WS_OUT", true},       {17, "I2SI_WS_IN", false},
+    {18, "I2SO_SD1_OUT", true},
+    {45, "I2CEXT0_SCL_OUT", true},   {45, "I2CEXT0_SCL_IN", false},
+    {46, "I2CEXT0_SDA_OUT", true},   {46, "I2CEXT0_SDA_IN", false},
+    {63, "FSPICLK_OUT", true},       {64, "FSPIQ_IN", false},
+    {65, "FSPID_OUT", true},         {68, "FSPICS0_OUT", true},
+    {71, "RMT_SIG_OUT0", true},      {72, "RMT_SIG_OUT1", true},
+    {73, "TWAI0_TX", true},          {73, "TWAI0_RX", false},
+    {77, "TWAI1_TX", true},          {77, "TWAI1_RX", false},
+    {87, "PWM0_OUT0A", true},        {87, "PWM0_SYNC0_IN", false},
+    {88, "PWM0_OUT0B", true},        {88, "PWM0_SYNC1_IN", false},
+    {89, "PWM0_OUT1A", true},        {89, "PWM0_SYNC2_IN", false},
+    {90, "PWM0_OUT1B", true},        {90, "PWM0_F0_IN", false},
+    {91, "PWM0_OUT2A", true},        {91, "PWM0_F1_IN", false},
+    {92, "PWM0_OUT2B", true},        {92, "PWM0_F2_IN", false},
+    {93, "PWM0_CAP0_IN", false},     {94, "PWM0_CAP1_IN", false},
+    {95, "PWM0_CAP2_IN", false},
+    {101, "PCNT_SIG_CH0_IN0", false},  {102, "PCNT_SIG_CH1_IN0", false},
+    {103, "PCNT_CTRL_CH0_IN0", false}, {104, "PCNT_CTRL_CH1_IN0", false},
+    {105, "PCNT_SIG_CH0_IN1", false},  {106, "PCNT_SIG_CH1_IN1", false},
+    {107, "PCNT_CTRL_CH0_IN1", false}, {108, "PCNT_CTRL_CH1_IN1", false},
+    {109, "PCNT_SIG_CH0_IN2", false},  {110, "PCNT_SIG_CH1_IN2", false},
+    {111, "PCNT_CTRL_CH0_IN2", false}, {112, "PCNT_CTRL_CH1_IN2", false},
+    {113, "PCNT_SIG_CH0_IN3", false},  {114, "PCNT_SIG_CH1_IN3", false},
+    {115, "PCNT_CTRL_CH0_IN3", false}, {116, "PCNT_CTRL_CH1_IN3", false},
+};
 } // namespace c6
 
 // --- El núcleo HP ------------------------------------------------------------------

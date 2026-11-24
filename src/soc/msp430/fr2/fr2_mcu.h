@@ -16,6 +16,7 @@
 #define STM32_SOC_MSP430_FR2_FR2_MCU_H
 
 #include "../../../parts/estado_cpu.h"
+#include <cctype>
 #include <cstdlib>
 #include <cstdio>
 #include <memory>
@@ -182,12 +183,100 @@ public:
                      l |= c->rst_n.value_changed_event();
                  }}};
     }
-    // B2: sin inventario. El SoC decide la funcion de un pin con su codigo
-    // (PxSEL, PxSEL2...), sin una tabla que recorrer
+    // B4: las funciones de los pines, de la tabla del chip (ChipFr2::fn), que
+    // es la que usa el modelo; `modo` es PxSEL1:PxSEL0 (1, 2 o 3). Y lo
+    // analógico que se elige con otro registro: los canales del ADC (con
+    // ADCPCTL; con PxSEL = 11 en los «Smart Analog Combo»), los SAC, el TIA y
+    // los pines del LCD
     InventarioPines inventario_pines() override {
         InventarioPines inv;
-        inv.motivo = "el modelo del MSP430 decide la funcion de cada pin en el codigo de su "
-                     "SoC, sin una tabla que recorrer";
+        inv.hay = true;
+        const ChipFr2& c = *caps_.chip;
+        auto timer = [&](unsigned m) {
+            // "timer0_a3" -> "TA0", "timer1_b7" -> "TB1"
+            const std::string n = m < c.ntimers ? c.timers[m].nombre : "";
+            const size_t u = n.find('_');
+            if (n.size() < 7 || u == std::string::npos) return std::string("T?");
+            return std::string("T") + char(std::toupper(static_cast<unsigned char>(n[u + 1]))) +
+                   n.substr(5, u - 5);
+        };
+        auto usci = [&](unsigned m, unsigned l) {
+            const std::string n = m < c.nuscis ? c.uscis[m].nombre : "";
+            const bool b = m < c.nuscis && c.uscis[m].es_b;
+            const std::string u = std::string("UC") + (b ? "B" : "A") +
+                                  (n.empty() ? std::string("?") : n.substr(n.size() - 1));
+            switch (l) {
+            case 0: return b ? u + "SIMO/" + u + "SDA" : u + "TXD/" + u + "SIMO";
+            case 1: return b ? u + "SOMI/" + u + "SCL" : u + "RXD/" + u + "SOMI";
+            case 2: return u + "CLK";
+            default: return u + "STE";
+            }
+        };
+        auto pon = [&](unsigned pin, int modo, const std::string& nombre, bool analogica,
+                       const std::string& senal) {
+            FuncionDePin f;
+            f.puerto = pin / 8; f.pin = pin % 8; f.modo = modo;
+            f.nombre = nombre; f.analogica = analogica; f.senal = senal;
+            inv.fijas.push_back(f);
+        };
+        static const char* const RELOJ[] = {"MCLK", "SMCLK", "ACLK"};
+        static const char* const SR[] = {"SRSCG1", "SRSCG0", "SROSCOFF", "SRCPUOFF"};
+        for (unsigned k = 0; k < c.nfn; ++k) {
+            const Fr2Fn& f = c.fn[k];
+            const int modo = f.sel & 0x03;
+            if (f.tipo == 0 || modo == 0) continue;      // un hueco de la tabla (FR5994)
+            std::string n;
+            switch (f.tipo) {
+            case 1: n = timer(f.mod) + (f.dir == 0 ? ".CCI" + std::to_string(f.n) + "A"
+                                                    : "." + std::to_string(f.n)); break;
+            case 2: n = usci(f.mod, f.n); break;
+            case 3: n = ""; break;                       // analógica o cristal
+            case 4: n = f.n < 3 ? RELOJ[f.n] : "CLK"; break;
+            case 5: n = timer(f.mod) + "CLK"; break;
+            case 7: n = "COMP" + std::to_string(f.mod) + ".O"; break;
+            case 8: n = f.n ? "MFM.TX" : "MFM.RX"; break;
+            case 9: n = timer(f.mod) + "TRG"; break;
+            case 10: n = "COUT"; break;
+            case 11: n = timer(f.mod) + ".CCI" + std::to_string(f.n) + "B"; break;
+            case 12: n = "DMAE0"; break;
+            case 13: n = "RTCCLK"; break;
+            case 14: n = f.n < 4 ? SR[f.n] : "SR"; break;
+            case 16: n = "ESI" + std::to_string(f.n); break;
+            default: n = "tipo" + std::to_string(f.tipo); break;
+            }
+            pon(f.pin, modo, n, f.tipo == 3, "fr2:" + std::to_string(f.tipo));
+        }
+        for (unsigned ch = 0; ch < 16; ++ch)
+            if (c.adc_pin[ch] >= 0)
+                pon(unsigned(c.adc_pin[ch]), c.adc_por_sel ? 3 : -1, "A" + std::to_string(ch), true,
+                    "adc");
+        // Las FR5xx/FR6xx: el ADC12_B (A0-A31), el Comp_E (C0-C15), VeREF± y
+        // las entradas del ESI; todos con PxSEL = 11
+        for (unsigned ch = 0; ch < 32; ++ch)
+            if (c.adc5_pin[ch] >= 0)
+                pon(unsigned(c.adc5_pin[ch]), 3, "A" + std::to_string(ch), true, "adc12_b");
+        for (unsigned ch = 0; ch < 16; ++ch)
+            if (c.ce_pin[ch] >= 0) pon(unsigned(c.ce_pin[ch]), 3, "C" + std::to_string(ch), true, "comp_e");
+        if (c.veref_mas >= 0) pon(unsigned(c.veref_mas), 3, "VeREF+", true, "ref");
+        if (c.veref_menos >= 0) pon(unsigned(c.veref_menos), 3, "VeREF-", true, "ref");
+        for (unsigned k = 0; k < 4; ++k) {
+            if (c.esi_ch_pin[k] >= 0) pon(unsigned(c.esi_ch_pin[k]), 3, "ESICH" + std::to_string(k), true, "esi");
+            if (c.esi_ci_pin[k] >= 0) pon(unsigned(c.esi_ci_pin[k]), 3, "ESICI" + std::to_string(k), true, "esi");
+        }
+        for (unsigned k = 0; k < c.nsacs; ++k) {
+            const std::string o = "OA" + std::string(c.sacs[k].nombre).substr(std::string(c.sacs[k].nombre).size() - 1);
+            pon(c.sacs[k].pin_mas, 3, o + "+", true, "sac");
+            pon(c.sacs[k].pin_menos, 3, o + "-", true, "sac");
+            pon(c.sacs[k].pin_sal, 3, o + "O", true, "sac");
+        }
+        if (c.tia) {
+            pon(c.tia->pin_mas, 3, "TRI0+", true, "tia");
+            pon(c.tia->pin_menos, 3, "TRI0-", true, "tia");
+            pon(c.tia->pin_sal, 3, "TRI0O", true, "tia");
+        }
+        for (unsigned k = 0; k < c.nlcd; ++k)
+            if (c.lcd_l[k] != 0xFF)                      // 0xFF: esa Lx no tiene pin
+                pon(c.lcd_l[k], -1, "L" + std::to_string(k), true, "lcd");
         return inv;
     }
     std::vector<std::string> limitaciones() const override {

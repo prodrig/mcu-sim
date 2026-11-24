@@ -108,12 +108,30 @@ public:
                      l |= c->rst_n.value_changed_event();
                  }}};
     }
-    // B2: sin inventario. El SoC decide la funcion de un pin con su codigo
-    // (PxSEL, PxSEL2...), sin una tabla que recorrer
+    // B4: las funciones de los pines, de las tablas del chip (f5529::FN y
+    // f5529::PMAP), que son las que usa el modelo; `modo` es PxSEL (1). Las del
+    // PMAP, con el valor de P4MAPx; las entradas sin nombre (el pin no
+    // conduce y nada más) no se vuelcan
     InventarioPines inventario_pines() override {
         InventarioPines inv;
-        inv.motivo = "el modelo del MSP430 decide la funcion de cada pin en el codigo de su "
-                     "SoC, sin una tabla que recorrer";
+        inv.hay = true;
+        for (const f5529::FnFija& f : f5529::FN) {
+            if (!f.fn.nombre) continue;
+            FuncionDePin x;
+            x.puerto = f.pin / 8; x.pin = f.pin % 8; x.modo = 1;
+            x.nombre = f.fn.nombre;
+            x.analogica = f.fn.tipo == 3;
+            inv.fijas.push_back(x);
+        }
+        inv.mapeo = "pmap";
+        inv.puertos_mapeables = "P4";
+        for (const f5529::FnMapeable& m : f5529::PMAP) {
+            if (!m.fn.nombre) continue;
+            FuncionDePin x;
+            x.modo = m.valor;
+            x.nombre = m.fn.nombre;
+            inv.mapeables.push_back(x);
+        }
         return inv;
     }
     std::vector<std::string> limitaciones() const override {
