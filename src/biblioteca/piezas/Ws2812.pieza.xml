@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Ws2812, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Ws2812" version="1">
+  <resumen>Una tira de LED WS2812 (NeoPixel) en cadena: cada LED toma 24 bits GRB del hilo DIN (alto 0,8 us un 1, 0,4 us un 0) y 50 us en bajo los enciende. La que lleva en GPIO8 la DevKitM-1 del ESP32-C3; se maneja con el RMT (led_strip).</resumen>
+  <terminales>
+    <grupo fila="din" cuando="obligatorio">
+      <terminal nombre="din"/>
+      <texto>La entrada de datos (DIN) del primer LED.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="n" omision="1">cuantos LED</atributo>
+  <nota>Observables: colorN (0xRRGGBB) y luzN (de 0 a 1).</nota>
+</pieza>

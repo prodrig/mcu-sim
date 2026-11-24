@@ -25,6 +25,12 @@ De los dos, `--help` es el que está siempre al día y el que se tiene a mano si
 salir de la consola; esto es el catálogo, con tablas, comparaciones y los
 ejemplos largos que no caben en una ficha.
 
+Hay una tercera forma de la misma ficha, **para programas**: `mcu-sim
+--exporta-piezas DIR` escribe un `TIPO.pieza.xml` por tipo, con sus terminales
+uno a uno, sus atributos y su omisión. Es la biblioteca de `mcu-sim-build`, y
+está versionada en `src/biblioteca/piezas/` (`make biblioteca`; el formato, en
+`parts/exporta_piezas.h`).
+
 El formato y el porqué están en `doc/stm32f4xx/stm32f407vg_parts_paso3.md`.
 
 ---

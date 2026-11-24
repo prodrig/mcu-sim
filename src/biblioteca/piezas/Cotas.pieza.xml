@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Cotas, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Cotas" version="1">
+  <resumen>LAS COTAS de una fresadora: la posicion de sus tres Carro, X, Y y Z, en mm, como el display de un control numerico. Es lo que pide el efecto display del dibujo, y el desplaza de un elemento que se mueve con dos ejes a la vez -la herramienta en el alzado, con X y Z-.</resumen>
+  <sin_terminales>No va a ningun nodo: lee la posicion de los carros.</sin_terminales>
+  <referencia nombre="x, y, z">Los tres Carro, declarados antes. Alguno puede faltar.</referencia>
+  <nota>Deja ver `x`, `y` y `z`, en mm.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Cotas&quot; id=&quot;MAQ&quot;&gt;
+  &lt;ref nombre=&quot;x&quot; componente=&quot;CX&quot;/&gt; &lt;ref nombre=&quot;y&quot; componente=&quot;CY&quot;/&gt;
+  &lt;ref nombre=&quot;z&quot; componente=&quot;CZ&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

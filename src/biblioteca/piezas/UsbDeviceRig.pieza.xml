@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de UsbDeviceRig, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="UsbDeviceRig" version="1">
+  <resumen>Un pendrive al otro lado del cable: pone su 1,5 kohm en D+ cuando lo enchufan y SE ENTERA DEL RESET PORQUE LO VE EN EL CABLE, no porque nadie se lo diga.</resumen>
+  <terminales>
+    <grupo fila="dm, dp" cuando="obligatorios">
+      <terminal nombre="dm"/>
+      <terminal nombre="dp"/>
+      <texto>El par diferencial.</texto>
+    </grupo>
+    <grupo fila="vbus" cuando="obligatorio">
+      <terminal nombre="vbus"/>
+      <texto>El interruptor de 5 V de la placa. NO LO DA EL MCU -el pin de VBUS es una entrada de sensado-, lo da un conmutador externo.</texto>
+    </grupo>
+  </terminales>
+  <nota>Sin atributos. El 1,5 kohm es LA DECLARACION DE EXISTENCIA, y en cual de los dos hilos se pone es lo que dice la velocidad: D+ para Full Speed, D- para Low Speed.</nota>
+  <ejemplo>&lt;componente tipo=&quot;UsbDeviceRig&quot; id=&quot;PEN&quot; conectada=&quot;no&quot;&gt;
+  &lt;pin nombre=&quot;dm&quot;   nodo=&quot;PB14&quot;/&gt;
+  &lt;pin nombre=&quot;dp&quot;   nodo=&quot;PB15&quot;/&gt;
+  &lt;pin nombre=&quot;vbus&quot; nodo=&quot;PB13&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de MotorCC, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="MotorCC" version="1">
+  <resumen>Un MOTOR DE CORRIENTE CONTINUA con reductora -el motorreductor TT amarillo de 1:48, por omision- y, si se le dan sus cuatro patillas, un ENCODER incremental en el eje de salida. Entre a y b, una f.e.m. Ke*w en serie con la resistencia y la INDUCTANCIA del bobinado: con a mas alto que b gira a la derecha, que es el angulo positivo. La corriente de la bobina no cambia de golpe: con PWM sube y baja en cada periodo, y si el puente suelta los bornes sigue por sus diodos, o se corta si no los hay. El eje tiene su inercia, un rozamiento seco, uno de arranque mayor y la carga del mando. Las cifras son las de una hoja de datos: la tension nominal, las rpm y la corriente en vacio, y la de bloqueo; de ahi salen R y Ke. El encoder es un disco de `ppr` ventanas con dos sensores en cuadratura: A va delante a la derecha; salidas de colector abierto con pull-up de 10 kohm a enc_vcc.</resumen>
+  <terminales>
+    <grupo fila="a" cuando="obligatorio">
+      <terminal nombre="a"/>
+      <texto>Un borne del motor: el +, el que hace girar a la derecha.</texto>
+    </grupo>
+    <grupo fila="b" cuando="obligatorio">
+      <terminal nombre="b"/>
+      <texto>El otro.</texto>
+    </grupo>
+    <grupo fila="enc_vcc" cuando="con ppr">
+      <terminal nombre="enc_vcc"/>
+      <texto>La alimentacion del encoder: con menos de 2,5 V sus salidas se quedan al aire.</texto>
+    </grupo>
+    <grupo fila="enc_gnd" cuando="con ppr">
+      <terminal nombre="enc_gnd"/>
+      <texto>Su masa.</texto>
+    </grupo>
+    <grupo fila="enc_a" cuando="con ppr">
+      <terminal nombre="enc_a"/>
+      <texto>La salida A: va delante girando a la derecha.</texto>
+    </grupo>
+    <grupo fila="enc_b" cuando="con ppr">
+      <terminal nombre="enc_b"/>
+      <texto>La salida B.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="v_nominal" omision="6">La tension a la que se dan las demas cifras, en V.</atributo>
+  <atributo nombre="rpm_vacio" omision="250">Las rpm del eje de salida en vacio, a v_nominal.</atributo>
+  <atributo nombre="i_vacio_ma" omision="160">La corriente en vacio, a v_nominal: el rozamiento.</atributo>
+  <atributo nombre="i_bloqueo_ma" omision="1500">La corriente con el eje sujeto, a v_nominal: R = v_nominal / i_bloqueo.</atributo>
+  <atributo nombre="i_arranque_ma" omision="250">La que hace falta para que arranque parado: el rozamiento de arranque, que es mayor que el de marcha.</atributo>
+  <atributo nombre="tau_ms" omision="50">La constante de tiempo mecanica en vacio, en ms: lo que tarda en llegar al 63 % de su velocidad. De ella sale la inercia.</atributo>
+  <atributo nombre="l_mh" omision="1.5">La inductancia del bobinado, en mH. La del TT no la da su hoja de datos; los motores de su tamano andan entre 0,5 y 3 mH.</atributo>
+  <atributo nombre="reduccion" omision="48">La de la reductora: solo para decir las rpm del motor.</atributo>
+  <atributo nombre="v_max" omision="7.2">Lo que aguanta, en V: por encima, se avisa.</atributo>
+  <atributo nombre="ppr" omision="0">Las ventanas del disco del encoder, los pulsos por vuelta del eje de salida en cada canal. 0: sin encoder, y sin sus patillas.</atributo>
+  <atributo nombre="enc_i_ma" omision="20">Lo que gasta el sensor del encoder a 3,3 V, en mA.</atributo>
+  <atributo nombre="eje_mm" omision="0">El diametro de su eje, para ver si encaja con el acople de una &lt;transmision&gt;; 0, no se comprueba.</atributo>
+  <atributo nombre="posicion_inicial" omision="0">El angulo del eje al arrancar, en grados.</atributo>
+  <nota>Deja ver `angulo` (grados, de 0 a 360, el que sugiere pintar: la ventana gira el elemento de la pieza con el, el efecto `angulo`), `rpm` del eje de salida, `corriente` (mA, de a a b) y `tension` (V), estas dos DE MEDIA -un filtro de 5 ms: lo que marcaria un polimetro con PWM-; con encoder, tambien `cuenta` (los cuartos de ciclo, con signo), `enc_a` y `enc_b`. Los MANDOS: `bloquear`, la mano que sujeta el eje, y `carga`, un par que se opone al giro, de 0 a 100 % del de bloqueo. Avisa de la sobretension.</nota>
+  <ejemplo>&lt;componente tipo=&quot;MotorCC&quot; id=&quot;MOTOR&quot; ppr=&quot;24&quot;&gt;
+  &lt;pin nombre=&quot;a&quot;       nodo=&quot;M.ROJO&quot;/&gt;
+  &lt;pin nombre=&quot;b&quot;       nodo=&quot;M.NEGRO&quot;/&gt;
+  &lt;pin nombre=&quot;enc_vcc&quot; nodo=&quot;P1.VCC&quot;/&gt;
+  &lt;pin nombre=&quot;enc_gnd&quot; nodo=&quot;P1.GND&quot;/&gt;
+  &lt;pin nombre=&quot;enc_a&quot;   nodo=&quot;P1.A&quot;/&gt;
+  &lt;pin nombre=&quot;enc_b&quot;   nodo=&quot;P1.B&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

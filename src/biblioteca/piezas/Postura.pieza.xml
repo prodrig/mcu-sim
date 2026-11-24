@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Postura, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Postura" version="1">
+  <resumen>La orientacion de una placa: alabeo, cabeceo y rumbo, con un mando cada uno. Al moverlo, la placa GIRA hasta ahi a su velocidad, y de ese giro sale lo que ven los giroscopos; de la orientacion, lo que ven los acelerometros (1 g hacia arriba en reposo) y las brujulas (el campo de la Tierra con su inclinacion). La placa: x al este, y al norte, z hacia fuera de la cara de los componentes. No tiene patillas: los sensores la nombran con &lt;ref nombre=&quot;postura&quot;&gt;.</resumen>
+  <sin_terminales>No va a ningun nodo: es un dato de la placa, no un circuito. Los sensores la leen por &lt;ref nombre=&quot;postura&quot; componente=&quot;MOV&quot;/&gt;, y la ventana la mueve con sus mandos.</sin_terminales>
+  <atributo nombre="alabeo" omision="0">Grados: el borde este hacia abajo, positivo.</atributo>
+  <atributo nombre="cabeceo" omision="0">Grados: el borde norte hacia arriba, positivo (-90 a 90).</atributo>
+  <atributo nombre="rumbo" omision="0">Grados desde el norte magnetico, en el sentido de las agujas.</atributo>
+  <atributo nombre="velocidad" omision="90">A cuantos grados por segundo gira hasta donde dice un mando.</atributo>
+  <atributo nombre="campo" omision="0.45">La intensidad del campo de la Tierra, en gauss.</atributo>
+  <atributo nombre="inclinacion" omision="55">Su inclinacion, en grados hacia abajo (55 en Madrid).</atributo>
+  <atributo nombre="temperatura" omision="25">La de los sensores, en grados C.</atributo>
+  <ejemplo>&lt;componente tipo=&quot;Postura&quot; id=&quot;MOV&quot; velocidad=&quot;90&quot;/&gt;</ejemplo>
+</pieza>

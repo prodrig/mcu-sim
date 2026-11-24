@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Volante, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Volante" version="1">
+  <resumen>UN VOLANTE: una inercia en un eje, con su rozamiento seco y viscoso, y nada mas. Va en una &lt;transmision&gt; detras de un motor (parts/cadena.h): la cadena suma su inercia a la del motor y la integra con el, y el motor tarda mas en arrancar y en pararse. Con uno de inercia conocida, la constante de tiempo del motor es la que sale de la cuenta, tau = (J_motor + J_volante)·R / (Ke·Kt). Suelto, sin transmision, no se mueve.</resumen>
+  <sin_terminales>No va a ningun nodo: es una pieza mecanica, y lo que la une al motor es la &lt;transmision&gt; que los nombra a los dos.</sin_terminales>
+  <atributo nombre="inercia_gcm2" obligatorio="si">Su inercia en g·cm² (1 g·cm² = 1e-7 kg·m²). O esta, o diametro_mm y espesor_mm.</atributo>
+  <atributo nombre="diametro_mm" obligatorio="si">El diametro de un disco macizo de acero (7850 kg/m³): la inercia sale de J = m·r²/2.</atributo>
+  <atributo nombre="espesor_mm" obligatorio="si">Y su espesor.</atributo>
+  <atributo nombre="rozamiento_ncm" omision="0">Su rozamiento seco, en N·cm: el de sus rodamientos.</atributo>
+  <atributo nombre="viscoso_mnms" omision="0">Su rozamiento viscoso, en mN·m por rad/s.</atributo>
+  <nota>Deja ver `angulo` (grados, de 0 a 360, el que sugiere pintar: la ventana gira el elemento con el) y `rpm`.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Volante&quot; id=&quot;V&quot; diametro_mm=&quot;60&quot; espesor_mm=&quot;10&quot;/&gt;
+&lt;transmision id=&quot;EJE&quot; cadena=&quot;MOTOR V&quot;/&gt;</ejemplo>
+</pieza>

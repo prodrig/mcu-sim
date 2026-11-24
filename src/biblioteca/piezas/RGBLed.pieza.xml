@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de RGBLed, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="RGBLed" version="1">
+  <resumen>LED RGB: tres LED -rojo, verde y azul- en UN encapsulado transparente, cada uno con su resistencia, y un comun. Cada canal es un Led -luce o no por su cuenta, con su vf y su r- y la luz de los tres SE MEZCLA en la pantalla: rojo y verde, amarillo; los tres, blanco.</resumen>
+  <terminales>
+    <grupo fila="r, g, b" cuando="al menos uno">
+      <terminal nombre="r"/>
+      <terminal nombre="g"/>
+      <terminal nombre="b"/>
+      <texto>El pin de cada canal: rojo, verde y azul, cada uno tras su resistencia. Un canal sin pin no se monta.</texto>
+    </grupo>
+    <grupo fila="comun" cuando="opcional">
+      <terminal nombre="comun"/>
+      <texto>El comun a la vista: entonces no va por dentro a masa ni a vdd, y cada canal es un LED de dos patillas entre su pin y el comun, como los de una barra.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="comun" omision="catodo">catodo: el comun es el catodo; sin patilla `comun` va a masa y cada canal LUCE CON SU PIN ALTO. anodo: el comun es el anodo; sin patilla `comun` va a vdd y cada canal LUCE CON SU PIN BAJO.</atributo>
+  <atributo nombre="vdd" omision="3.3">La tension del anodo comun por dentro. Solo con comun=&quot;anodo&quot; y sin patilla `comun`.</atributo>
+  <atributo nombre="vf_r, vf_g, vf_b" omision="2.0, 3.0, 3.0">La tension directa de cada canal: el rojo ronda 2,0 y el verde y el azul, de InGaN, 3,0.</atributo>
+  <atributo nombre="r_r, r_g, r_b" omision="330">La resistencia en serie de cada canal, en ohmios.</atributo>
+  <nota>Observables: `encendido` (alguno luce), y por canal `rojo`, `verde` y `azul` (0/1) y `corriente_r/g/b` (mA), cada uno con su `color` en el catalogo: la pantalla suma los canales encendidos con la intensidad de cada uno.</nota>
+  <ejemplo>&lt;componente tipo=&quot;RGBLed&quot; id=&quot;LED2&quot; comun=&quot;catodo&quot;
+            vf_r=&quot;2.0&quot; vf_g=&quot;2.9&quot; vf_b=&quot;2.9&quot; r_r=&quot;110&quot; r_g=&quot;16&quot; r_b=&quot;24&quot;&gt;
+  &lt;pin nombre=&quot;r&quot; nodo=&quot;P2.0&quot;/&gt;
+  &lt;pin nombre=&quot;g&quot; nodo=&quot;P2.1&quot;/&gt;
+  &lt;pin nombre=&quot;b&quot; nodo=&quot;P2.2&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

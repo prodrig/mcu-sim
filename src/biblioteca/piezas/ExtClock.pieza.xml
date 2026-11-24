@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de ExtClock, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="ExtClock" version="1">
+  <resumen>Oscilador de encapsulado o generador de senal: una onda cuadrada de 0 a 3,3 V con 50 ohmios de salida. Es la pieza que va cuando la senal de reloj la trae otro chip por el pin -el MCO de un ST-LINK alimentando el HSE en modo BYPASS, por ejemplo-, frente al Crystal, que es el cuarzo del lazo oscilador del propio MCU.</resumen>
+  <terminales>
+    <grupo fila="out" cuando="obligatorio">
+      <terminal nombre="out"/>
+      <texto>El pin al que entrega la onda.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="hz" omision="0">Frecuencia en hercios. CON 0 LA PIEZA NO CONDUCE: queda en alta impedancia y no gasta tiempo de simulacion, que es lo razonable al arrancar; se enciende luego desde C++.</atributo>
+  <atributo nombre="onda" omision="si">no: SIN ONDA. El pin queda a nivel bajo y la pieza DICE su frecuencia en el nodo; un HSE o un LSE en modo bypass la toman como si la hubieran medido, y sin cristal (HSE_ON) basta con que haya algo en el pin. Lo que se pierde es la onda: quien mire los flancos del pin no vera ninguno. Es para las fuentes de reloj que solo alimentan un oscilador -el MCO de un ST-LINK-, cuya onda a 8 MHz cuesta mas que el resto de la placa.</atributo>
+  <nota>CUIDADO CON LAS UNIDADES: hz=&quot;8M&quot; son OCHO HERCIOS, no ocho megahercios, y la placa se monta sin quejarse. Escribase 8e6. Es el fallo silencioso mas caro de este formato.</nota>
+  <ejemplo>&lt;componente tipo=&quot;ExtClock&quot; id=&quot;OSC1&quot; hz=&quot;8e6&quot;&gt;
+  &lt;pin nombre=&quot;out&quot; nodo=&quot;PH0&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

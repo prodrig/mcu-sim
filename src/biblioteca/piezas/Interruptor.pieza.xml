@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Interruptor, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Interruptor" version="1">
+  <resumen>UN INTERRUPTOR A MANO con uno o dos contactos, cada uno normalmente cerrado o abierto (contactos=), con enclavamiento o sin el. Una SETA DE EMERGENCIA es uno enclavado de dos contactos: el NC corta la potencia de los drivers -no basta con avisar al MCU-, y el NO le avisa. Su mando es `pulsar`: un boton, o una casilla si se enclava.</resumen>
+  <terminales>
+    <grupo fila="a1, b1" cuando="obligatorios">
+      <terminal nombre="a1"/>
+      <terminal nombre="b1"/>
+      <texto>El primer contacto.</texto>
+    </grupo>
+    <grupo fila="a2, b2" cuando="opcionales">
+      <terminal nombre="a2"/>
+      <terminal nombre="b2"/>
+      <texto>El segundo.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="contactos" omision="NC">NC o NO por contacto: &quot;NC NO&quot;.</atributo>
+  <atributo nombre="enclavado" omision="no">si: se queda pulsado hasta que se suelta (una seta).</atributo>
+  <atributo nombre="pulsado" omision="no">si: empieza pulsado.</atributo>
+  <nota>Deja ver la alarma `pulsado`.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Interruptor&quot; id=&quot;SETA&quot; contactos=&quot;NC NO&quot; enclavado=&quot;si&quot;&gt;
+  &lt;pin nombre=&quot;a1&quot; nodo=&quot;V24&quot;/&gt; &lt;pin nombre=&quot;b1&quot; nodo=&quot;VMOT&quot;/&gt;
+  &lt;pin nombre=&quot;a2&quot; nodo=&quot;ABORT&quot;/&gt; &lt;pin nombre=&quot;b2&quot; nodo=&quot;GND&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

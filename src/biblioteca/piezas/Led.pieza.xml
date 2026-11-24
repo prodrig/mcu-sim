@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Led, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Led" version="1">
+  <resumen>Diodo con su resistencia en serie. NO ES LINEAL: mientras la tension aplicada no supera vf no conduce, y se modela con dos estados -conduciendo, con equivalente {vf, r}, o en corte, en alta impedancia- reevaluados cada vez que cambia la tension del pin.</resumen>
+  <terminales>
+    <grupo fila="anodo o catodo" cuando="uno de los dos, o los dos" alternativos="si">
+      <terminal nombre="anodo"/>
+      <terminal nombre="catodo"/>
+      <texto>Con UNO, la patilla que va soldada al pin, y el otro extremo va por dentro a masa o a vdd, segun a_vss. Son EL MISMO TERMINAL CON DOS NOMBRES: el que se escriba no cambia la fisica -eso lo decide a_vss-, pero permite que el fichero diga la verdad. Con a_vss=si lo que toca el pin es el anodo; con a_vss=no, el catodo. Con LOS DOS, el LED tiene las dos patillas a la vista: el anodo en un nodo, el catodo en otro, y nada por dentro (vease la nota).</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="a_vss" omision="si">El montaje. si: anodo al pin y catodo a masa, LUCE CON EL PIN ALTO, y conduce cuando V &gt; vf. no: anodo a vdd y catodo al pin, LUCE CON EL PIN BAJO -el montaje de las placas Discovery y Nucleo-, y conduce cuando V &lt; vdd - vf.</atributo>
+  <atributo nombre="vdd" omision="3.3">Tension del extremo que NO toca el pin. Solo interviene con a_vss=no; con el anodo al pin ese extremo es masa y vdd no se usa. Es lo que permite colgar el LED de una alimentacion distinta de la del MCU.</atributo>
+  <atributo nombre="vf" omision="2.0">Tension directa del diodo, en voltios. Un LED rojo ronda 1,8; uno azul o blanco, 3,0.</atributo>
+  <atributo nombre="r" omision="330">Resistencia en serie, en ohmios. Es quien fija la corriente: con vf=2,0 y r=330 salen unos 3,4 mA.</atributo>
+  <nota>EL CASO DEL LED AZUL. Con vf=3,0 sobre 3,3 V no queda margen para la resistencia y el LED apenas luce; es un problema real de placa, no del modelo. La solucion de siempre es colgarlo de los 5 V con el catodo al pin (a_vss=&quot;no&quot; vdd=&quot;5.0&quot; vf=&quot;3.0&quot; r=&quot;220&quot;), de modo que el MCU lo enciende poniendo el pin a cero. Cuidado con lo que este modelo NO dice: un LED en corte queda en alta impedancia, asi que con vdd=5.0 la pieza nunca presenta 5 V en el pin, y en una placa real ese pin si se iria cerca de los 5 V -por encima del maximo de un pad que no sea tolerante-. El modelo no avisa de eso.</nota>
+  <nota>LAS DOS PATILLAS A LA VISTA. Con &lt;pin nombre=&quot;anodo&quot;&gt; y &lt;pin nombre=&quot;catodo&quot;&gt; a la vez, ningun extremo va por dentro a masa ni a VDD: luce cuando la tension del anodo menos la del catodo supera vf, con r en serie. Es el LED de una barra de anodo o catodo comun, cuyo comun sale por un pin del conector y puede ir a VDD, a masa o al pin de otra placa (placas/barra8_*.xml). a_vss y vdd no tienen sentido ahi, y escribirlos es un error. Un extremo que nadie mas sujeta -el comun al aire- deja el LED apagado: no hay por donde cerrar el circuito.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Led&quot; id=&quot;LD4&quot; a_vss=&quot;si&quot; vf=&quot;2.0&quot; r=&quot;680&quot;&gt;
+  &lt;pin nombre=&quot;anodo&quot; nodo=&quot;PD12&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

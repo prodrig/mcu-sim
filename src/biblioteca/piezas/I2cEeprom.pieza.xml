@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de I2cEeprom, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="I2cEeprom" version="1">
+  <resumen>Una 24Cxx colgada de los pines: 64 bytes, direccionamiento de un byte de puntero, escritura y lectura secuenciales, y su bit de reconocimiento. Habla el protocolo de verdad sobre el nodo, no una simplificacion por encima.</resumen>
+  <terminales>
+    <grupo fila="scl" cuando="obligatorio">
+      <terminal nombre="scl"/>
+      <texto>El reloj del bus.</texto>
+    </grupo>
+    <grupo fila="sda" cuando="obligatorio">
+      <terminal nombre="sda"/>
+      <texto>Los datos del bus, bidireccional.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="dir" omision="0x50 (80)">Direccion de esclavo de 7 bits. Se puede escribir en hexadecimal (0x50) o en decimal (80).</atributo>
+  <atributo nombre="contenido" omision="ninguno">Un fichero Intel HEX con sus 64 bytes, desde 0: se carga al arrancar y se guarda al acabar, tambien con Ctrl-C. Si aun no existe, la pieza arranca como siempre y el fichero se crea. En un &lt;sistema&gt;, &lt;memoria ref=&quot;placa/id&quot; contenido=&quot;...&quot;/&gt; manda sobre el de la placa, y --contenido ID=FICHERO sobre los dos</atributo>
+  <ejemplo>&lt;componente tipo=&quot;I2cEeprom&quot; id=&quot;U5&quot; dir=&quot;0x50&quot;&gt;
+  &lt;pin nombre=&quot;scl&quot; nodo=&quot;PB6&quot;/&gt;
+  &lt;pin nombre=&quot;sda&quot; nodo=&quot;PB7&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

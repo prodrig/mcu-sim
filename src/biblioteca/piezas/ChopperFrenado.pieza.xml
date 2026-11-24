@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de ChopperFrenado, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="ChopperFrenado" version="1">
+  <resumen>LA RESISTENCIA DE FRENADO con su comparador -el chopper de frenado de un controlador, o un modulo aparte-: con el bus por encima de v_on pone r_ohm entre mas y menos y quema lo que devuelven los motores; por debajo de v_off la quita. Sin ella, con una fuente que no absorbe, el bus sube al frenar hasta que salta la proteccion de sobretension.</resumen>
+  <terminales>
+    <grupo fila="mas, menos" cuando="obligatorios">
+      <terminal nombre="mas"/>
+      <terminal nombre="menos"/>
+      <texto>El bus y su masa.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="r_ohm" omision="10">La resistencia.</atributo>
+  <atributo nombre="v_on, v_off" omision="50.5, 49.5">Las tensiones a las que entra y sale.</atributo>
+  <atributo nombre="potencia_w" omision="50">La que aguanta, de media: por encima, avisa.</atributo>
+  <nota>Deja ver conduce, potencia (W, la media de un segundo), energia (J) y la alarma caliente.</nota>
+  <ejemplo>&lt;componente tipo=&quot;ChopperFrenado&quot; id=&quot;RF&quot; r_ohm=&quot;10&quot; v_on=&quot;50.5&quot;
+            v_off=&quot;49.5&quot; potencia_w=&quot;50&quot;&gt;
+  &lt;pin nombre=&quot;mas&quot; nodo=&quot;BUS&quot;/&gt; &lt;pin nombre=&quot;menos&quot; nodo=&quot;GND&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

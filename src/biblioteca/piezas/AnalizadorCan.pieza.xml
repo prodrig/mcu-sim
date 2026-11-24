@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de AnalizadorCan, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="AnalizadorCan" version="1">
+  <resumen>Un ANALIZADOR DE BUS CAN de banco: escucha el hilo SIN TOCARLO -no asiente ni transmite- y apunta cada marco con su instante, su identificador, sus bytes y lo que significa en CANopen (NMT, SYNC, EMCY, PDO, SDO, heartbeat). Cuenta los marcos, los errores, los que NADIE ASIENTE -un bus con un solo nodo, o con el otro apagado- y la CARGA del bus. Se cuelga de cualquier nodo del hilo, sin necesitar el objeto del CanWire.</resumen>
+  <terminales>
+    <grupo fila="bus" cuando="obligatorio">
+      <terminal nombre="bus"/>
+      <texto>El nodo del hilo.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="bitrate" omision="500000">La velocidad del bus, en bit/s: la de los demas.</atributo>
+  <atributo nombre="traza" omision="nada">El fichero donde apunta cada marco, una linea por marco.</atributo>
+  <atributo nombre="ventana_ms" omision="100">La ventana de la carga: los bits de sus marcos contra los que caben en ella.</atributo>
+  <atributo nombre="umbral" omision="1.65">Dominante, por debajo de estos voltios.</atributo>
+  <nota>Deja ver `tramas`, `carga` (%, en la ultima ventana), `errores`, `sin_asentir` y `ultimo_id`. Al acabar, su resumen: cuantos marcos de cada tipo.</nota>
+  <ejemplo>&lt;componente tipo=&quot;AnalizadorCan&quot; id=&quot;A1&quot; bitrate=&quot;500e3&quot; traza=&quot;can.txt&quot;&gt;
+  &lt;pin nombre=&quot;bus&quot; nodo=&quot;CAN&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

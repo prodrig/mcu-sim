@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Conector, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Conector" version="1">
+  <resumen>Un conector de filas x columnas pines, numerados del 1 al N. No conduce ni escucha: dice que esos nodos salen de la placa. Su pin k se llama `ID.k` (`CN7.17`) y se suelda a un nodo con &lt;pin nombre=&quot;k&quot;&gt;; uno sin soldar es un nodo propio, al aire.</resumen>
+  <terminales>
+    <grupo fila="1..N" cuando="los que se usen">
+      <serie prefijo="" desde="1" abierta="si"/>
+      <texto>Cada pin, por su numero -o por su nombre, si lo tiene-, al nodo de la placa al que va soldado.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="columnas" obligatorio="si">Cuantos pines tiene cada fila.</atributo>
+  <atributo nombre="filas" omision="1">Cuantas filas: 2 en un IDC o en un morpho.</atributo>
+  <atributo nombre="acodado" omision="no">si: los pines salen de lado, por el borde de la placa -una tira acodada, como la de un KY-040-; no: hacia arriba. Solo cambia el dibujo de la ventana: un hilo llega al borde de un pin acodado, y al centro de uno derecho, con un circulo.</atributo>
+  <atributo nombre="numeracion" omision="zigzag">zigzag: el 1 y el 2 enfrentados, impares en una fila y pares en la otra (IDC, Raspberry Pi, morpho). filas: la primera fila entera, del 1 a columnas, y luego la siguiente.</atributo>
+  <atributo nombre="nombres" omision="(ninguno)">LOS NOMBRES DE LOS PINES, uno por pin y en orden, separados por espacios; &apos;-&apos; para uno que se sigue llamando por su numero. Con nombres=&quot;COM D1 D2&quot;, el pin 1 es `P1.COM` y SOLO asi -`P1.1` seria el pad PB1-. El numero sigue mandando en la forma: el 1 es el primero, y al acoplar el 1 va con el 1. Un nombre empieza por letra -letras, cifras, &apos;_&apos;, &apos;.&apos; y &apos;+&apos;: `COM`, `5V`, `3.3V`-, y no puede hacer de `ID.nombre` un pad ni una patilla de alimentacion (`P1.VDD`).</atributo>
+  <nota>Dos conectores se ENCHUFAN en un &lt;sistema&gt; con &lt;acopla a=&quot;A/CN9&quot; b=&quot;B/J1&quot;/&gt;: el pin k de uno queda unido al k del otro, o en espejo -espejo=&quot;si&quot;, dos placas cara a cara- al que le cae enfrente. Un cable que cruza pines es &lt;hilo a=&quot;..&quot; b=&quot;..&quot;/&gt;.</nota>
+  <nota>Una PILA -PC/104, cabeceras apilables: el conector atraviesa la placa y el pin k es el mismo en todas- es un solo acople con todos: &lt;acopla conectores=&quot;A/J1 B/J1 C/J1&quot;/&gt;.</nota>
+  <nota>Un pin al aire no es un nodo flotante que avisar: es lo normal.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Conector&quot; id=&quot;CN9&quot; filas=&quot;1&quot; columnas=&quot;8&quot;&gt;
+  &lt;pin nombre=&quot;1&quot; nodo=&quot;PA3&quot;/&gt;   &lt;!-- D0 --&gt;
+  &lt;pin nombre=&quot;2&quot; nodo=&quot;PA2&quot;/&gt;   &lt;!-- D1 --&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

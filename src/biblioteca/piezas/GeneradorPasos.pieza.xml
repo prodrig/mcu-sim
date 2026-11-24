@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de GeneradorPasos, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="GeneradorPasos" version="1">
+  <resumen>Un GENERADOR DE PASOS de banco: STEP y DIR para mover un driver de paso a paso sin MCU. Va a `hz` pasos por segundo y llega con una rampa de aceleracion constante; un cambio de sentido en marcha frena, cambia DIR, espera y vuelve a arrancar. Es un instrumento, como un generador de funciones con rampa.</resumen>
+  <terminales>
+    <grupo fila="step, dir" cuando="obligatorios">
+      <terminal nombre="step"/>
+      <terminal nombre="dir"/>
+      <texto>Las salidas, de vdd voltios con 50 ohm.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="hz" omision="0">Los pasos por segundo a los que va (el objetivo, el mando `hz`).</atributo>
+  <atributo nombre="aceleracion" omision="0">En pasos/s². 0 y sin rampa_ms: de golpe.</atributo>
+  <atributo nombre="rampa_ms" omision="0">O la rampa como el tiempo de parado a hz: aceleracion = hz/rampa.</atributo>
+  <atributo nombre="ancho_us" omision="2">Lo que dura el pulso alto de STEP.</atributo>
+  <atributo nombre="dir_us" omision="5">Lo que espera tras cambiar DIR antes del primer paso.</atributo>
+  <atributo nombre="sentido" omision="1">1: DIR alto; 0: bajo (el mando `sentido`).</atributo>
+  <atributo nombre="vdd" omision="3.3">La tension de las salidas.</atributo>
+  <nota>Deja ver `hz`, la de ahora, y `pasos`, con su signo.</nota>
+  <ejemplo>&lt;componente tipo=&quot;GeneradorPasos&quot; id=&quot;G&quot; hz=&quot;4000&quot; rampa_ms=&quot;200&quot;&gt;
+  &lt;pin nombre=&quot;step&quot; nodo=&quot;STEP&quot;/&gt;&lt;pin nombre=&quot;dir&quot; nodo=&quot;DIR&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

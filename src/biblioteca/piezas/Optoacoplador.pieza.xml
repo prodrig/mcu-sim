@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Optoacoplador, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Optoacoplador" version="1">
+  <resumen>UN OPTOACOPLADOR, como un PC817: un LED entre anodo y catodo y un fototransistor entre colector y emisor que pasa como mucho ctr veces la corriente del LED. Lo que separa un sensor inductivo de 24 V de un pin de 3,3 V, o un MCU de las entradas de 5 V de un driver: el LED, con su resistencia; la salida, con un pull-up.</resumen>
+  <terminales>
+    <grupo fila="anodo, catodo" cuando="obligatorios">
+      <terminal nombre="anodo"/>
+      <terminal nombre="catodo"/>
+      <texto>El LED.</texto>
+    </grupo>
+    <grupo fila="colector, emisor" cuando="obligatorios">
+      <terminal nombre="colector"/>
+      <terminal nombre="emisor"/>
+      <texto>El fototransistor.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="vf" omision="1.2">La tension del LED, en V.</atributo>
+  <atributo nombre="r_led" omision="10">Su resistencia interna, en ohmios (la de fuera va aparte).</atributo>
+  <atributo nombre="ctr" omision="1">La relacion de transferencia: 1 es el 100 %.</atributo>
+  <atributo nombre="vce_sat" omision="0.2">La tension de la salida saturada.</atributo>
+  <atributo nombre="if_max_ma" omision="50">Lo que aguanta el LED: por encima, avisa.</atributo>
+  <nota>Deja ver led y salida, en mA, y saturado.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Optoacoplador&quot; id=&quot;U1&quot; ctr=&quot;1&quot;&gt;
+  &lt;pin nombre=&quot;anodo&quot; nodo=&quot;A&quot;/&gt; &lt;pin nombre=&quot;catodo&quot; nodo=&quot;SENSOR&quot;/&gt;
+  &lt;pin nombre=&quot;colector&quot; nodo=&quot;PIN&quot;/&gt; &lt;pin nombre=&quot;emisor&quot; nodo=&quot;GND&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

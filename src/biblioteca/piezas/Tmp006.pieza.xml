@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Tmp006, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Tmp006" version="1">
+  <resumen>El termometro de infrarrojos TMP006 de TI, por I2C: la tension de la termopila y la temperatura del chip, con su configuracion, su ritmo de conversion y la patilla DRDY.</resumen>
+  <terminales>
+    <grupo fila="scl" cuando="obligatorio">
+      <terminal nombre="scl"/>
+      <texto>El reloj del bus.</texto>
+    </grupo>
+    <grupo fila="sda" cuando="obligatorio">
+      <terminal nombre="sda"/>
+      <texto>Los datos del bus.</texto>
+    </grupo>
+    <grupo fila="drdy" cuando="opcional">
+      <terminal nombre="drdy"/>
+      <texto>Dato listo, activa baja, de drenador abierto.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="dir" omision="0x40">Direccion de 7 bits.</atributo>
+  <atributo nombre="t_chip" omision="25">La temperatura del chip, en C; tiene mando.</atributo>
+  <atributo nombre="t_objeto" omision="25">La del objeto que mira, en C; tiene mando.</atributo>
+  <ejemplo>&lt;componente tipo=&quot;Tmp006&quot; id=&quot;U4&quot; dir=&quot;0x40&quot;&gt;
+  &lt;pin nombre=&quot;scl&quot; nodo=&quot;P6.5&quot;/&gt;
+  &lt;pin nombre=&quot;sda&quot; nodo=&quot;P6.4&quot;/&gt;
+  &lt;pin nombre=&quot;drdy&quot; nodo=&quot;P3.6&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

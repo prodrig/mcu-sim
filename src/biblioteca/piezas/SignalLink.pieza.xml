@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de SignalLink, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="SignalLink" version="1">
+  <resumen>Una pista de placa entre dos pines: lo que hay entre el TX de un puerto serie y el RX del otro. Lee la tension del origen, la digitaliza CON EL MISMO UMBRAL DE HISTERESIS QUE UN PAD (sube a 0,55*VDD, baja a 0,45*VDD) y la reproduce en el destino con 50 ohmios.</resumen>
+  <terminales>
+    <grupo fila="origen" cuando="obligatorio">
+      <terminal nombre="origen"/>
+      <texto>Solo se lee: no lleva driver, y en el netlist sale marcado como pasivo.</texto>
+    </grupo>
+    <grupo fila="destino" cuando="obligatorio">
+      <terminal nombre="destino"/>
+      <texto>El que la pista gobierna.</texto>
+    </grupo>
+  </terminales>
+  <nota>ES UNIDIRECCIONAL POR CONSTRUCCION, que es lo que hace falta en un enlace full-duplex donde cada hilo tiene un unico emisor. Un hilo compartido de verdad -medio duplex, colector abierto- no se modela con esta pieza, sino conectando los dos pines al mismo nodo con &lt;nodo une=&quot;PB9 PD3&quot;&gt;. Frente a ese nodo compartido la pista tiene dos ventajas y una carencia: se puede desoldar en marcha (conectada=&quot;no&quot;) y no carga el origen, pero el conflicto entre los dos extremos es invisible.</nota>
+  <nota>Sirve igual entre dos pines del MISMO MCU: llevar la salida PWM de un temporizador a la entrada de captura de otro es como se mide con un temporizador lo que genera el de al lado.</nota>
+  <nota>Sin atributos: 3,3 V y 50 ohmios fijos.</nota>
+  <ejemplo>&lt;componente tipo=&quot;SignalLink&quot; id=&quot;pista1&quot;&gt;
+  &lt;pin nombre=&quot;origen&quot;  nodo=&quot;u0.PD12&quot;/&gt;
+  &lt;pin nombre=&quot;destino&quot; nodo=&quot;u1.PB4&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Xds110, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Xds110" version="1">
+  <resumen>La sonda XDS110 de una LaunchPad MSP432, del lado de la sonda de J101: el LDO de 3,3 V que alimenta el lado del objetivo, SWD y reset para OpenOCD (--openocd o --cmsis-dap van por ella y no por el chip) y la traza SWO a un canal del puente serie. Los puentes de J101 hacen lo que hacen en la placa: sin 3V3 el chip no arranca, sin TMS/TCK OpenOCD no encuentra el DAP.</resumen>
+  <terminales>
+    <grupo fila="3v3" cuando="opcional">
+      <terminal nombre="3v3"/>
+      <texto>La salida del LDO: el pin 3V3 del lado de la sonda de J101.</texto>
+    </grupo>
+    <grupo fila="rst" cuando="opcional">
+      <terminal nombre="rst"/>
+      <texto>RST: el SRST de la sonda, a masa mientras OpenOCD resetea.</texto>
+    </grupo>
+    <grupo fila="swdio, swclk" cuando="opcional">
+      <terminal nombre="swdio"/>
+      <terminal nombre="swclk"/>
+      <texto>TMS_SWDIO y TCK_SWCLK. Hacen falta para colgar la sonda de OpenOCD.</texto>
+    </grupo>
+    <grupo fila="swo" cuando="opcional">
+      <terminal nombre="swo"/>
+      <texto>TDO_SWO: la traza. Hace falta para swo=.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="et" omision="no">si: es el XDS110-ET, con EnergyTrace (la medida es de la fase X3).</atributo>
+  <atributo nombre="v" omision="3.3">La tension del LDO.</atributo>
+  <atributo nombre="limite_ma" omision="500">El limite de corriente del LDO, en mA.</atributo>
+  <atributo nombre="sonda" omision="no">openocd (remote_bitbang) o cmsis-dap (CMSIS-DAP por TCP): la sonda para OpenOCD, en estos pines. Lo normal es no ponerlo y pedirla con --openocd o --cmsis-dap, que la ponen aqui si la placa lleva un Xds110.</atributo>
+  <atributo nombre="puerto" omision="3335 o 4441">El puerto TCP de la sonda.</atributo>
+  <atributo nombre="swo" omision="no">A donde va la traza: tcp:PUERTO, rfc2217:PUERTO, memoria, o los clientes, como el host= de un PuenteSerie.</atributo>
+  <atributo nombre="swo_bitrate" omision="1000000">Los bit/s de la traza (NRZ): TIENEN QUE SER LOS QUE PROGRAMA EL FIRMWARE en el TPIU, o llega basura.</atributo>
+  <atributo nombre="swo_formato" omision="itm">itm: solo lo escrito en un puerto de estimulo del ITM -el printf de ITM_SendChar-; crudo: los bytes de la linea, para un decodificador externo (orbuculum, el swo de pyOCD...).</atributo>
+  <atributo nombre="swo_puerto" omision="0">El puerto de estimulo del ITM, con swo_formato=&quot;itm&quot;.</atributo>
+  <nota>Observables: `corriente` (mA, la que entrega el LDO: todo el lado del objetivo), `sobrecorriente` (alarma) y `depurando` (hay un OpenOCD conectado).</nota>
+  <nota>El backchannel (RXD/TXD de J101) no es de esta pieza: es un PuenteSerie aparte.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Xds110&quot; id=&quot;XDS&quot; et=&quot;si&quot; swo=&quot;tcp:3358&quot;&gt;
+  &lt;pin nombre=&quot;3v3&quot;   nodo=&quot;J101.6&quot;/&gt;
+  &lt;pin nombre=&quot;rst&quot;   nodo=&quot;J101.12&quot;/&gt;
+  &lt;pin nombre=&quot;swdio&quot; nodo=&quot;J101.14&quot;/&gt;
+  &lt;pin nombre=&quot;swclk&quot; nodo=&quot;J101.16&quot;/&gt;
+  &lt;pin nombre=&quot;swo&quot;   nodo=&quot;J101.18&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

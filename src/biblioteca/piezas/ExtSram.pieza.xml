@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de ExtSram, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="ExtSram" version="1">
+  <resumen>SRAM asincrona de 64 KB en el bus externo (FSMC). No tiene reloj y no negocia nada: obedece. Comparte los hilos de datos y varias senales de control con la ExtNand, y EN ESTE ENCAPSULADO COMPARTE TAMBIEN EL CHIP SELECT (PD7 es NE1 y NCE2 a la vez), asi que no pueden estar puestas las dos: una de ellas ira con conectada=&quot;no&quot;.</resumen>
+  <terminales>
+    <grupo fila="d0 ... d15" cuando="obligatorios">
+      <serie prefijo="d" desde="0" hasta="15"/>
+      <texto>Los hilos de datos. Bidireccionales: la memoria conduce al leer y escucha al escribir.</texto>
+    </grupo>
+    <grupo fila="a16 ... a23" cuando="opcionales">
+      <serie prefijo="a" desde="16" hasta="23"/>
+      <texto>Las direcciones altas que el encapsulado saca. EMPIEZAN EN 16 A PROPOSITO: sin A0-A15 este chip solo puede usar el bus multiplexado, y la parte baja de la direccion la engancha de los propios hilos de datos con NL.</texto>
+    </grupo>
+    <grupo fila="ne" cuando="obligatorio">
+      <terminal nombre="ne"/>
+      <texto>Chip select, activo a cero. Pasivo.</texto>
+    </grupo>
+    <grupo fila="noe" cuando="obligatorio">
+      <terminal nombre="noe"/>
+      <texto>Output enable. Pasivo.</texto>
+    </grupo>
+    <grupo fila="nwe" cuando="obligatorio">
+      <terminal nombre="nwe"/>
+      <texto>Write enable; GUARDA EN SU FLANCO DE SUBIDA.</texto>
+    </grupo>
+    <grupo fila="nl" cuando="obligatorio">
+      <terminal nombre="nl"/>
+      <texto>Address latch; engancha la direccion baja en su flanco de subida.</texto>
+    </grupo>
+    <grupo fila="nbl0, nbl1" cuando="opcionales">
+      <terminal nombre="nbl0"/>
+      <terminal nombre="nbl1"/>
+      <texto>Byte lanes: cual de los dos bytes se escribe.</texto>
+    </grupo>
+    <grupo fila="nwait" cuando="opcional">
+      <terminal nombre="nwait"/>
+      <texto>Si se conecta, la memoria puede pedir tiempo. Es lo unico del bus externo que no decide el controlador.</texto>
+    </grupo>
+  </terminales>
+  <nota>Sin atributos en el XML. Por omision, 16 bits y multiplexado.</nota>
+  <ejemplo>&lt;componente tipo=&quot;ExtSram&quot; id=&quot;U7&quot;&gt;
+  &lt;pin nombre=&quot;d0&quot;  nodo=&quot;PD14&quot;/&gt;  &lt;!-- d1 ... d15 --&gt;
+  &lt;pin nombre=&quot;ne&quot;  nodo=&quot;PD7&quot;/&gt;
+  &lt;pin nombre=&quot;noe&quot; nodo=&quot;PD4&quot;/&gt;
+  &lt;pin nombre=&quot;nwe&quot; nodo=&quot;PD5&quot;/&gt;
+  &lt;pin nombre=&quot;nl&quot;  nodo=&quot;PB7&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

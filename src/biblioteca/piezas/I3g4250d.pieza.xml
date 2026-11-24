@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de I3g4250d, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="I3g4250d" version="1">
+  <resumen>El giroscopo I3G4250D de ST, por SPI de cuatro hilos (modos 0 y 3), con WHO_AM_I = 0xD3: sus registros de 0x0F a 0x38, las cuatro tasas, los tres fondos de escala, el paso alto, STATUS, BDU y BLE, la temperatura, INT1 con sus umbrales y DRDY. Lo que mide sale de la Postura.</resumen>
+  <terminales>
+    <grupo fila="spc" cuando="obligatorio">
+      <terminal nombre="spc"/>
+      <texto>El reloj del SPI.</texto>
+    </grupo>
+    <grupo fila="sdi" cuando="obligatorio">
+      <terminal nombre="sdi"/>
+      <texto>MOSI.</texto>
+    </grupo>
+    <grupo fila="sdo" cuando="obligatorio">
+      <terminal nombre="sdo"/>
+      <texto>MISO; en alta impedancia salvo cuando saca un dato.</texto>
+    </grupo>
+    <grupo fila="cs" cuando="obligatorio">
+      <terminal nombre="cs"/>
+      <texto>La seleccion, activa baja.</texto>
+    </grupo>
+    <grupo fila="int1" cuando="opcional">
+      <terminal nombre="int1"/>
+      <texto>INT1.</texto>
+    </grupo>
+    <grupo fila="drdy" cuando="opcional">
+      <terminal nombre="drdy"/>
+      <texto>DRDY/INT2.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="ejes" omision="x,y,z">Sus ejes como ejes de la placa, con signo: &quot;y,-x,z&quot;.</atributo>
+  <referencia nombre="postura">La Postura de la placa, declarada antes. Sin ella, quieta.</referencia>
+  <ejemplo>&lt;componente tipo=&quot;I3g4250d&quot; id=&quot;U5&quot; ejes=&quot;x,y,z&quot;&gt;
+  &lt;pin nombre=&quot;spc&quot; nodo=&quot;PA5&quot;/&gt;
+  &lt;pin nombre=&quot;sdi&quot; nodo=&quot;PA7&quot;/&gt;
+  &lt;pin nombre=&quot;sdo&quot; nodo=&quot;PA6&quot;/&gt;
+  &lt;pin nombre=&quot;cs&quot; nodo=&quot;PE3&quot;/&gt;
+  &lt;pin nombre=&quot;int1&quot; nodo=&quot;PE0&quot;/&gt;
+  &lt;pin nombre=&quot;drdy&quot; nodo=&quot;PE1&quot;/&gt;
+  &lt;ref nombre=&quot;postura&quot; componente=&quot;MOV&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

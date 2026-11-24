@@ -80,7 +80,8 @@
 #include "../parts/netlist_parts.h"
 #include "../parts/netlist_xml.h"
 #include "../parts/frontera_gui.h"  // la frontera con mcu-sim-gui, construida e inactiva
-#include "../parts/enlace_gui.h"    // y el enlace en marcha, igual
+#include "../parts/enlace_gui.h"
+#include "../parts/exporta_piezas.h"   // --exporta-piezas: las fichas como dato (T133)    // y el enlace en marcha, igual
 #include "../verif/decoder_vectors.h"
 #include "../verif/gdb_stub.h"
 #include "../core/gdb_stub_dap.h"
@@ -1200,6 +1201,7 @@ SC_MODULE(F1Tb) {
         t130_argumento_gui();
         t131_systick_tras_parada();
         t132_rebotes();
+        t133_exporta_piezas();
 
         std::printf("\n=====================================================\n");
         std::printf("Resumen F1: %u comprobaciones OK, %u fallos\n", f1_pass, f1_fail);
@@ -15012,6 +15014,152 @@ SC_MODULE(F1Tb) {
     // reloj y no se toca ningún nodo. Por eso no mueve el tiempo simulado del
     // banco ni una picosegundo, que es la invariante que este proyecto cuida.
     // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // T133 — Las fichas como DATO: `--exporta-piezas` (fase B1 de
+    // doc/analisis_build.md). mcu-sim-build lee de cada pieza sus terminales,
+    // sus atributos y su omisión; la fuente es la misma ficha de `--help`
+    // (T126), volcada por parts/exporta_piezas.h. Lo que hay que vigilar es
+    // la única parte que no es copiar: los terminales, que la ficha nombra
+    // para una persona -«in1 .. in4», «anodo o catodo»-. TODA fila de TODA
+    // pieza tiene que entenderse: si una ficha nueva se escribe de otra
+    // manera, falla aquí y no en la ventana de quien dibuja una placa.
+    //
+    // Puro, como T126: no avanza el reloj ni toca un nodo.
+    // -----------------------------------------------------------------------
+    void t133_exporta_piezas() {
+        group("T133 Las fichas como dato: --exporta-piezas (B1 de analisis_build.md)");
+
+        // --- 1. Las formas que se entienden ---------------------------------
+        auto lista = [](const TerminalesDeFila& t) {
+            std::string s;
+            for (const std::string& n : t.nombres) { if (!s.empty()) s += " "; s += n; }
+            for (const SerieTerminales& r : t.series) {
+                if (!s.empty()) s += " ";
+                s += r.prefijo + std::to_string(r.desde) + ".." +
+                     (r.abierta ? std::string("?") : r.prefijo + std::to_string(r.hasta));
+            }
+            return s;
+        };
+        struct Caso { const char* fila; const char* espera; long cuantos; };
+        const Caso buenos[] = {
+            {"anodo",              "anodo",        1},
+            {"anodo o catodo",     "anodo catodo", 2},
+            {"anodo, catodo",      "anodo catodo", 2},
+            {"cs, sck, mosi, miso","cs sck mosi miso", 4},
+            {"3v3",                "3v3",          1},
+            {"in1 .. in4",         "in1..in4",     4},
+            {"d0 ... d15",         "d0..d15",      16},
+            {"a16 ... a23",        "a16..a23",     8},
+            {"rxd0 ... rxd3",      "rxd0..rxd3",   4},
+            {"1 .. 38",            "1..38",        38},
+            {"d0 ... dN",          "d0..?",        -1},
+            {"l0, l1, ...",        "l0..?",        -1},
+            {"1..N",               "1..?",         -1},
+            {"1..N o su nombre",   "1..?",         -1},
+        };
+        bool todos = true;
+        for (const Caso& c : buenos) {
+            const TerminalesDeFila t = analiza_terminales(c.fila);
+            if (!t.vale() || lista(t) != c.espera || t.cuantos() != c.cuantos) {
+                std::printf("    `%s`: %s -> [%s] (%ld)\n", c.fila,
+                            t.vale() ? "se entiende" : t.error.c_str(),
+                            lista(t).c_str(), t.cuantos());
+                todos = false;
+            }
+        }
+        check(todos, "las formas de las fichas se entienden: un nombre, listas con "
+                     "comas y con `o`, rangos con .. y ..., y rangos abiertos");
+        check(analiza_terminales("anodo o catodo").alternativos &&
+              !analiza_terminales("anodo, catodo").alternativos,
+              "una fila con `o` son nombres alternativos; con comas, no");
+        check(analiza_terminales("1..N o su nombre").tambien_por_nombre &&
+              !analiza_terminales("1..N").tambien_por_nombre,
+              "`o su nombre` se recuerda: los pines de un conector con nombre");
+
+        const char* malos[] = {
+            "Anodo", "in4 .. in1", "d0 ... a3", "a, , b", "a.b", "a, a",
+            "...", "a o su nombre", "pin-1", "", "a,", "l0, l2, ...",
+        };
+        bool rechaza = true;
+        for (const char* m : malos) {
+            const TerminalesDeFila t = analiza_terminales(m);
+            if (t.vale()) {
+                std::printf("    `%s` se ha entendido como [%s]\n", m, lista(t).c_str());
+                rechaza = false;
+            }
+        }
+        check(rechaza, "y lo que no es ninguna de ellas es un error que dice por "
+                       "que: mayusculas, rangos al reves o de dos nombres, comas "
+                       "sin nombre, puntos sueltos, repetidos");
+
+        // --- 2. TODA fila de TODA pieza ------------------------------------
+        unsigned filas = 0, malas = 0, piezas = 0;
+        bool todas_vuelcan = true, deterministas = true;
+        for (const std::string& tipo : Fabrica::tipos()) {
+            const Ayuda* a = Fabrica::ayuda(tipo);
+            if (!a) continue;
+            ++piezas;
+            for (const Ayuda::Fila& f : a->pines()) {
+                ++filas;
+                const TerminalesDeFila t = analiza_terminales(f.nombre);
+                if (!t.vale()) {
+                    ++malas;
+                    std::printf("    %s: `%s`: %s\n", tipo.c_str(), f.nombre.c_str(),
+                                t.error.c_str());
+                }
+            }
+            std::string err;
+            const std::string x = pieza_xml(tipo, *a, &err);
+            if (x.empty()) todas_vuelcan = false;
+            if (x != pieza_xml(tipo, *a)) deterministas = false;
+        }
+        std::printf("    %u piezas, %u filas de terminales\n", piezas, filas);
+        check(piezas == Fabrica::tipos().size() && filas >= 150,
+              "se recorren todas las piezas de la factoria y todas sus filas");
+        check(malas == 0, "y TODAS las filas de terminales se entienden");
+        check(todas_vuelcan, "cada pieza tiene su .pieza.xml");
+        check(deterministas, "y el volcado es determinista: lo versionado solo "
+                             "cambia cuando cambia una ficha");
+
+        // --- 3. Lo que sale, en dos que conocemos ---------------------------
+        const Ayuda* led = Fabrica::ayuda("Led");
+        const std::string xl = led ? pieza_xml("Led", *led) : std::string();
+        check(xl.find("<pieza tipo=\"Led\" version=\"1\">") != std::string::npos &&
+              xl.find("<terminal nombre=\"anodo\"/>") != std::string::npos &&
+              xl.find("<terminal nombre=\"catodo\"/>") != std::string::npos &&
+              xl.find("alternativos=\"si\"") != std::string::npos,
+              "el Led: sus dos terminales, cada uno por su nombre, como alternativos");
+        check(xl.find("<atributo nombre=\"vf\" omision=\"2.0\">") != std::string::npos &&
+              xl.find("<atributo nombre=\"r\" omision=\"330\">") != std::string::npos,
+              "y sus atributos con la omision de la ficha");
+        const Ayuda* con = Fabrica::ayuda("Conector");
+        const std::string xc = con ? pieza_xml("Conector", *con) : std::string();
+        check(xc.find("<serie prefijo=\"\" desde=\"1\" abierta=\"si\"/>") != std::string::npos &&
+              xc.find("<atributo nombre=\"columnas\" obligatorio=\"si\">") != std::string::npos,
+              "el Conector: pines por numero, cuantos lo dice la placa, y "
+              "`columnas` obligatorio");
+        const Ayuda* jp = Fabrica::ayuda("Jumper");
+        const std::string xj = jp ? pieza_xml("Jumper", *jp) : std::string();
+        check(xj.find("nombres=\"si\"") != std::string::npos,
+              "el Jumper: sus pines, por numero o por nombre");
+        check(xl.find("&lt;componente") != std::string::npos &&
+              xl.find("<componente") == std::string::npos,
+              "y el ejemplo de XML de la ficha va escapado, no como elementos");
+        // Un comentario XML no puede llevar `--`, y la cabecera habla de
+        // opciones de mcu-sim: que no se cuele ninguna
+        bool sin_dobles = true;
+        for (const std::string& tipo : Fabrica::tipos()) {
+            const Ayuda* a = Fabrica::ayuda(tipo);
+            if (!a) continue;
+            const std::string x = pieza_xml(tipo, *a);
+            const size_t i0 = x.find("<!--"), i1 = x.find("-->");
+            if (i0 == std::string::npos || i1 == std::string::npos ||
+                x.substr(i0 + 4, i1 - i0 - 4).find("--") != std::string::npos)
+                sin_dobles = false;
+        }
+        check(sin_dobles, "y la cabecera es un comentario XML valido: sin `--` dentro");
+    }
+
     void t126_ayuda_componentes() {
         group("T126 Ayuda: todo componente registrado se explica solo");
 

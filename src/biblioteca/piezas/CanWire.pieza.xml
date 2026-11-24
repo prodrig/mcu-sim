@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de CanWire, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="CanWire" version="1">
+  <resumen>El hilo de un bus CAN, con su terminador. UN BUS CAN NO ES UNA SENAL: ES UN CABLE EN Y. El estado dominante gana al recesivo porque un cero de 20 ohmios gana a un terminador de 1 kohm, y de ahi -no de un &amp;&amp;- salen el arbitraje y el asentimiento. Recesivo = alto. Un bus se monta con tres piezas y EL ORDEN IMPORTA: el hilo primero, porque los otros dos lo refieren.</resumen>
+  <terminales>
+    <grupo fila="bus" cuando="obligatorio">
+      <terminal nombre="bus"/>
+      <texto>El nodo del hilo. Casi siempre un nodo externo=&quot;si&quot; y bus=&quot;si&quot;, porque no es un pin de ningun MCU y tiene varios conductores por definicion.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="vdd" omision="3.3">Nivel recesivo, y umbral: dominante es por debajo de vdd/2.</atributo>
+  <atributo nombre="r_term" omision="1000">El terminador, en ohmios. Un bus real lleva 120. conectada=&quot;no&quot; es desenchufar el cable, y DEJA EL HILO FLOTANDO.</atributo>
+  <ejemplo>&lt;nodo id=&quot;n_can&quot; externo=&quot;si&quot; bus=&quot;si&quot;/&gt;
+&lt;componente tipo=&quot;CanWire&quot; id=&quot;bus1&quot; r_term=&quot;120&quot;&gt;
+  &lt;pin nombre=&quot;bus&quot; nodo=&quot;n_can&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

@@ -101,6 +101,12 @@ public:
     const std::vector<Fila>& pines() const { return pines_; }
     const std::vector<Fila>& atributos() const { return attrs_; }
     const std::vector<Fila>& refs() const { return refs_; }
+    // Lo demas de la ficha, para quien la lee como dato y no como texto: el
+    // volcado de `--exporta-piezas` (parts/exporta_piezas.h, fase B1 de
+    // doc/analisis_build.md)
+    const std::string& sin_terminales() const { return sin_pines_; }
+    const std::vector<std::string>& notas() const { return notas_; }
+    const std::string& ejemplo() const { return ejemplo_; }
 
     // La página entera, ya formateada, lista para escupir por stdout.
     std::string texto(const std::string& tipo) const;

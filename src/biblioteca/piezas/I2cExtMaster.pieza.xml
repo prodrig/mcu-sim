@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de I2cExtMaster, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="I2cExtMaster" version="1">
+  <resumen>Otro microcontrolador en la misma placa, hablando como MAESTRO del bus. Sirve para dos cosas que sin el no se pueden probar: el MCU como ESCLAVO, y la PERDIDA DE ARBITRAJE cuando los dos arrancan a la vez.</resumen>
+  <terminales>
+    <grupo fila="scl" cuando="obligatorio">
+      <terminal nombre="scl"/>
+      <texto>El reloj, que pone el maestro.</texto>
+    </grupo>
+    <grupo fila="sda" cuando="obligatorio">
+      <terminal nombre="sda"/>
+      <texto>Los datos, bidireccional.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="f_scl" omision="100000">Frecuencia de reloj del bus, en Hz. Respeta el estiramiento del esclavo.</atributo>
+  <ejemplo>&lt;componente tipo=&quot;I2cExtMaster&quot; id=&quot;M2&quot; f_scl=&quot;100e3&quot;&gt;
+  &lt;pin nombre=&quot;scl&quot; nodo=&quot;PB6&quot;/&gt;
+  &lt;pin nombre=&quot;sda&quot; nodo=&quot;PB7&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

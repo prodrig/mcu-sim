@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de MotorBLDC, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="MotorBLDC" version="1">
+  <resumen>Un MOTOR BLDC trifasico con sus tres sensores Hall y, con ppr=, un encoder, movido por un controlador que lo conmuta por dentro (ControladorMotor). Se modela EN EL EJE Q, como un motor de continua equivalente con las cifras de entre dos fases: V = R·i + L·di/dt + Kt·w, par Kt·i. La corriente es la del controlador, CORRIENTE IMPUESTA CON TOPE DE TENSION, como en un paso a paso. U, V y W se cablean y se comprueban: cada una, a la suya del controlador; cruzadas o al aire, sin corriente y con aviso. Los Hall y el encoder son de colector abierto: el pull-up lo pone quien los lee. Lo mecanico es de su cadena (parts/cadena.h). Las cifras de omision, las del Nanotec DB59L024035-A. Con fases=&quot;si&quot;, TRES FASES DE VERDAD en estrella, para un puente trifasico que lo conmuta desde el MCU (PuenteTrifasico): Vk - Vn = Rf·ik + Lf·dik/dt + ek, con la f.e.m. trapezoidal o senoidal.</resumen>
+  <terminales>
+    <grupo fila="u, v, w" cuando="obligatorios">
+      <terminal nombre="u"/>
+      <terminal nombre="v"/>
+      <terminal nombre="w"/>
+      <texto>Las tres fases. Con la consigna positiva del controlador, el eje gira a la DERECHA, el angulo positivo.</texto>
+    </grupo>
+    <grupo fila="hall_vcc, hall_gnd" cuando="con los Hall">
+      <terminal nombre="hall_vcc"/>
+      <terminal nombre="hall_gnd"/>
+      <texto>La alimentacion de los sensores, 5 V: con menos de 3,5, sus salidas se quedan al aire.</texto>
+    </grupo>
+    <grupo fila="h1, h2, h3" cuando="con hall_vcc">
+      <terminal nombre="h1"/>
+      <terminal nombre="h2"/>
+      <terminal nombre="h3"/>
+      <texto>Los Hall, a 120° electricos: 101, 100, 110, 010, 011, 001 girando a la derecha. Colector abierto.</texto>
+    </grupo>
+    <grupo fila="enc_a, enc_b" cuando="con ppr">
+      <terminal nombre="enc_a"/>
+      <terminal nombre="enc_b"/>
+      <texto>El encoder, en cuadratura, A delante a la derecha. Colector abierto.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="kt_ncm_a" omision="5">La constante de par, en N·cm/A (y la de f.e.m., en V·s/rad·100).</atributo>
+  <atributo nombre="r_ohm" omision="0.22">La resistencia entre dos fases.</atributo>
+  <atributo nombre="l_mh" omision="0.29">La inductancia entre dos fases.</atributo>
+  <atributo nombre="corriente_nominal" omision="9.4">En A: la carga del mando va en % de Kt por ella.</atributo>
+  <atributo nombre="corriente_pico" omision="28">En A: por encima, se avisa.</atributo>
+  <atributo nombre="inercia_gcm2" omision="119">La del rotor.</atributo>
+  <atributo nombre="rozamiento_ncm" omision="1.5">El seco, en N·cm (estimado: la ficha no da la corriente en vacio).</atributo>
+  <atributo nombre="viscoso_mnms" omision="0.02">En mN·m por rad/s (estimado).</atributo>
+  <atributo nombre="pares_polos" omision="3">Los pares de polos: 6·p cambios de Hall por vuelta.</atributo>
+  <atributo nombre="ppr" omision="0">Las lineas del encoder por vuelta; 0, sin el. Cuesta un suceso por flanco: 1000 lineas a 3500 rpm son 233 000 por segundo.</atributo>
+  <atributo nombre="eje_mm" omision="0">El diametro de su eje, para ver si encaja con el acople de una &lt;transmision&gt;; 0, no se comprueba.</atributo>
+  <atributo nombre="posicion_inicial" omision="0">El angulo del eje al arrancar, en grados.</atributo>
+  <atributo nombre="fases" omision="no">si: tres fases en estrella, cada una con la mitad de r_ohm y de l_mh y su f.e.m., para un puente que las conmute; no: en el eje q, para un ControladorMotor.</atributo>
+  <atributo nombre="fem" omision="trapezoidal">Con fases=&quot;si&quot;, la forma de la f.e.m.: trapezoidal (plana 120°, la de U en +1 de 0° a 120° electricos, los sectores 0 y 1 de los Hall) o senoidal. La constante por fase, Kt/2 o Kt/√3.</atributo>
+  <nota>Por fases deja ver ademas `corriente_u`, `corriente_v` y `corriente_w`, de cada borne hacia el neutro. Una fase que solo ve mas de 100 ohm fuera esta abierta: sin corriente, y su borne a la f.e.m.</nota>
+  <nota>Deja ver `angulo`, `rpm`, `corriente` (A, la del eje q), `par` (N·m), `tension` (la que le pone el controlador), `hall` (el codigo, H1 en el bit 2), la alarma `sobrecorriente` y, con encoder, `cuenta`. Los mandos: `bloquear` y `carga`, en % del par nominal, hasta el 300 %.</nota>
+  <ejemplo>&lt;componente tipo=&quot;MotorBLDC&quot; id=&quot;MOTOR&quot; kt_ncm_a=&quot;5&quot; r_ohm=&quot;0.22&quot; l_mh=&quot;0.29&quot;
+            inercia_gcm2=&quot;119&quot; pares_polos=&quot;3&quot;&gt;
+  &lt;pin nombre=&quot;u&quot; nodo=&quot;M.U&quot;/&gt; &lt;pin nombre=&quot;v&quot; nodo=&quot;M.V&quot;/&gt;
+  &lt;pin nombre=&quot;w&quot; nodo=&quot;M.W&quot;/&gt;
+  &lt;pin nombre=&quot;hall_vcc&quot; nodo=&quot;P1.VCC&quot;/&gt; &lt;pin nombre=&quot;hall_gnd&quot; nodo=&quot;P1.GND&quot;/&gt;
+  &lt;pin nombre=&quot;h1&quot; nodo=&quot;P1.H1&quot;/&gt; &lt;pin nombre=&quot;h2&quot; nodo=&quot;P1.H2&quot;/&gt;
+  &lt;pin nombre=&quot;h3&quot; nodo=&quot;P1.H3&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

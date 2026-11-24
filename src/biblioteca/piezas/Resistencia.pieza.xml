@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Resistencia, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Resistencia" version="1">
+  <resumen>Una resistencia entre DOS NODOS, a y b. A diferencia de Rpull, el otro extremo no es una tension fija sino un nodo del circuito: el pull-up que cuelga de la VCC de un conector, la que ponga quien alimenta el modulo. La corriente va hacia donde diga la tension. Con un extremo al aire no lleva corriente y ese extremo se queda a la tension del otro -el pin que solo tiene su pull-up lee la VCC-; con los dos al aire no hace nada.</resumen>
+  <terminales>
+    <grupo fila="a" cuando="obligatorio">
+      <terminal nombre="a"/>
+      <texto>Un extremo.</texto>
+    </grupo>
+    <grupo fila="b" cuando="obligatorio">
+      <terminal nombre="b"/>
+      <texto>El otro.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="r" omision="10000">El valor de la resistencia, en ohmios.</atributo>
+  <ejemplo>&lt;componente tipo=&quot;Resistencia&quot; id=&quot;R2&quot; r=&quot;10000&quot;&gt;
+  &lt;pin nombre=&quot;a&quot; nodo=&quot;P1.VCC&quot;/&gt;
+  &lt;pin nombre=&quot;b&quot; nodo=&quot;P1.CLK&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

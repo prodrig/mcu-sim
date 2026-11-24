@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Crystal, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Crystal" version="1">
+  <resumen>Cristal de cuarzo con sus condensadores de carga. Lo que el pin OSC_IN ve del lazo oscilador es una red de polarizacion: una impedancia de 1 Mohm hacia vdd/2. Su presencia es LA CONDICION PARA QUE EL HSE O EL LSE ARRANQUEN, y quitarlo es lo que debe detectar el CSS.</resumen>
+  <terminales>
+    <grupo fila="osc_in" cuando="obligatorio">
+      <terminal nombre="osc_in"/>
+      <texto>PH0 para el HSE, PC14 para el LSE.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="vdd" omision="3.3">La pieza polariza el pin a vdd/2.</atributo>
+  <nota>NO LLEVA LA FRECUENCIA, y no es un olvido: la del HSE es un dato del arbol de reloj y se configura en el RCC (PLLM/PLLN). El cristal solo dice que HAY un cristal. Con conectada=&quot;no&quot; se describe la placa que trae el zocalo vacio -el LSE de la Discovery, sin ir mas lejos-: el oscilador no arranca nunca, LSERDY se queda a cero y un firmware que lo espere se cuelga, exactamente igual que con la tarjeta en la mano.</nota>
+  <nota>Cristal y oscilador externo no son la misma pieza: si la senal la trae otro chip por el pin -el MCO de un ST-LINK, por ejemplo- lo que va es un ExtClock y HSEBYP en el RCC, no un Crystal.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Crystal&quot; id=&quot;X2&quot; vdd=&quot;3.3&quot;&gt;
+  &lt;pin nombre=&quot;osc_in&quot; nodo=&quot;PH0&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

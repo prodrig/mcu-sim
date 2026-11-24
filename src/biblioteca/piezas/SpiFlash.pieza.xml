@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de SpiFlash, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="SpiFlash" version="1">
+  <resumen>Una Flash SPI NOR (W25Q, GD25Q): la memoria de programa de un ESP32 cuando no va dentro del encapsulado. Se modela por transacciones, no por bits: el controlador del chip (el SPI0/SPI1 del ESP32-C3) la encuentra por el nodo de su CS y le da cada orden entera; lo que tarda, lo cuenta el controlador con su reloj y sus lineas. Programar y borrar tardan lo tipico de la hoja de datos, con WIP a 1 mientras tanto.</resumen>
+  <terminales>
+    <grupo fila="cs" cuando="obligatorio">
+      <terminal nombre="cs"/>
+      <texto>El CS: por su nodo la encuentra el chip (en el C3, SPICS0, GPIO14).</texto>
+    </grupo>
+    <grupo fila="clk, di, do, wp, hold" cuando="opcionales">
+      <terminal nombre="clk"/>
+      <terminal nombre="di"/>
+      <terminal nombre="do"/>
+      <terminal nombre="wp"/>
+      <terminal nombre="hold"/>
+      <texto>Para el esquema: los datos no pasan por los nodos.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="modelo" omision="W25Q32">W25Q16, W25Q32, W25Q64, W25Q128, GD25Q16, GD25Q32 o GD25Q64: el JEDEC ID, la capacidad y los tiempos de programar y borrar.</atributo>
+  <atributo nombre="contenido" omision="ninguno">Un fichero con la imagen de la Flash desde 0: se carga al arrancar y se guarda al acabar. Sin el, la Flash sale borrada (0xFF).</atributo>
+  <nota>No protege por BP/CMP/SRP (se guarda en el estado y no protege), ni tiene registros OTP ni modo continuo.</nota>
+  <ejemplo>&lt;componente tipo=&quot;SpiFlash&quot; id=&quot;U2&quot; modelo=&quot;W25Q32&quot; contenido=&quot;flash.bin&quot;&gt;
+  &lt;pin nombre=&quot;cs&quot;  nodo=&quot;SPICS0&quot;/&gt;
+  &lt;pin nombre=&quot;clk&quot; nodo=&quot;SPICLK&quot;/&gt;
+  &lt;pin nombre=&quot;di&quot;  nodo=&quot;SPID&quot;/&gt;
+  &lt;pin nombre=&quot;do&quot;  nodo=&quot;SPIQ&quot;/&gt;
+  &lt;pin nombre=&quot;wp&quot;  nodo=&quot;SPIWP&quot;/&gt;
+  &lt;pin nombre=&quot;hold&quot; nodo=&quot;SPIHD&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Gnd, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Gnd" version="1">
+  <resumen>La masa: pone 0 V en su nodo, con un limite de corriente opcional. Es la referencia de una placa sin MCU y deja ver cuanta corriente vuelve por ella.</resumen>
+  <terminales>
+    <grupo fila="pin" cuando="obligatorio">
+      <terminal nombre="pin"/>
+      <texto>El nodo que lleva a 0 V.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="limite_ma" omision="no">EL LIMITE DE CORRIENTE, en mA, o &quot;no&quot; para ninguno. Si lo que entra por ella pasa del limite, solo deja pasar el limite, el nodo sube, `sobrecorriente` se pone a 1 y lo avisa.</atributo>
+  <atributo nombre="r" omision="0.1">La resistencia interna, en ohmios.</atributo>
+  <nota>Lo que deja ver: `corriente`, en mA, la que RECIBE del nodo, y `sobrecorriente`, que la ventana pinta como alarma. Es la misma pieza que Fuente con v=0, leida desde el otro lado.</nota>
+  <ejemplo>&lt;nodo id=&quot;masa&quot;/&gt;
+&lt;componente tipo=&quot;Gnd&quot; id=&quot;G1&quot; limite_ma=&quot;50&quot;&gt;
+  &lt;pin nombre=&quot;pin&quot; nodo=&quot;masa&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

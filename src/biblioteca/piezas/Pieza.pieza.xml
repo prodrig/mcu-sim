@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Pieza, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Pieza" version="1">
+  <resumen>LA PIEZA QUE SE MECANIZA: un bloque sujeto a la mesa, con un mapa de alturas que la fresa va comiendo. La fresa esta donde la ponen los tres Carro: su punta, en (X - x_mm, Y - y_mm) de la pieza y a Z - mesa_mm por encima de la mesa. Es plana, en V o de bola, y al moverse barre su perfil y deja en cada celda lo mas bajo. Ensena la pieza desde arriba -mas oscura cuanto mas honda- en su imagen, que sale a trozos. Con fuerzas=si, el corte (Kienzle, con el k_c1.1 del material) frena el cabezal y resiste el avance de los carros.</resumen>
+  <sin_terminales>No va a ningun nodo: la mueven los carros.</sin_terminales>
+  <atributo nombre="material" omision="mdf">mdf, madera, metacrilato o aluminio: su color y su k_c1.1.</atributo>
+  <atributo nombre="largo_mm, ancho_mm" omision="100, 60">En X y en Y.</atributo>
+  <atributo nombre="espesor_mm" omision="12">En Z.</atributo>
+  <atributo nombre="x_mm, y_mm" omision="100, 70">Los carros X e Y con la fresa en la esquina (0, 0).</atributo>
+  <atributo nombre="mesa_mm" omision="3">El carro Z con la punta de la fresa tocando la mesa.</atributo>
+  <atributo nombre="celda_mm" omision="0.25">El lado de una celda del mapa: un pixel de la imagen.</atributo>
+  <atributo nombre="fresa" omision="plana">plana, v o bola.</atributo>
+  <atributo nombre="fresa_mm" omision="3.175">Su diametro.</atributo>
+  <atributo nombre="angulo_v" omision="60">El de la punta de una fresa en V, en grados.</atributo>
+  <atributo nombre="filos" omision="2">Para el espesor de viruta.</atributo>
+  <atributo nombre="rpm" omision="10000">La fresa, si no hay ref cabezal.</atributo>
+  <atributo nombre="fuerzas" omision="si">si: el corte frena el cabezal y resiste el avance.</atributo>
+  <atributo nombre="mapa" obligatorio="si">Un fichero: al acabar, las alturas en CSV, una fila por celda en Y.</atributo>
+  <referencia nombre="x, y, z">Los tres Carro, declarados antes.</referencia>
+  <referencia nombre="cabezal">(opcional) El MotorCC que hace girar la fresa: el corte lo frena. En un &lt;sistema&gt;, de otra placa: &lt;ref pieza=&quot;M/PZA&quot; nombre=&quot;cabezal&quot; componente=&quot;C/MOTOR&quot;/&gt;.</referencia>
+  <nota>Deja ver quitado (mm3), hondo (mm), q (mm3/s), par (N cm), fuerza (N), mesa -el carro Y, para mover la imagen con la mesa- y la alarma choque -la fresa en la mesa-; su imagen, pieza; su mando, nueva.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Pieza&quot; id=&quot;PZA&quot; material=&quot;mdf&quot;
+     largo_mm=&quot;100&quot; ancho_mm=&quot;60&quot; espesor_mm=&quot;12&quot;
+     x_mm=&quot;100&quot; y_mm=&quot;70&quot; mesa_mm=&quot;3&quot; fresa=&quot;plana&quot;&gt;
+  &lt;ref nombre=&quot;x&quot; componente=&quot;CX&quot;/&gt; &lt;ref nombre=&quot;y&quot; componente=&quot;CY&quot;/&gt;
+  &lt;ref nombre=&quot;z&quot; componente=&quot;CZ&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

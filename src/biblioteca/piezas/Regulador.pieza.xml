@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Regulador, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Regulador" version="1">
+  <resumen>Un REGULADOR LINEAL de tres patillas, como el 78M05 de los modulos L298N: da `v` voltios por la salida mientras la entrada le deje `caida` de margen; con menos, la entrada menos la caida, y lo deja ver como una alarma, `sin_margen`. Lo que entrega lo pide a la entrada, mas su corriente de reposo: una bateria floja se nota a los dos lados.</resumen>
+  <terminales>
+    <grupo fila="entrada" cuando="obligatorio">
+      <terminal nombre="entrada"/>
+      <texto>La entrada.</texto>
+    </grupo>
+    <grupo fila="salida" cuando="obligatorio">
+      <terminal nombre="salida"/>
+      <texto>La salida regulada.</texto>
+    </grupo>
+    <grupo fila="gnd" cuando="obligatorio">
+      <terminal nombre="gnd"/>
+      <texto>La masa.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="v" omision="5">La tension de salida, en V.</atributo>
+  <atributo nombre="caida" omision="2">El margen que necesita entre la entrada y la salida, en V.</atributo>
+  <atributo nombre="limite_ma" omision="500">Lo que da: pasar de ahi se avisa.</atributo>
+  <atributo nombre="iq_ma" omision="5">Su corriente de reposo, que tambien pide a la entrada.</atributo>
+  <atributo nombre="r" omision="0.1">La resistencia de su salida, en ohmios.</atributo>
+  <nota>Deja ver `tension` (V), `corriente` (mA, la de la salida) y `sin_margen`, una alarma. Avisa de la falta de margen y de pasar de limite_ma.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Regulador&quot; id=&quot;U2&quot; v=&quot;5&quot; caida=&quot;2&quot;&gt;
+  &lt;pin nombre=&quot;entrada&quot; nodo=&quot;X1.12V&quot;/&gt;
+  &lt;pin nombre=&quot;salida&quot;  nodo=&quot;JP5.REG&quot;/&gt;
+  &lt;pin nombre=&quot;gnd&quot;     nodo=&quot;X1.GND&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

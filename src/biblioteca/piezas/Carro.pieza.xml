@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Carro, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Carro" version="1">
+  <resumen>UN CARRO, con sus guias y lo que lleva encima (parts/transmision.h): una masa, un rozamiento seco y otro viscoso, un recorrido con TOPES DUROS -llegar a uno para la cadena en seco: un paso a paso pierde pasos, uno de continua pide la corriente de bloqueo- y, si es vertical, SU PESO, que empuja hacia abajo. Va detras de un husillo: su entrada es lineal. Su posicion, en mm, es lo que mueve el dibujo.</resumen>
+  <sin_terminales>Es una pieza mecanica: la une su &lt;transmision&gt;.</sin_terminales>
+  <atributo nombre="masa_kg" omision="1">La del carro y lo que lleva: el X lleva el Z, el Z el cabezal.</atributo>
+  <atributo nombre="rozamiento_n" omision="5">El seco de sus guias, en N.</atributo>
+  <atributo nombre="viscoso_ns_m" omision="0">El viscoso, en N·s/m.</atributo>
+  <atributo nombre="recorrido_mm" omision="300">De tope a tope.</atributo>
+  <atributo nombre="posicion_mm" omision="0">Donde empieza, desde el tope de abajo.</atributo>
+  <atributo nombre="vertical" omision="no">si: con su peso, hacia las posiciones bajas.</atributo>
+  <atributo nombre="eje" omision="x">x, y o z: para los mensajes.</atributo>
+  <nota>Deja ver `posicion` (mm), `velocidad` (mm/s) y la alarma `en_tope`. Su mando es `fuerza`, en N: la de fuera, la del corte (positiva, hacia arriba del recorrido). Avisa de cada choque contra un tope.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Carro&quot; id=&quot;CZ&quot; eje=&quot;z&quot; masa_kg=&quot;1.2&quot; rozamiento_n=&quot;4&quot;
+            recorrido_mm=&quot;72&quot; posicion_mm=&quot;60&quot; vertical=&quot;si&quot;/&gt;</ejemplo>
+</pieza>

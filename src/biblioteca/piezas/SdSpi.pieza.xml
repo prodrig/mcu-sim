@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de SdSpi, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="SdSpi" version="1">
+  <resumen>Una tarjeta microSD (SDHC) en modo SPI, a nivel de pin: CS, SCK, MOSI y MISO, modo 0, el bit alto primero. Contesta CMD0, CMD8, CMD9, CMD10, CMD12, CMD13, CMD16, CMD17, CMD24, CMD55, ACMD41 y CMD58 como una tarjeta de verdad (direcciones de bloque, CCS = 1). La de la MSP-EXP430FR5994, en la UCB0.</resumen>
+  <terminales>
+    <grupo fila="cs, sck, mosi, miso" cuando="obligatorios">
+      <terminal nombre="cs"/>
+      <terminal nombre="sck"/>
+      <terminal nombre="mosi"/>
+      <terminal nombre="miso"/>
+      <texto>El bus SPI; MISO en alta impedancia sin CS.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="mb" omision="1024">La capacidad en MB (bloques de 512 B).</atributo>
+  <atributo nombre="imagen" omision="ninguna">Un fichero con la imagen de la tarjeta desde el bloque 0 (FAT, por ejemplo).</atributo>
+  <ejemplo>&lt;componente tipo=&quot;SdSpi&quot; id=&quot;SD&quot; mb=&quot;1024&quot;&gt;
+  &lt;pin nombre=&quot;cs&quot;   nodo=&quot;P4.0&quot;/&gt;
+  &lt;pin nombre=&quot;sck&quot;  nodo=&quot;P2.2&quot;/&gt;
+  &lt;pin nombre=&quot;mosi&quot; nodo=&quot;P1.6&quot;/&gt;
+  &lt;pin nombre=&quot;miso&quot; nodo=&quot;P1.7&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

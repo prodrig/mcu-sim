@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Acople, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Acople" version="1">
+  <resumen>UN ACOPLE entre el eje del motor y el del husillo (parts/transmision.h): una inercia y, si acaso, una holgura -la estrella de uno de mordaza-. Sus dos diametros tienen que encajar con el eje de delante y el de detras: la &lt;transmision&gt; lo comprueba, y un acople de 5 mm en un eje de 6,35 no se monta.</resumen>
+  <sin_terminales>Es una pieza mecanica: la une su &lt;transmision&gt;.</sin_terminales>
+  <atributo nombre="tipo_acople" omision="espiral">espiral, mordaza o fuelle: para el dibujo y los mensajes.</atributo>
+  <atributo nombre="d1_mm, d2_mm" omision="0">El agujero del lado del motor y el del husillo; 0, no se comprueba.</atributo>
+  <atributo nombre="inercia_gcm2" omision="2">La suya.</atributo>
+  <atributo nombre="holgura_arcmin" omision="0">En minutos de arco.</atributo>
+  <nota>Deja ver `angulo`.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Acople&quot; id=&quot;A&quot; tipo_acople=&quot;espiral&quot; d1_mm=&quot;5&quot; d2_mm=&quot;8&quot;/&gt;</ejemplo>
+</pieza>

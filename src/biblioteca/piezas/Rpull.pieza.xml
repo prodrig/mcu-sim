@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Rpull, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Rpull" version="1">
+  <resumen>Una rama resistiva entre el nodo y una tension fija. Es el equivalente Thevenin {v, r} y nada mas, asi que sirve para el pull-up y el pull-down de la placa, para polarizar una entrada y para cargar un pad y medir cuanta corriente entrega. CONDUCE SIEMPRE DESDE QUE SE CONSTRUYE: es el unico componente cuyo efecto no depende de ningun proceso, y por eso es la forma mas directa de sujetar un nodo que si no quedaria flotante.</resumen>
+  <terminales>
+    <grupo fila="a" cuando="obligatorio">
+      <terminal nombre="a"/>
+      <texto>El nodo al que se conecta.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="v" omision="3.3">La tension del otro extremo. ES UNA TENSION CUALQUIERA, no una eleccion entre VDD y masa, y no tiene por que existir en el MCU: 3.3 es el pull-up al mismo rail que el chip, 5 el pull-up a un rail de 5 V como el de un bus I2C mixto, 0 un pull-down y 1.8 una polarizacion a media escala para una entrada de ADC.</atributo>
+  <atributo nombre="r" omision="10000">El valor de la resistencia, en ohmios.</atributo>
+  <nota>Por que no se llama PullUp: lo que hace es una rama resistiva a un potencial, y de ahi salen tanto los pulls como las cargas de prueba -v=&quot;0&quot; r=&quot;1000&quot; es una carga de 1 kohm con la que medir la corriente que da un pad-.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Rpull&quot; id=&quot;R35&quot; v=&quot;0&quot; r=&quot;100000&quot;&gt;
+  &lt;pin nombre=&quot;a&quot; nodo=&quot;PA0&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

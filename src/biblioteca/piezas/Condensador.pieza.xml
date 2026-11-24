@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Condensador, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Condensador" version="1">
+  <resumen>EL CONDENSADOR DEL BUS de una maquina: la energia que devuelve un motor al frenar va a parar aqui si la fuente no la absorbe (absorbe=&quot;no&quot;), y su tension sube. Integra su carga, exacta entre dos cambios del nodo, tras su resistencia serie (ESR); por encima de v_max avisa: se hincha o revienta.</resumen>
+  <terminales>
+    <grupo fila="mas, menos" cuando="obligatorios">
+      <terminal nombre="mas"/>
+      <terminal nombre="menos"/>
+      <texto>Sus dos patas; menos, a la masa del bus.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="c_uf" omision="1000">La capacidad, en uF.</atributo>
+  <atributo nombre="esr_ohm" omision="0.1">Su resistencia serie, en ohmios: 0,1 es lo menos que admite un nodo.</atributo>
+  <atributo nombre="v_max" omision="63">La tension que aguanta.</atributo>
+  <atributo nombre="v_inicial" omision="0">Con la que empieza: 0, descargado.</atributo>
+  <nota>Deja ver tension (V), corriente (A, positiva si se carga), energia (J) y la alarma sobretension.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Condensador&quot; id=&quot;CBUS&quot; c_uf=&quot;2200&quot; v_max=&quot;63&quot;&gt;
+  &lt;pin nombre=&quot;mas&quot; nodo=&quot;BUS&quot;/&gt; &lt;pin nombre=&quot;menos&quot; nodo=&quot;GND&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

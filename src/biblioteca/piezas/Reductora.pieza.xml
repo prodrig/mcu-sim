@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Reductora, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Reductora" version="1">
+  <resumen>UNA REDUCTORA en una cadena (parts/transmision.h): una relacion -vueltas de su entrada por cada una de su salida-, un rendimiento directo y otro inverso -cero o menos en un sinfin que se sujeta solo: la carga no puede mover el motor-, una holgura en minutos de arco, la inercia de su entrada y un par maximo en su salida, que se avisa si se pasa. Va en una &lt;transmision&gt;.</resumen>
+  <sin_terminales>Es una pieza mecanica: la une su &lt;transmision&gt;.</sin_terminales>
+  <atributo nombre="relacion" omision="3">Vueltas de la entrada por cada una de la salida.</atributo>
+  <atributo nombre="rendimiento" omision="0.9">El directo, de 0 a 1.</atributo>
+  <atributo nombre="rendimiento_inverso" omision="el directo">El de cuando la carga mueve al motor; cero o menos, se sujeta sola (un sinfin).</atributo>
+  <atributo nombre="holgura_arcmin" omision="0">En minutos de arco, en la salida: una zona muerta.</atributo>
+  <atributo nombre="inercia_gcm2" omision="0">La de su entrada.</atributo>
+  <atributo nombre="par_max_nm" omision="0">El par de su salida que aguanta; 0, sin limite.</atributo>
+  <atributo nombre="entrada_mm, salida_mm" omision="0">Los diametros de sus ejes, para ver si encajan.</atributo>
+  <nota>Deja ver `angulo` y `rpm` de su salida.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Reductora&quot; id=&quot;R&quot; relacion=&quot;5&quot; rendimiento=&quot;0.9&quot;
+            holgura_arcmin=&quot;15&quot; inercia_gcm2=&quot;8&quot; par_max_nm=&quot;6&quot;/&gt;</ejemplo>
+</pieza>

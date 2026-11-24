@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de PuenteSerie, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="PuenteSerie" version="1">
+  <resumen>Un puente UART de placa, como el puerto COM virtual del ST-LINK de una Nucleo: lee el TX de una USART por los pines, gobierna su RX y lleva los bytes a otro sitio. Si los baudios o el formato no coinciden con los del firmware, la USART ve BASURA y levanta sus errores, como en la placa.</resumen>
+  <terminales>
+    <grupo fila="rx" cuando="opcional">
+      <terminal nombre="rx"/>
+      <texto>Lee el TX del MCU. Solo escucha. Hace falta rx, tx o los dos.</texto>
+    </grupo>
+    <grupo fila="tx" cuando="opcional">
+      <terminal nombre="tx"/>
+      <texto>Gobierna el RX del MCU, con 50 ohmios.</texto>
+    </grupo>
+    <grupo fila="cts" cuando="opcional">
+      <terminal nombre="cts"/>
+      <texto>Lee el RTS del MCU: con flujo=&quot;rtscts&quot;, alto = no le mandes.</texto>
+    </grupo>
+    <grupo fila="rts" cuando="opcional">
+      <terminal nombre="rts"/>
+      <texto>Gobierna el CTS del MCU: bajo = puede mandar.</texto>
+    </grupo>
+    <grupo fila="dtr" cuando="opcional">
+      <terminal nombre="dtr"/>
+      <texto>Alta en reposo; baja si el anfitrion activa DTR (RFC 2217).</texto>
+    </grupo>
+    <grupo fila="vccio" cuando="opcional">
+      <terminal nombre="vccio"/>
+      <texto>La alimentacion de sus patillas, como el VCCIO de un FT232R: si esta, el nivel alto de tx, rts y dtr y el umbral de rx y cts son los de este nodo, y lo siguen si cambia; y rx y cts llevan el pull-up de 200 kohm a VCCIO del chip. Sin ella, 3,3 V y sin pull-ups.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="host" omision="rfc2217:3355">A donde van los bytes: memoria, tcp:PUERTO (en crudo) o rfc2217:PUERTO (Telnet con la opcion 44: el terminal puede cambiar baudios, formato, DTR, RTS y mandar breaks), escuchando siempre en esta maquina. O conectandose a un servidor que ya escucha: tcp-cliente:HOST:PUERTO y rfc2217-cliente:HOST:PUERTO (este configura el puerto remoto con los baudios y el formato del puente); reintenta cada segundo. Se cambia sin tocar el XML con --serie ID=DESTINO.</atributo>
+  <atributo nombre="baudios" omision="115200">Un numero, o host para que los fije el terminal por RFC 2217 (y con ellos el formato y el control de flujo). Con un numero, lo que pida el terminal se le contesta con lo que hay, y se avisa una vez.</atributo>
+  <atributo nombre="formato" omision="8N1">Bits (5..9, sin la paridad), paridad N/E/O/M/S y parada 1, 1.5 o 2.</atributo>
+  <atributo nombre="flujo" omision="no">no, o rtscts: no manda mientras el RTS del MCU este alto.</atributo>
+  <atributo nombre="muestra" omision="si">Imprime linea a linea lo que manda el MCU.</atributo>
+  <atributo nombre="guion" omision="nada">Lo que se teclea al arrancar, con \r \n \t \0 \\ y \xNN. Solo con host=memoria.</atributo>
+  <atributo nombre="guion_ms" omision="10">Cuando se teclea, en ms simulados.</atributo>
+  <atributo nombre="reinicio" omision="no">esp: los cambios de DTR y RTS que llegan por RFC 2217 no se aplican uno a uno: el puente reconoce el principio del reinicio de esptool y lo hace el, con sus tiempos en tiempo simulado, como el servidor esp_rfc2217_server de Espressif. Para las placas de los ESP, con su AutoResetEsp. DTR y RTS salen inactivos (altos).</atributo>
+  <nota>Una trama con error de trama o de paridad SE ENTREGA igual: es la basura que tiene que verse cuando los baudios no cuadran. Un break no es un byte: se cuenta y no se entrega.</nota>
+  <nota>El puerto serie del ordenador NO lo abre mcu-sim: lo pone una herramienta externa conectada por TCP (socat en Linux y macOS; com0com + hub4com o HW VSP3 en Windows). Para solo mirar basta un terminal que hable TCP: PuTTY en modo Raw, CoolTerm, nc. Vease doc/analisis_puente_serie.md, 7.</nota>
+  <nota>Con rfc2217, los errores de trama y de paridad y los breaks que manda el MCU llegan al terminal como NOTIFY-LINESTATE si los pide con su mascara, y el RTS del MCU (terminal cts) como el CTS del terminal, en NOTIFY-MODEMSTATE. DSR y DCD siempre estan activas.</nota>
+  <nota>Con host=tcp o rfc2217 la simulacion no termina sola, como con --gdb: se sale con Ctrl-C. Usese con --tiempo-real, o el terminal vera el ritmo de la simulacion y no el de la placa.</nota>
+  <ejemplo>&lt;componente tipo=&quot;PuenteSerie&quot; id=&quot;VCP&quot; host=&quot;memoria&quot;
+            baudios=&quot;115200&quot; formato=&quot;8N1&quot; muestra=&quot;si&quot;&gt;
+  &lt;pin nombre=&quot;rx&quot; nodo=&quot;PA2&quot;/&gt;   &lt;!-- USART2_TX --&gt;
+  &lt;pin nombre=&quot;tx&quot; nodo=&quot;PA3&quot;/&gt;   &lt;!-- USART2_RX --&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de L298, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="L298" version="1">
+  <resumen>El L298 de ST: DOS PUENTES EN H completos para motores de continua. Con ENA alto, IN1 alto e IN2 bajo llevan OUT1 a VS y OUT2 a masa; al reves, al reves; iguales, el motor frena en corto; con ENA bajo las dos salidas se quedan al aire y el motor va libre. Igual ENB, IN3, IN4, OUT3 y OUT4. Las entradas son TTL -bajo hasta 1,5 V, alto desde 2,3 V-: valen con 3,3 V. Las salidas son Darlington y no llegan a los rieles: caen 0,7 V mas 0,65 ohm arriba y 0,7 V mas 0,5 ohm abajo, que son los 1,35 y 1,2 V de la hoja de datos con 1 A. Lo que sale por las salidas altas lo pide a VS, con su consumo de reposo; la logica, a VSS, que necesita de 4,5 a 7 V.</resumen>
+  <terminales>
+    <grupo fila="vs" cuando="obligatorio">
+      <terminal nombre="vs"/>
+      <texto>La alimentacion de los motores, hasta 46 V.</texto>
+    </grupo>
+    <grupo fila="vss" cuando="obligatorio">
+      <terminal nombre="vss"/>
+      <texto>La de la logica, de 4,5 a 7 V.</texto>
+    </grupo>
+    <grupo fila="gnd" cuando="obligatorio">
+      <terminal nombre="gnd"/>
+      <texto>La masa; tambien la de los SENSE A y B.</texto>
+    </grupo>
+    <grupo fila="ena, enb" cuando="obligatorios">
+      <terminal nombre="ena"/>
+      <terminal nombre="enb"/>
+      <texto>La habilitacion de cada puente.</texto>
+    </grupo>
+    <grupo fila="in1 .. in4" cuando="obligatorios">
+      <serie prefijo="in" desde="1" hasta="4"/>
+      <texto>Las entradas: in1 e in2 del puente A, in3 e in4 del B.</texto>
+    </grupo>
+    <grupo fila="out1 .. out4" cuando="obligatorios">
+      <serie prefijo="out" desde="1" hasta="4"/>
+      <texto>Las salidas: out1 y out2 del A, out3 y out4 del B.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="diodos" omision="no">si: los diodos de libre circulacion que el chip necesita por fuera, y que el modulo L298N lleva. Una salida que se suelta llevando la corriente de la bobina de un motor la sigue llevando por su diodo -desde masa, a -0,9 V, o hacia VS, a VS + 0,9 V- hasta que se acaba. Sin ellos, esa corriente se corta.</atributo>
+  <nota>Deja ver `corriente_a` y `corriente_b` (mA, la de cada motor, la que sale por OUT1 y OUT3), `corriente_vs` (mA, lo que pide a VS) y `disipacion` (W, lo que se queda en el chip), las cuatro DE MEDIA -un filtro de 5 ms-, y `logica` (0/1). Avisa, una vez cada cosa, de una entrada a un nivel que no es ni alto ni bajo, de la logica sin tension y de mas de 2 A por una salida, que es lo que aguanta: el L298 no se protege.</nota>
+  <ejemplo>&lt;componente tipo=&quot;L298&quot; id=&quot;U1&quot;&gt;
+  &lt;pin nombre=&quot;vs&quot;   nodo=&quot;X1.12V&quot;/&gt;
+  &lt;pin nombre=&quot;vss&quot;  nodo=&quot;V5&quot;/&gt;
+  &lt;pin nombre=&quot;gnd&quot;  nodo=&quot;X1.GND&quot;/&gt;
+  &lt;pin nombre=&quot;ena&quot;  nodo=&quot;JA.ENA&quot;/&gt;
+  &lt;pin nombre=&quot;in1&quot;  nodo=&quot;P1.IN1&quot;/&gt;
+  &lt;pin nombre=&quot;in2&quot;  nodo=&quot;P1.IN2&quot;/&gt;
+  &lt;pin nombre=&quot;enb&quot;  nodo=&quot;JB.ENB&quot;/&gt;
+  &lt;pin nombre=&quot;in3&quot;  nodo=&quot;P1.IN3&quot;/&gt;
+  &lt;pin nombre=&quot;in4&quot;  nodo=&quot;P1.IN4&quot;/&gt;
+  &lt;pin nombre=&quot;out1&quot; nodo=&quot;MA.OUT1&quot;/&gt;
+  &lt;pin nombre=&quot;out2&quot; nodo=&quot;MA.OUT2&quot;/&gt;
+  &lt;pin nombre=&quot;out3&quot; nodo=&quot;MB.OUT3&quot;/&gt;
+  &lt;pin nombre=&quot;out4&quot; nodo=&quot;MB.OUT4&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

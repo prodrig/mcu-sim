@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Sonda, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Sonda" version="1">
+  <resumen>LA SONDA DE HERRAMIENTA: una placa de contacto sobre la pieza, para el cero de Z (G38.2). La fresa la toca cuando el Carro Z baja hasta altura_mm, y entonces cierra el circuito entre sus dos pinzas: la de la placa -al pin de la sonda, con su pull-up- y la de la fresa -a masa-. El mando `puesta` la pone o la quita.</resumen>
+  <terminales>
+    <grupo fila="placa, fresa" cuando="obligatorios">
+      <terminal nombre="placa"/>
+      <terminal nombre="fresa"/>
+      <texto>Las dos pinzas.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="altura_mm" omision="20">La posicion del carro Z con la fresa tocando la placa.</atributo>
+  <atributo nombre="puesta" omision="si">si: la placa esta en la mesa al arrancar.</atributo>
+  <referencia nombre="carro">El Carro Z, declarado antes.</referencia>
+  <nota>Deja ver `toca`; su mando es `puesta`.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Sonda&quot; id=&quot;PRB&quot; altura_mm=&quot;20&quot;&gt;
+  &lt;ref nombre=&quot;carro&quot; componente=&quot;CZ&quot;/&gt;
+  &lt;pin nombre=&quot;placa&quot; nodo=&quot;PROBE&quot;/&gt; &lt;pin nombre=&quot;fresa&quot; nodo=&quot;GND&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de LcdFh1138p, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="LcdFh1138p" version="1">
+  <resumen>El vidrio LCD FH-1138P de la MSP-EXP430FR4133: 4-mux, seis caracteres de 14 segmentos y simbolos. Mira las TENSIONES de sus 38 patillas (las ondas del LCD_E): en la fase de cada COM, un segmento esta encendido si su patilla va al extremo contrario. Las patillas 21-24 son COM3-COM0; 25-31 no van a nada [SLAU595B tabla 3].</resumen>
+  <terminales>
+    <grupo fila="1 .. 38" cuando="los que se usen">
+      <serie prefijo="" desde="1" hasta="38"/>
+      <texto>Las patillas del vidrio, por su numero.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="muestra" omision="no">si: escribe el texto cada vez que cambia</atributo>
+  <nota>Observables: car1..car6 (el codigo ASCII de cada caracter) y tramas. La S y el 5 son el mismo glifo (hal_LCD.c): el vidrio lo lee como 5.</nota>
+</pieza>

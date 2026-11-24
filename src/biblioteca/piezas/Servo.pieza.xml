@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Servo, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Servo" version="1">
+  <resumen>Un SERVO de modelismo, como el SG90: un motor con reductora que lleva su eje al angulo que pide la ANCHURA del pulso de la senal PWM, que llega cada `periodo_ms`. `pulso_min_ms` es `angulo_min` y `pulso_max_ms` es `angulo_max`, en linea recta; fuera de ese rango se queda en el extremo, y lo dice. Va hacia el angulo a su VELOCIDAD, que depende de la tension de VCC, y tiene banda muerta. Es una carga de verdad sobre VCC: poco quieto, mas moviendose y mucho bloqueado. Y al arrancar el eje esta DONDE SE QUEDO, en un angulo cualquiera del rango, como el de verdad: el primer pulso lo lleva a su sitio. De giro continuo (`continuo=&quot;si&quot;`) el pulso es una velocidad: el del centro lo para.</resumen>
+  <terminales>
+    <grupo fila="vcc" cuando="obligatorio">
+      <terminal nombre="vcc"/>
+      <texto>La alimentacion, de `v_min` a `v_max`.</texto>
+    </grupo>
+    <grupo fila="gnd" cuando="obligatorio">
+      <terminal nombre="gnd"/>
+      <texto>La masa.</texto>
+    </grupo>
+    <grupo fila="pwm" cuando="obligatorio">
+      <terminal nombre="pwm"/>
+      <texto>La senal: alta de alta impedancia, con umbrales de 1,6 V al subir y 0,8 V al bajar; vale con 3,3 V.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="periodo_ms" omision="20">El periodo que espera de la senal, en ms. Uno que llegue a menos de la mitad o a mas del doble se avisa.</atributo>
+  <atributo nombre="angulo_min" omision="-90">El angulo del pulso mas corto, en grados.</atributo>
+  <atributo nombre="angulo_max" omision="90">El del pulso mas largo. Positivo es en el sentido de las agujas del reloj, mirando el eje desde arriba.</atributo>
+  <atributo nombre="pulso_min_ms" omision="1">La anchura del pulso de `angulo_min`, en ms.</atributo>
+  <atributo nombre="pulso_max_ms" omision="2">La del de `angulo_max`.</atributo>
+  <atributo nombre="continuo" omision="no">si: de giro continuo. El pulso es la velocidad y el sentido; el rango de angulos no cuenta.</atributo>
+  <atributo nombre="velocidad" omision="0.12@4.8">Lo que tarda en girar 60 grados a cada tension: `s@V`, separados por blancos -`0.12@4.8 0.10@6`-. Entre dos, en linea recta; con uno solo, la velocidad es proporcional a la tension.</atributo>
+  <atributo nombre="v_min" omision="4">Por debajo, en V, el motor no puede con la reductora.</atributo>
+  <atributo nombre="v_max" omision="7.2">Lo que aguanta, en V: por encima, lo avisa.</atributo>
+  <atributo nombre="banda_muerta_us" omision="10">Un cambio de pulso menor, en us, no lo mueve.</atributo>
+  <atributo nombre="sin_senal" omision="suelta">Que hace si deja de llegar senal -tres periodos sin pulso-: suelta, el analogico, que deja el motor; mantiene, el digital, que sigue yendo al ultimo angulo.</atributo>
+  <atributo nombre="i_reposo_ma" omision="6">Lo que gasta quieto, en mA, a 5 V.</atributo>
+  <atributo nombre="i_marcha_ma" omision="150">Lo que gasta moviendose.</atributo>
+  <atributo nombre="i_bloqueo_ma" omision="650">Lo que gasta con el eje sujeto y queriendo moverse.</atributo>
+  <atributo nombre="posicion_inicial" omision="aleatoria">Donde esta el eje al arrancar: aleatoria, en cualquier punto del rango, o un angulo en grados.</atributo>
+  <atributo nombre="semilla" omision="0">Fija la posicion aleatoria: con la misma semilla, el mismo angulo. 0, distinta cada vez.</atributo>
+  <atributo nombre="aspa" omision="dos">El aspa que lleva en el eje, para el dibujo: una, dos (a 180 grados), cuatro (dos largas y dos cortas, en cruz), seis o disco. Una de las palas lleva una marca para seguirla con la vista.</atributo>
+  <atributo nombre="color" omision="azul">El color del cuerpo en el dibujo: azul o negro.</atributo>
+  <nota>El dibujo de la pieza elige su cuerpo y su aspa con las variantes `ID.cuerpo@azul|negro` y `ID.aspa@una|dos|cuatro|seis|disco`, y la ventana gira el elemento de la pieza con el angulo (el efecto `angulo`). Deja ver `angulo` (grados), `pulso` (us), `corriente` (mA) y `rpm`; el MANDO `bloquear` sujeta el eje con la mano. Avisa, una vez cada cosa, de pulsos fuera de rango o que no lo son, de un periodo que no es el suyo, de la sobretension y de cuando se queda sin senal.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Servo&quot; id=&quot;SERVO&quot; velocidad=&quot;0.12@5&quot; aspa=&quot;cuatro&quot;&gt;
+  &lt;pin nombre=&quot;vcc&quot; nodo=&quot;P1.VCC&quot;/&gt;
+  &lt;pin nombre=&quot;gnd&quot; nodo=&quot;P1.GND&quot;/&gt;
+  &lt;pin nombre=&quot;pwm&quot; nodo=&quot;P1.PWM&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

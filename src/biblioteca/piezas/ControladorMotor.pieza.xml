@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de ControladorMotor, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="ControladorMotor" version="1">
+  <resumen>Un CONTROLADOR DE MOTOR inteligente, de RELOJ Y DIRECCION EN LAZO CERRADO, con salida de freno y de error: un controlador tipo C5-E para un MotorBLDC. Cada flanco de subida de STEP es un paso hacia donde diga DIR; por dentro, una cascada de lazos de posicion y velocidad sobre lo que miden sus Hall o su encoder, cada lazo_us, y la corriente del eje q impuesta en el motor, con el tope en VCC. NO PIERDE PASOS SIN ENTERARSE: si el error de seguimiento pasa de error_max_grados durante error_ms, se para, echa el freno y lo dice por su salida de error. Con EN, corriente y se suelta el freno; sin EN, se echa el freno y, pasados freno_ms, se quita la corriente. Con mando=&quot;canopen&quot;, en vez de STEP, DIR y EN, CANOPEN por su pin can: un esclavo CiA 301 con un subconjunto de CiA 402 -la maquina de estados, el perfil de posicion, el de velocidad y el homing- (doc/parts.md).</resumen>
+  <terminales>
+    <grupo fila="vcc, gnd" cuando="obligatorios">
+      <terminal nombre="vcc"/>
+      <terminal nombre="gnd"/>
+      <texto>La alimentacion, de 12 a 48 V: la de la logica y la del motor, y el tope de su tension.</texto>
+    </grupo>
+    <grupo fila="u, v, w" cuando="obligatorios">
+      <terminal nombre="u"/>
+      <terminal nombre="v"/>
+      <terminal nombre="w"/>
+      <texto>Las tres fases del motor.</texto>
+    </grupo>
+    <grupo fila="step, dir, en" cuando="obligatorios, menos con CANopen">
+      <terminal nombre="step"/>
+      <terminal nombre="dir"/>
+      <terminal nombre="en"/>
+      <texto>Paso, direccion (alto: hacia delante) y habilitacion (alta: habilitado), con 10 kohm a masa por dentro y el umbral en umbral= voltios.</texto>
+    </grupo>
+    <grupo fila="can" cuando="con mando=&quot;canopen&quot;">
+      <terminal nombre="can"/>
+      <texto>El hilo del bus CAN: el transceptor va dentro. Recesivo por encima de 1,65 V, como el de un CanWire.</texto>
+    </grupo>
+    <grupo fila="fin_neg, fin_pos" cuando="opcionales">
+      <terminal nombre="fin_neg"/>
+      <terminal nombre="fin_pos"/>
+      <texto>Los finales de carrera de abajo y de arriba, con pull-up a los 5 V de dentro y activos a nivel bajo: el homing por los metodos 17 y 18, y fuera de el no se va hacia uno pisado. Solo con CANopen.</texto>
+    </grupo>
+    <grupo fila="v5" cuando="opcional">
+      <terminal nombre="v5"/>
+      <texto>Los 5 V de los sensores.</texto>
+    </grupo>
+    <grupo fila="h1, h2, h3" cuando="con los Hall">
+      <terminal nombre="h1"/>
+      <terminal nombre="h2"/>
+      <terminal nombre="h3"/>
+      <texto>Los Hall del motor, con 4,7 kohm a los 5 V de dentro.</texto>
+    </grupo>
+    <grupo fila="enc_a, enc_b" cuando="con encoder=&quot;si&quot;">
+      <terminal nombre="enc_a"/>
+      <terminal nombre="enc_b"/>
+      <texto>El encoder, con sus pull-ups.</texto>
+    </grupo>
+    <grupo fila="freno" cuando="opcional">
+      <terminal nombre="freno"/>
+      <texto>La salida del freno: a VCC, suelto; al aire, echado.</texto>
+    </grupo>
+    <grupo fila="error" cuando="opcional">
+      <terminal nombre="error"/>
+      <texto>La salida de error: a masa con error, al aire sin el.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="corriente_max" omision="10">El tope de la consigna del eje q, en A.</atributo>
+  <atributo nombre="pasos_vuelta" omision="2000">Los pasos de STEP por vuelta del motor.</atributo>
+  <atributo nombre="encoder" omision="no">si: la posicion, del encoder (ppr=); no, de los Hall (pares_polos=).</atributo>
+  <atributo nombre="pares_polos" omision="3">Los del motor: 6·p cambios de Hall por vuelta.</atributo>
+  <atributo nombre="ppr" omision="1000">Las lineas del encoder.</atributo>
+  <atributo nombre="kp_pos" omision="20; 50 con encoder">La ganancia del lazo de posicion, en 1/s.</atributo>
+  <atributo nombre="kp_vel, ki_vel" omision="0.015 y 1; 0.06 y 3 con encoder">Las del de velocidad: A por rad/s y A por rad. Las de omision son las de un DB59L024035-A suelto; con los Hall, una medida cada 20°, mas bajas.</atributo>
+  <atributo nombre="rpm_max" omision="4000">El tope de la consigna de velocidad.</atributo>
+  <atributo nombre="error_max_grados, error_ms" omision="360, 10">El error de seguimiento que lo para, en grados del motor, y cuanto tiene que durar.</atributo>
+  <atributo nombre="freno_ms" omision="100">Lo que tarda el freno en soltarse y en echarse.</atributo>
+  <atributo nombre="lazo_us" omision="1000">El periodo de los lazos.</atributo>
+  <atributo nombre="umbral" omision="2.5">El umbral de las entradas, en V, con 0,25 de histeresis.</atributo>
+  <atributo nombre="v_sobretension" omision="1,1 x vcc_max">Por encima, corta el puente, echa el freno y da error: lo que devuelve el motor al frenar ha subido el bus.</atributo>
+  <atributo nombre="mando" omision="pasos">pasos: reloj y direccion, por STEP, DIR y EN; canopen: por el bus de campo, por el pin can.</atributo>
+  <atributo nombre="nodo" omision="1">Con CANopen, su numero de nodo: de 1 a 127.</atributo>
+  <atributo nombre="can_kbps" omision="500">La velocidad del bus: 125, 250, 500 o 1000 kbit/s.</atributo>
+  <atributo nombre="terminador" omision="no">si: lleva los 120 ohm del final del bus puestos.</atributo>
+  <atributo nombre="arranque_ms" omision="100">De la tension al boot-up: lo que tarda en hablar.</atributo>
+  <nota>Deja ver `estado` (0 sin tension, 1 deshabilitado, 2 soltando el freno, 3 en marcha, 4 echando el freno, 5 error), `pasos`, `error_seguimiento` (grados), `corriente_q` (A, la consigna), `rpm` (las medidas), `corriente_vcc` (mA, de media), `freno_suelto` y la alarma `error`.</nota>
+  <nota>Con CANopen deja ver ademas `statusword` (0x6041), `nmt` (0, 4, 5 o 127), `posicion` (0x6064, en pasos) y `modo` (0x6061). Sus objetos: 1000, 1001, 1017, 1018, los PDO 1400, 1401, 1600, 1601, 1800, 1801, 1A00 y 1A01 -con el mapeo fijo-, y de CiA 402 603F, 6040, 6041, 605A, 6060-6067, 606C, 607A, 607C, 6081, 6083-6085, 6098, 6099, 609A, 60FF y 6502. Las posiciones, en pasos; las velocidades, en pasos/s.</nota>
+  <nota>Lo que no hace: la puesta en marcha automatica, el I²t, los modos sincronos de CiA 402 y el mapeo variable de los PDO.</nota>
+  <ejemplo>&lt;componente tipo=&quot;ControladorMotor&quot; id=&quot;U1&quot; pasos_vuelta=&quot;2000&quot;&gt;
+  &lt;pin nombre=&quot;vcc&quot; nodo=&quot;X1.VCC&quot;/&gt; &lt;pin nombre=&quot;gnd&quot; nodo=&quot;X1.GND&quot;/&gt;
+  &lt;pin nombre=&quot;u&quot; nodo=&quot;X2.U&quot;/&gt; &lt;pin nombre=&quot;v&quot; nodo=&quot;X2.V&quot;/&gt;
+  &lt;pin nombre=&quot;w&quot; nodo=&quot;X2.W&quot;/&gt;
+  &lt;pin nombre=&quot;v5&quot; nodo=&quot;X3.5V&quot;/&gt; &lt;pin nombre=&quot;h1&quot; nodo=&quot;X3.H1&quot;/&gt;
+  &lt;pin nombre=&quot;h2&quot; nodo=&quot;X3.H2&quot;/&gt; &lt;pin nombre=&quot;h3&quot; nodo=&quot;X3.H3&quot;/&gt;
+  &lt;pin nombre=&quot;step&quot; nodo=&quot;X4.STEP&quot;/&gt; &lt;pin nombre=&quot;dir&quot; nodo=&quot;X4.DIR&quot;/&gt;
+  &lt;pin nombre=&quot;en&quot; nodo=&quot;X4.EN&quot;/&gt; &lt;pin nombre=&quot;freno&quot; nodo=&quot;X4.BRK&quot;/&gt;
+  &lt;pin nombre=&quot;error&quot; nodo=&quot;X4.ERR&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

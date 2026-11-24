@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de FinalCarrera, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="FinalCarrera" version="1">
+  <resumen>UN FINAL DE CARRERA: un microinterruptor que pisa un Carro al pasar por una posicion, con sus contactos COM, NO y NC. El homing ($H) y los limites duros de una fresadora. Con lado=min se pisa con el carro por debajo de posicion_mm; con lado=max, por encima; y para soltarlo hay que volver histeresis_mm. Lo habitual: COM a masa y NO al pin, con su pull-up: pisado, se lee bajo.</resumen>
+  <terminales>
+    <grupo fila="com" cuando="obligatorio">
+      <terminal nombre="com"/>
+      <texto>El comun.</texto>
+    </grupo>
+    <grupo fila="no, nc" cuando="uno o los dos">
+      <terminal nombre="no"/>
+      <terminal nombre="nc"/>
+      <texto>El normalmente abierto y el normalmente cerrado.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="posicion_mm" omision="1">Donde se pisa, en la posicion del carro.</atributo>
+  <atributo nombre="lado" omision="min">min: pisado por debajo; max: por encima.</atributo>
+  <atributo nombre="histeresis_mm" omision="0.02">Lo que hay que volver para soltarlo.</atributo>
+  <referencia nombre="carro">El Carro que lo pisa, declarado antes.</referencia>
+  <nota>Deja ver la alarma `pisado`.</nota>
+  <ejemplo>&lt;componente tipo=&quot;FinalCarrera&quot; id=&quot;FX&quot; posicion_mm=&quot;1&quot; lado=&quot;min&quot;&gt;
+  &lt;ref nombre=&quot;carro&quot; componente=&quot;CX&quot;/&gt;
+  &lt;pin nombre=&quot;com&quot; nodo=&quot;GND&quot;/&gt; &lt;pin nombre=&quot;no&quot; nodo=&quot;LIM_X&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

@@ -204,6 +204,15 @@ jobs:
             sh ci/comprueba_invariante.sh $s src/build/$s.log
           done
 
+      # La biblioteca de mcu-sim-build (doc/analisis_build.md, B1): las
+      # fichas de las piezas, versionadas en src/biblioteca/piezas, tienen
+      # que ser las que vuelca este mcu-sim. Si alguien cambia una ficha y no
+      # regenera, falla aqui. Solo en Linux: el volcado no depende de la
+      # plataforma.
+      - name: La biblioteca de mcu-sim-build, al dia
+        working-directory: src
+        run: make -f Makefile.mcu-sim biblioteca-comprueba
+
       # -----------------------------------------------------------------
       # testserie OTRA VEZ, CON UN LOOPBACK LENTO. En la D5 del puente UART
       # los dos macOS la tumbaron -un fallo y el tiempo simulado desviado 1 y

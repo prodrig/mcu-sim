@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Zumbador, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Zumbador" version="1">
+  <resumen>Un zumbador magnetico tras su transistor: para el pin es una carga a masa, y escucha el PWM que le llega. Dice si suena y a que frecuencia (el periodo entre dos flancos de subida).</resumen>
+  <terminales>
+    <grupo fila="pin" cuando="obligatorio">
+      <terminal nombre="pin"/>
+      <texto>La senal que lo mueve.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="r_carga" omision="1000">La carga que ve el pin, en ohmios.</atributo>
+  <ejemplo>&lt;componente tipo=&quot;Zumbador&quot; id=&quot;BUZ&quot;&gt;
+  &lt;pin nombre=&quot;pin&quot; nodo=&quot;P2.7&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

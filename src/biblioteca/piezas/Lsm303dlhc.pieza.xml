@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Lsm303dlhc, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Lsm303dlhc" version="1">
+  <resumen>La brujula con acelerometro LSM303DLHC de ST, por I2C: dos esclavos, el acelerometro en 0x19 y el magnetometro en 0x1E (CRA/CRB/MR, X-Z-Y y el byte alto primero, IRA/IRB/IRC). Del acelerometro, las tasas, los fondos de escala, HR y LPen, el paso alto, STATUS, BDU y BLE, INT1 e INT2 con sus umbrales y el DRDY en INT1. Lo que mide sale de la Postura.</resumen>
+  <terminales>
+    <grupo fila="scl" cuando="obligatorio">
+      <terminal nombre="scl"/>
+      <texto>El reloj del bus. Sin pull-up: lo pone la placa.</texto>
+    </grupo>
+    <grupo fila="sda" cuando="obligatorio">
+      <terminal nombre="sda"/>
+      <texto>Los datos del bus.</texto>
+    </grupo>
+    <grupo fila="int1" cuando="opcional">
+      <terminal nombre="int1"/>
+      <texto>INT1 del acelerometro.</texto>
+    </grupo>
+    <grupo fila="int2" cuando="opcional">
+      <terminal nombre="int2"/>
+      <texto>INT2 del acelerometro.</texto>
+    </grupo>
+    <grupo fila="drdy" cuando="opcional">
+      <terminal nombre="drdy"/>
+      <texto>El dato listo del magnetometro.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="ejes_a" omision="x,y,z">Los ejes del acelerometro como ejes de la placa.</atributo>
+  <atributo nombre="ejes_m" omision="x,y,z">Los del magnetometro.</atributo>
+  <referencia nombre="postura">La Postura de la placa, declarada antes. Sin ella, plana.</referencia>
+  <nota>WHO_AM_I_A = 0x33, en 0x0F del acelerometro: su hoja de datos no lo cuenta, pero esta, y el BSP de ST distingue con el las dos revisiones.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Lsm303dlhc&quot; id=&quot;U3&quot; ejes_a=&quot;y,-x,z&quot; ejes_m=&quot;y,-x,z&quot;&gt;
+  &lt;pin nombre=&quot;scl&quot; nodo=&quot;PB6&quot;/&gt;
+  &lt;pin nombre=&quot;sda&quot; nodo=&quot;PB7&quot;/&gt;
+  &lt;pin nombre=&quot;int1&quot; nodo=&quot;PE4&quot;/&gt;
+  &lt;pin nombre=&quot;int2&quot; nodo=&quot;PE5&quot;/&gt;
+  &lt;pin nombre=&quot;drdy&quot; nodo=&quot;PE2&quot;/&gt;
+  &lt;ref nombre=&quot;postura&quot; componente=&quot;MOV&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

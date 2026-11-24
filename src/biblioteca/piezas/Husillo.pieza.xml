@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Husillo, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Husillo" version="1">
+  <resumen>UN HUSILLO CON SU TUERCA (parts/transmision.h): trapezoidal (Tr), ACME o de bolas. Pasa el giro a avance: su relacion es 2·pi/avance. EL RENDIMIENTO NO SE DA, SE CALCULA: del angulo de la helice, atan(avance/(pi·d_medio)), y del rozamiento de la tuerca, mu. Con el, el inverso y el AUTOBLOQUEO: un Tr8x2 sujeta solo un eje Z; uno de bolas, no. Su inercia, la de un cilindro de acero. La holgura de su tuerca. Avisa de pasar de su velocidad critica y, si es de bolas, de su DN.</resumen>
+  <sin_terminales>Es una pieza mecanica: la une su &lt;transmision&gt;.</sin_terminales>
+  <atributo nombre="rosca" omision="Tr">Tr (30°), ACME (29°) o bolas.</atributo>
+  <atributo nombre="diametro_mm" omision="8">El nominal.</atributo>
+  <atributo nombre="avance_mm" omision="8">Lo que avanza la tuerca por vuelta.</atributo>
+  <atributo nombre="paso_mm" omision="2">El de la rosca: avance/entradas. Un Tr8x8 tiene cuatro entradas de 2 mm.</atributo>
+  <atributo nombre="mu" omision="0.15">El rozamiento de la tuerca: 0,15 laton o bronce en acero, 0,1 POM, 0,005 bolas.</atributo>
+  <atributo nombre="longitud_mm" omision="350">Su largo: su inercia y su velocidad critica.</atributo>
+  <atributo nombre="apoyos" omision="fijo-apoyado">fijo-libre, apoyado-apoyado, fijo-apoyado o fijo-fijo: la velocidad critica.</atributo>
+  <atributo nombre="holgura_mm" omision="0">La de su tuerca: unas centesimas simple, casi nada doble o antiholgura.</atributo>
+  <atributo nombre="extremo_mm" omision="el nominal">El del extremo que va al acople (un 1605 mecanizado, 10).</atributo>
+  <nota>Deja ver `angulo` y `rpm`. Al montar dice su angulo de helice, sus dos rendimientos y si se sujeta solo.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Husillo&quot; id=&quot;H&quot; rosca=&quot;Tr&quot; diametro_mm=&quot;8&quot; avance_mm=&quot;2&quot;
+            paso_mm=&quot;2&quot; mu=&quot;0.15&quot; longitud_mm=&quot;350&quot; holgura_mm=&quot;0.02&quot;/&gt;</ejemplo>
+</pieza>

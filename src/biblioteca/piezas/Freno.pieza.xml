@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Freno, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Freno" version="1">
+  <resumen>UN FRENO DE MUELLE (parts/transmision.h), como los BWA y BCD de Nanotec: frena SIN corriente y se suelta con la suya. Una bobina de V²/P ohmios entre a y b, que se suelta con el 70 % de su tension y se echa por debajo del 25 %, cada cosa con su retardo; echado, su par de retencion entra en la cadena como rozamiento. Va en una &lt;transmision&gt;, normalmente pegado al motor.</resumen>
+  <terminales>
+    <grupo fila="a, b" cuando="obligatorios">
+      <terminal nombre="a"/>
+      <terminal nombre="b"/>
+      <texto>Los dos hilos de su bobina.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="v_nominal" omision="24">La tension de su bobina.</atributo>
+  <atributo nombre="potencia_w" omision="8">Lo que gasta suelto: la bobina es de V²/P.</atributo>
+  <atributo nombre="par_ncm" omision="50">El de retencion, en N·cm.</atributo>
+  <atributo nombre="suelta_ms, echa_ms" omision="30, 20">Lo que tarda en soltarse y en echarse (estimados: las fichas no los dan).</atributo>
+  <atributo nombre="eje_mm" omision="0">El diametro de su eje, para ver si encaja.</atributo>
+  <nota>Deja ver `suelto`, `corriente` (mA) y la alarma `patina`: echado y girando.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Freno&quot; id=&quot;F&quot; v_nominal=&quot;24&quot; potencia_w=&quot;8&quot; par_ncm=&quot;50&quot;&gt;
+  &lt;pin nombre=&quot;a&quot; nodo=&quot;BRK+&quot;/&gt; &lt;pin nombre=&quot;b&quot; nodo=&quot;BRK-&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

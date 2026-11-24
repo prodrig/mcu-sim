@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de MedioPuente, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="MedioPuente" version="1">
+  <resumen>Un MEDIO PUENTE INTEGRADO, el BTS7960 de Infineon: con INH alto, IN alto pone la salida en VS por el transistor de arriba (7 mohm) e IN bajo en masa por el de abajo (9 mohm); con INH bajo duerme, y la salida se queda al aire: la corriente de la bobina de un motor sigue por los diodos de sus transistores hasta acabarse. IS es una FUENTE DE CORRIENTE, la de la salida entre 8500. Dos son un puente en H: el modulo IBT-2, de 43 A. Con vdd, las entradas pasan por el 74HC244 del modulo, alimentado de su VCC.</resumen>
+  <terminales>
+    <grupo fila="vs, gnd" cuando="obligatorios">
+      <terminal nombre="vs"/>
+      <terminal nombre="gnd"/>
+      <texto>La alimentacion, de 5,5 a 27,5 V, y la masa.</texto>
+    </grupo>
+    <grupo fila="in" cuando="obligatorio">
+      <terminal nombre="in"/>
+      <texto>Alto: la salida a VS; bajo: a masa.</texto>
+    </grupo>
+    <grupo fila="inh" cuando="obligatorio">
+      <terminal nombre="inh"/>
+      <texto>Alto: despierto; bajo: duerme, la salida al aire.</texto>
+    </grupo>
+    <grupo fila="out" cuando="obligatorio">
+      <terminal nombre="out"/>
+      <texto>La salida.</texto>
+    </grupo>
+    <grupo fila="is" cuando="opcional">
+      <terminal nombre="is"/>
+      <texto>La medida de la corriente: una fuente de corriente.</texto>
+    </grupo>
+    <grupo fila="vdd" cuando="opcional">
+      <terminal nombre="vdd"/>
+      <texto>El VCC del 74HC244 del modulo: con el, las entradas cortan en VCC/2 y piden 0,7·VCC para un alto.</texto>
+    </grupo>
+  </terminales>
+  <nota>Deja ver `corriente` (mA, de media, la que sale), `disipacion` (W) y `despierto`. Avisa de los niveles dudosos de sus entradas y de pasar de 43 A.</nota>
+  <ejemplo>&lt;componente tipo=&quot;MedioPuente&quot; id=&quot;U1&quot;&gt;
+  &lt;pin nombre=&quot;vs&quot; nodo=&quot;B+&quot;/&gt; &lt;pin nombre=&quot;gnd&quot; nodo=&quot;B-&quot;/&gt;
+  &lt;pin nombre=&quot;in&quot; nodo=&quot;RPWM&quot;/&gt; &lt;pin nombre=&quot;inh&quot; nodo=&quot;R_EN&quot;/&gt;
+  &lt;pin nombre=&quot;out&quot; nodo=&quot;M+&quot;/&gt; &lt;pin nombre=&quot;is&quot; nodo=&quot;R_IS&quot;/&gt;
+  &lt;pin nombre=&quot;vdd&quot; nodo=&quot;VCC&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

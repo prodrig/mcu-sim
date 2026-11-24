@@ -32,7 +32,7 @@ tocar el `Makefile`, y qué hacer cuando falla. La segunda mitad está ordenada 
 ```bash
 cd src
 make                    # el simulador: build/mcu-sim
-make test407            # construye y ejecuta la suite del F407: 2151 comprobaciones
+make test407            # construye y ejecuta la suite del F407: 2165 comprobaciones
 make test446            # y la del F446: 204 comprobaciones
 make test417            # el acelerador criptografico del F415/F417: 165
 make testf3             # el STM32F303: 428
@@ -638,7 +638,7 @@ arranca, y eso no lo arregla el guarda.
 
 ```bash
 make red        # 13 comprobaciones de la capa de red, sin SystemC
-make test407    # 2151 comprobaciones
+make test407    # 2165 comprobaciones
 make test446    # 204
 make test417    # 165
 ```
@@ -646,7 +646,7 @@ make test417    # 165
 Y el criterio que de verdad vale, más allá de que pasen: al final de `make test407`,
 
 ```
-TOTAL     : 2151 comprobaciones OK, 0 fallos
+TOTAL     : 2165 comprobaciones OK, 0 fallos
 Tiempo simulado: 2396293659555 ps
 ```
 

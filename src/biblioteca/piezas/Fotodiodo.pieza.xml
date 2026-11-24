@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Fotodiodo, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Fotodiodo" version="1">
+  <resumen>Un fotodiodo a tension cero o en inversa: con luz, una corriente que entra por el catodo y sale por el anodo, proporcional a la luz (na_por_lux). El D1 (SFH 2701) de la MSP-EXP430FR2311, en la transimpedancia del SAC0 con R3 [SLAU664B].</resumen>
+  <terminales>
+    <grupo fila="anodo, catodo" cuando="obligatorios">
+      <terminal nombre="anodo"/>
+      <terminal nombre="catodo"/>
+      <texto>Sus dos patas.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="na_por_lux" omision="5">La sensibilidad, en nA por lux [de modelo].</atributo>
+  <atributo nombre="luz" omision="0">La luz con la que empieza, en lux.</atributo>
+  <nota>Mando: luz (lux). Observables: luz y corriente (uA). Sin corriente oscura ni capacidad.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Fotodiodo&quot; id=&quot;D1&quot; na_por_lux=&quot;5&quot; luz=&quot;100&quot;&gt;
+  &lt;pin nombre=&quot;anodo&quot; nodo=&quot;DVSS&quot;/&gt; &lt;pin nombre=&quot;catodo&quot; nodo=&quot;OPAMP_MENOS&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de MotorPaP, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="MotorPaP" version="1">
+  <resumen>Un MOTOR PASO A PASO hibrido bipolar de dos fases, el de las impresoras y las fresadoras: 200 pasos por vuelta, dos bobinas, A (a1-a2) y B (b1-b2). El modelo clasico: cada bobina con su R, su L y su f.e.m., y el par -Km·ia·sin(Nr·th) + Km·ib·cos(Nr·th) - Td·sin(4·Nr·th). De ahi salen la curva par-velocidad, la perdida de pasos y la resonancia. Cada bobina va como este cableada: entre las dos salidas de una fase de un DriverPaP, la corriente es su consigna mientras la tension le llegue (CORRIENTE IMPUESTA CON TOPE DE TENSION); entre nodos de Thevenin -un L298-, como un motor de continua; al aire, sin corriente. Lo mecanico es de su cadena (parts/cadena.h). Sabe donde tendria que estar y cuenta los PASOS PERDIDOS.</resumen>
+  <terminales>
+    <grupo fila="a1, a2" cuando="obligatorios">
+      <terminal nombre="a1"/>
+      <terminal nombre="a2"/>
+      <texto>La bobina A. Con la corriente de a1 a a2, el rotor va a 0.</texto>
+    </grupo>
+    <grupo fila="b1, b2" cuando="obligatorios">
+      <terminal nombre="b1"/>
+      <terminal nombre="b2"/>
+      <texto>La B. Con la corriente de b1 a b2, el rotor va un paso a la derecha.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="par_retencion_ncm" omision="25">El par de retencion, en N·cm, con las dos fases a la corriente nominal (o con una, con retencion_una_fase).</atributo>
+  <atributo nombre="corriente_a" omision="1.3">La corriente nominal por fase, en A.</atributo>
+  <atributo nombre="r_ohm" omision="2.4">La resistencia de cada fase, en ohmios.</atributo>
+  <atributo nombre="l_mh" omision="2.8">La inductancia de cada fase, en mH.</atributo>
+  <atributo nombre="conexion" omision="bipolar">bipolar: las tres cifras de arriba son las de cada bobina. serie o paralelo: un motor de OCHO hilos, y son las de media bobina, las de unipolar, que es como las da Nanotec: en serie, 2R, 4L e I/1,41; en paralelo, R/2, L e I·1,41.</atributo>
+  <atributo nombre="retencion_una_fase" omision="no">si: el par de retencion se midio con una fase.</atributo>
+  <atributo nombre="km" omision="0">La constante de par, en N·m/A. 0: del par de retencion, Km = T/(I·1,41) con dos fases.</atributo>
+  <atributo nombre="detent_ncm" omision="1.5">El par sin corriente, en N·cm: el que se nota al girarlo a mano.</atributo>
+  <atributo nombre="inercia_gcm2" omision="34">La del rotor, en g·cm².</atributo>
+  <atributo nombre="rozamiento_ncm" omision="0.5">El rozamiento seco de sus rodamientos, en N·cm.</atributo>
+  <atributo nombre="viscoso_mnms" omision="0.1">El amortiguamiento, en mN·m por rad/s (estimado).</atributo>
+  <atributo nombre="pasos" omision="200">Los pasos enteros por vuelta: 200 (1,8°) o 400 (0,9°).</atributo>
+  <atributo nombre="modelo" omision="dinamico">ideal: cada paso es exactamente un paso, sin corrientes ni perdidas; el rotor va a donde dicen las consignas. Para probar firmware deprisa.</atributo>
+  <atributo nombre="eje_mm" omision="0">El diametro de su eje, para ver si encaja con el acople de una &lt;transmision&gt;; 0, no se comprueba.</atributo>
+  <atributo nombre="posicion_inicial" omision="0">El angulo del eje al arrancar, en grados.</atributo>
+  <nota>Deja ver `angulo` (el que sugiere pintar), `rpm`, `corriente_a` y `corriente_b` (mA, las de ahora), `par` (N·m), `retraso` (en pasos enteros, de -2 a 2: lo que va el rotor tras donde lo llevan las corrientes), `pasos_perdidos` -de cuatro en cuatro, una vuelta electrica cada vez que se descuelga- y la alarma `pierde_pasos`. Los mandos: `bloquear` y `carga`, en % del par de retencion.</nota>
+  <nota>Avisa de una bobina al aire, de una entre dos fases o dos drivers, y de los pasos perdidos.</nota>
+  <ejemplo>&lt;componente tipo=&quot;MotorPaP&quot; id=&quot;MX&quot; par_retencion_ncm=&quot;25&quot; corriente_a=&quot;1.3&quot;
+            r_ohm=&quot;2.4&quot; l_mh=&quot;2.8&quot; inercia_gcm2=&quot;34&quot;&gt;
+  &lt;pin nombre=&quot;a1&quot; nodo=&quot;M.A1&quot;/&gt;&lt;pin nombre=&quot;a2&quot; nodo=&quot;M.A2&quot;/&gt;
+  &lt;pin nombre=&quot;b1&quot; nodo=&quot;M.B1&quot;/&gt;&lt;pin nombre=&quot;b2&quot; nodo=&quot;M.B2&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

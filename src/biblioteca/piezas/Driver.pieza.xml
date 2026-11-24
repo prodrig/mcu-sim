@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Driver, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Driver" version="1">
+  <resumen>Salida digital externa generica: otro chip de la placa gobernando ese pin. NACE EN ALTA IMPEDANCIA y solo conduce cuando se le manda desde C++. Sirve para dos cosas: dar un nivel a una entrada del MCU, y provocar a proposito el conflicto con una salida push-pull para ver la sobrecorriente en el pad.</resumen>
+  <terminales>
+    <grupo fila="pin" cuando="obligatorio">
+      <terminal nombre="pin"/>
+      <texto>El pin que gobierna.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="vdd" omision="3.3">La tension de su nivel alto.</atributo>
+  <atributo nombre="r_out" omision="25">Su impedancia de salida, en ohmios. Bajarla lo hace mas fuerte en un conflicto.</atributo>
+  <ejemplo>&lt;componente tipo=&quot;Driver&quot; id=&quot;U3&quot; vdd=&quot;3.3&quot; r_out=&quot;25&quot;&gt;
+  &lt;pin nombre=&quot;pin&quot; nodo=&quot;PB6&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

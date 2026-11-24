@@ -8,7 +8,7 @@ extraído de los veintidós informes de `doc/` y contrastado contra el código d
 **Puesto al día con los planes posteriores** —el del F446, el del F415/F417,
 y después el puente serie, la ventana, los MSP432, el STM32F303 y la fresadora
 CNC—, que cerraron puntos y abrieron otros. Estado de hoy (2026-11-03): **ocho
-bancos**, `test407` (2151), `test446` (204), `test417` (165), `testf3` (428),
+bancos**, `test407` (2165), `test446` (204), `test417` (165), `testf3` (428),
 `testp4` (406), `teste4` (296), `testserie` (189) y `testgui` (145), **0
 fallos**, y sus invariantes intactos al picosegundo **en las cuatro
 plataformas de la integración continua** (`src/verif/invariantes.txt`).

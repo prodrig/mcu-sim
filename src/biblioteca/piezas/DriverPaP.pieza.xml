@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de DriverPaP, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="DriverPaP" version="1">
+  <resumen>Un DRIVER DE PASO A PASO con entradas de paso y direccion: el chip de un modulo de la CNC Shield, A4988, DRV8825 o TMC2209, o uno externo tipo DM542 (modelo=). Cada flanco de subida de STEP avanza un micropaso hacia donde diga DIR; las MS eligen el micropaso, y Vref la corriente. Cada fase de salida es una CORRIENTE IMPUESTA CON TOPE DE TENSION: el driver dice que corriente quiere y puede poner de -VMOT a +VMOT, y la bobina la sigue mientras le llegue (no hay sucesos de chopper). Comprueba lo que se equivoca en la vida real: el ancho del pulso, DIR antes de STEP, los niveles de las entradas contra su VDD, EN, RESET y SLEEP, la corriente, VMOT y la temperatura.</resumen>
+  <terminales>
+    <grupo fila="vmot, gnd" cuando="obligatorios">
+      <terminal nombre="vmot"/>
+      <terminal nombre="gnd"/>
+      <texto>La alimentacion de los motores y la masa.</texto>
+    </grupo>
+    <grupo fila="vdd" cuando="A4988 y TMC2209">
+      <terminal nombre="vdd"/>
+      <texto>La de la logica (VIO en el TMC2209). El DRV8825 no la tiene: su logica es suya, de VMOT.</texto>
+    </grupo>
+    <grupo fila="en" cuando="obligatorio (en el DM542, opcional)">
+      <terminal nombre="en"/>
+      <texto>La habilitacion, ACTIVA A NIVEL BAJO: alto, salidas apagadas. En el DM542 es ENA+, con ENA- a masa: sin conectar, habilitado.</texto>
+    </grupo>
+    <grupo fila="ms1, ms2, ms3" cuando="ms3 no en el TMC2209; ninguna en el DM542">
+      <terminal nombre="ms1"/>
+      <terminal nombre="ms2"/>
+      <terminal nombre="ms3"/>
+      <texto>El micropaso. A4988: 000 paso entero, 100 medio, 010 cuarto, 110 octavo, 111 dieciseisavo. DRV8825 (MODE0..2): de 000 entero a 101 1/32. TMC2209 (MS1, MS2): 00 1/8, 10 1/32, 01 1/64, 11 1/16.</texto>
+    </grupo>
+    <grupo fila="rst, slp" cuando="A4988 y DRV8825">
+      <terminal nombre="rst"/>
+      <terminal nombre="slp"/>
+      <texto>RESET y SLEEP, activos a nivel bajo. En el A4988 RESET no lleva resistencia: al aire se avisa.</texto>
+    </grupo>
+    <grupo fila="step, dir" cuando="obligatorios">
+      <terminal nombre="step"/>
+      <terminal nombre="dir"/>
+      <texto>Paso y direccion: DIR alto, hacia delante. En el DM542, PUL+ y DIR+, con PUL- y DIR- a masa.</texto>
+    </grupo>
+    <grupo fila="out1a, out1b, out2a, out2b" cuando="obligatorios">
+      <terminal nombre="out1a"/>
+      <terminal nombre="out1b"/>
+      <terminal nombre="out2a"/>
+      <terminal nombre="out2b"/>
+      <texto>Las salidas: la fase 1 de OUT1A a OUT1B, la 2 de OUT2A a OUT2B.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="modelo" omision="A4988">A4988, DRV8825, TMC2209 o DM542: los cuatro juegos de parametros. El DM542 es un driver externo de 20 a 50 V y 4,2 A con ENTRADAS OPTOACOPLADAS: cada una es el LED de un optoacoplador con 270 ohm, que pide de 7 a 16 mA a quien la mueve -con 3,3 V, por poco-; ENA con corriente apaga las salidas.</atributo>
+  <atributo nombre="micropasos" omision="8">Solo en el DM542: el micropaso de sus interruptores, potencia de dos de 1 a 128.</atributo>
+  <atributo nombre="corriente_a" omision="2">Solo en el DM542: la corriente de pico de sus interruptores, de 1 a 4,2 A.</atributo>
+  <atributo nombre="vref" omision="segun el modelo">La tension del potenciometro, en V: la corriente de pico es Vref/(8·0,068) en el A4988 del modulo Pololu, 2·Vref en el DRV8825 y Vref en un TMC2209 con Rs de 0,11 ohm. Omision: 0,6, 0,5 y 1,4 V.</atributo>
+  <atributo nombre="disipador" omision="no">si: con disipador, la mitad de resistencia termica.</atributo>
+  <atributo nombre="t_ambiente" omision="25">La temperatura del aire, en °C.</atributo>
+  <nota>Deja ver `corriente_1` y `corriente_2` (las consignas, mA), `micropasos`, `pasos` (con signo), `corriente_vmot` (lo que pide a VMOT, mA), `temperatura` (°C) y las alarmas `sobretemperatura` y `sin_tension`. Su mando es `vref`, el potenciometro.</nota>
+  <nota>Lo que no hace: el rizado del chopper, la interpolacion, el UART, el StallGuard y el StealthChop del TMC2209, ni la energia que vuelve al frenar.</nota>
+  <ejemplo>&lt;componente tipo=&quot;DriverPaP&quot; id=&quot;U1&quot; modelo=&quot;A4988&quot; vref=&quot;0.6&quot;&gt;
+  &lt;pin nombre=&quot;vmot&quot; nodo=&quot;VMOT&quot;/&gt; &lt;pin nombre=&quot;gnd&quot; nodo=&quot;GND&quot;/&gt;
+  &lt;pin nombre=&quot;vdd&quot; nodo=&quot;VDD&quot;/&gt;   &lt;pin nombre=&quot;en&quot; nodo=&quot;EN&quot;/&gt;
+  &lt;pin nombre=&quot;ms1&quot; nodo=&quot;MS1&quot;/&gt;   &lt;pin nombre=&quot;ms2&quot; nodo=&quot;MS2&quot;/&gt;
+  &lt;pin nombre=&quot;ms3&quot; nodo=&quot;MS3&quot;/&gt;   &lt;pin nombre=&quot;rst&quot; nodo=&quot;RST&quot;/&gt;
+  &lt;pin nombre=&quot;slp&quot; nodo=&quot;SLP&quot;/&gt;   &lt;pin nombre=&quot;step&quot; nodo=&quot;STEP&quot;/&gt;
+  &lt;pin nombre=&quot;dir&quot; nodo=&quot;DIR&quot;/&gt;
+  &lt;pin nombre=&quot;out1a&quot; nodo=&quot;1A&quot;/&gt; &lt;pin nombre=&quot;out1b&quot; nodo=&quot;1B&quot;/&gt;
+  &lt;pin nombre=&quot;out2a&quot; nodo=&quot;2A&quot;/&gt; &lt;pin nombre=&quot;out2b&quot; nodo=&quot;2B&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

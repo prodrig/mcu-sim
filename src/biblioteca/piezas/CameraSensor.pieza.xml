@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de CameraSensor, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="CameraSensor" version="1">
+  <resumen>Un sensor CMOS de los de una placa con OV7670 o MT9V034. Genera PIXCLK, conduce los datos EN EL FLANCO CONTRARIO AL QUE MUESTREA EL DCMI -asi se cumple el tiempo de establecimiento- y marca los bordes con VSYNC y HSYNC, o sin ellos, metiendo los codigos de sincronismo en el propio flujo (BT.656). Su rasgo esencial: NO SE PUEDE PARAR. Si el DCMI no vacia su FIFO a tiempo, los datos se pierden; un modelo de sensor que esperase seria un modelo inutil.</resumen>
+  <terminales>
+    <grupo fila="pixclk" cuando="obligatorio">
+      <terminal nombre="pixclk"/>
+      <texto>El reloj de pixel, que pone el sensor.</texto>
+    </grupo>
+    <grupo fila="hsync, vsync" cuando="obligatorios">
+      <terminal nombre="hsync"/>
+      <terminal nombre="vsync"/>
+      <texto>Los sincronismos.</texto>
+    </grupo>
+    <grupo fila="d0 ... dN" cuando="al menos uno">
+      <serie prefijo="d" desde="0" abierta="si"/>
+      <texto>Los hilos de datos, bus indexado sin huecos. LOS QUE EL ENCAPSULADO NO SACA SENCILLAMENTE NO SE DECLARAN, y el DCMI leera lo que haya en unas entradas que nadie gobierna, que es justo lo que pasa en la placa.</texto>
+    </grupo>
+  </terminales>
+  <nota>Sin atributos en el XML. Por omision: 16x8 pixeles de 8 bits a 6 MHz.</nota>
+  <ejemplo>&lt;componente tipo=&quot;CameraSensor&quot; id=&quot;CAM&quot;&gt;
+  &lt;pin nombre=&quot;pixclk&quot; nodo=&quot;PA6&quot;/&gt;
+  &lt;pin nombre=&quot;hsync&quot;  nodo=&quot;PA4&quot;/&gt;
+  &lt;pin nombre=&quot;vsync&quot;  nodo=&quot;PB7&quot;/&gt;
+  &lt;pin nombre=&quot;d0&quot;     nodo=&quot;PC6&quot;/&gt;  &lt;!-- d1, d2, ... --&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

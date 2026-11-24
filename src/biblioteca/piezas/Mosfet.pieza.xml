@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Mosfet, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Mosfet" version="1">
+  <resumen>Un N-MOSFET DE LADO BAJO, como el IRLZ44N de los modulos que gobiernan el cabezal de una fresadora con el PWM de GRBL: el canal entre drenador y fuente conduce con la tension de la puerta por encima del umbral, con una RDS que baja con ella -un MOSFET que no es de nivel logico apenas conduce con 3,3 V-. Con diodo=si y la patilla libre, el DIODO DE LIBRE CIRCULACION del modulo, del drenador al + del motor: la corriente de la bobina sigue por el al abrirse el canal. Sin el, la bobina sube el drenador hasta la avalancha y el MOSFET se rompe: aqui la corriente se corta, y se avisa.</resumen>
+  <terminales>
+    <grupo fila="drenador" cuando="obligatorio">
+      <terminal nombre="drenador"/>
+      <texto>Al - de la carga.</texto>
+    </grupo>
+    <grupo fila="fuente" cuando="obligatorio">
+      <terminal nombre="fuente"/>
+      <texto>A masa.</texto>
+    </grupo>
+    <grupo fila="puerta" cuando="obligatorio">
+      <terminal nombre="puerta"/>
+      <texto>La senal: con Vgs por encima del umbral, conduce.</texto>
+    </grupo>
+    <grupo fila="libre" cuando="con diodo=si">
+      <terminal nombre="libre"/>
+      <texto>El catodo del diodo de libre circulacion: el + de la carga.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="modelo" omision="IRLZ44N">IRLZ44N (de nivel logico: 25 mohm a 5 V, umbral de 1 a 2 V) o IRF520 (0,27 ohm a 10 V, umbral de 2 a 4 V: el de los modulos azules, que con 5 V apenas se abre). Las cifras de abajo cambian las suyas.</atributo>
+  <atributo nombre="vth" omision="segun el modelo">El umbral, en V.</atributo>
+  <atributo nombre="rds_on" omision="segun el modelo">La resistencia del canal a vgs_ref, en ohmios.</atributo>
+  <atributo nombre="vgs_ref" omision="segun el modelo">La tension de la puerta a la que se da rds_on.</atributo>
+  <atributo nombre="vgs_plena" omision="segun el modelo">La que garantiza la hoja de datos: con menos y mas de 1 A, se avisa.</atributo>
+  <atributo nombre="i_max" omision="segun el modelo">Lo que aguanta, en A: por encima, se avisa.</atributo>
+  <atributo nombre="diodo" omision="si">El diodo de libre circulacion del modulo, con su patilla libre.</atributo>
+  <nota>Deja ver `conduce`, `corriente` (mA, de media), `disipacion` (W, I²·RDS) y `vgs`. Avisa de abrirse sin diodo con corriente, de la puerta que no lo abre del todo y de la sobrecorriente.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Mosfet&quot; id=&quot;Q1&quot; modelo=&quot;IRLZ44N&quot; diodo=&quot;si&quot;&gt;
+  &lt;pin nombre=&quot;drenador&quot; nodo=&quot;OUT-&quot;/&gt;&lt;pin nombre=&quot;fuente&quot; nodo=&quot;GND&quot;/&gt;
+  &lt;pin nombre=&quot;puerta&quot; nodo=&quot;SIG&quot;/&gt;&lt;pin nombre=&quot;libre&quot; nodo=&quot;OUT+&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

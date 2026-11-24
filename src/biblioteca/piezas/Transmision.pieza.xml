@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Transmision, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Transmision" version="1">
+  <resumen>UNA CADENA MECANICA: los motores y lo que mueven, en un solo eje rigido (parts/cadena.h). Se declara con &lt;transmision id=&quot;X&quot; cadena=&quot;M1 V&quot;/&gt;: primero los motores -uno, o varios en el mismo eje-, despues los elementos, del motor hacia la carga. Todo se refleja en el eje de los motores -la inercia de cada elemento dividida por el cuadrado de la relacion que hay antes de el; su rozamiento, por la relacion y el rendimiento- y la cadena integra una sola ecuacion mecanica con las corrientes de todos sus motores. Un motor que no esta en ninguna lleva la suya, de el solo, con su carga de siempre.</resumen>
+  <sin_terminales>No va a ningun nodo: une piezas por su eje, no por sus patillas. Las nombra en cadena=, que son sus &lt;ref&gt; e0, e1...</sin_terminales>
+  <referencia nombre="e0, e1 ...">Las piezas de la cadena, en orden: es lo que escribe cadena= en &lt;transmision&gt;. Primero los motores, despues los elementos.</referencia>
+  <nota>Deja ver `angulo` y `rpm` del eje de los motores, e `inercia`, la de todo reflejada en el, en g·cm². Los mandos de cada motor -bloquear, carga- siguen siendo suyos, y actuan sobre la cadena entera.</nota>
+  <nota>Una pieza va en una cadena como mucho; y un elemento suelto, sin transmision, no se mueve.</nota>
+  <ejemplo>&lt;componente tipo=&quot;MotorCC&quot; id=&quot;M&quot; .../&gt;
+&lt;componente tipo=&quot;Volante&quot; id=&quot;V&quot; inercia_gcm2=&quot;500&quot;/&gt;
+&lt;transmision id=&quot;EJE&quot; cadena=&quot;M V&quot;/&gt;</ejemplo>
+</pieza>

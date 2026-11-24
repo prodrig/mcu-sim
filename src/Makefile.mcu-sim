@@ -294,7 +294,7 @@ ASANP4  := $(B)/asanp4$(EXE)
 ASANE4  := $(B)/asane4$(EXE)
 ASANSERIE := $(B)/asanserie$(EXE)
 
-.PHONY: all testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 fr2311-slaa754 testf5 testf5-build testfr2 testfr2-build testfr4 testfr4-build testfr2311 testfr2311-build testfr2355 testfr2355-build testfr2476 testfr2476-build testfr5 testfr5-build testezfet testezfet-build ezfet-tilib rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash fr5-bsl-python g2-bsl-python fr2-bsl-python test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
+.PHONY: all biblioteca biblioteca-comprueba testrv testrv-build asanrv test430 test430-build asan430 m430fw testg2 testg2-build gdb-g2 g2-slaa754 fr2311-slaa754 testf5 testf5-build testfr2 testfr2-build testfr4 testfr4-build testfr2311 testfr2311-build testfr2355 testfr2355-build testfr2476 testfr2476-build testfr5 testfr5-build testezfet testezfet-build ezfet-tilib rvt openocd-rv esptool-c3 openocd-c3 usb-c3 congela herramienta-gdb testc3 testc3-build asanc3 c3fw testc6 testc6-build asanc6 c6fw testp4 testp4-build asanp4 fwp4 testp4fw teste4 teste4-build asane4 fwe4 teste4fw testf3 testf3-build fwf3 testf3fw f3-discovery f3-vcp f3-demo f3-stm32flash fr5-bsl-python g2-bsl-python fr2-bsl-python test407 test446 test417 test407fw test446fw test417fw fw fw407 fw446 fw417 cleanfw test446-build test417-build testserie testserie-build testgui testgui-build asan407 asan446 asan417 asanserie smoke bench mcu-sim p4-edumkii p4-rom-ti openocd cmsis-dap xds110 red serie rfc2217 gui-proto gui-saludo gui-marcha gui-cnc grblhal gui-ordenes gui-control gui-congela gui-argumentos gui-sin-mcu gui-contenido gui-sistema gui-serie interop sflash-e4 bsl-p4 eth-e4 usb-e4 usb-f3 e4-edumkii e4-retardo run clean plataforma vectores hash cryp datos
 
 all: $(MCUSIM)
 
@@ -339,6 +339,31 @@ $(MCUSIM): top/sim_main.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) -o $@ top/sim_main.cpp $(LDFLAGS) $(LDLIBS)
 
 mcu-sim: $(MCUSIM) datos
+
+# LA BIBLIOTECA DE mcu-sim-build (doc/analisis_build.md, fase B1): la ficha
+# de cada tipo de componente -la de `--help TIPO`- como biblioteca/piezas/
+# TIPO.pieza.xml. Lo generado SE VERSIONA, para que mcu-sim-build funcione con
+# un mcu-sim sin compilar y un cambio de ficha se vea en el diff;
+# `biblioteca-comprueba` lo regenera aparte y dice si lo versionado esta al
+# dia -y si cada fichero es XML bien formado, con Python si lo hay-. Un tipo
+# que desaparece deja su fichero: `biblioteca-comprueba` lo dice, y se borra
+# a mano.
+#   make biblioteca && git diff biblioteca/
+#   make biblioteca-comprueba
+BIBLIOTECA := biblioteca
+biblioteca: $(MCUSIM)
+	@mkdir -p $(BIBLIOTECA)/piezas
+	$(MCUSIM) --exporta-piezas $(BIBLIOTECA)/piezas
+
+biblioteca-comprueba: $(MCUSIM)
+	@rm -rf $(B)/biblioteca-nueva && mkdir -p $(B)/biblioteca-nueva/piezas
+	$(MCUSIM) --exporta-piezas $(B)/biblioteca-nueva/piezas
+	@if command -v $(PYTHON) >/dev/null 2>&1; then \
+	   $(PYTHON) -c "import sys, xml.dom.minidom as m; [m.parse(f) for f in sys.argv[1:]]; print('%d ficheros, XML bien formado' % (len(sys.argv) - 1))" \
+	     $(B)/biblioteca-nueva/piezas/*.pieza.xml; fi
+	@diff -r $(BIBLIOTECA)/piezas $(B)/biblioteca-nueva/piezas && \
+	 echo "biblioteca/piezas al dia" || \
+	 { echo "biblioteca/piezas NO esta al dia: make biblioteca"; exit 1; }
 
 # LO QUE HACE FALTA PARA USAR EL EJECUTABLE DESDE $(B), y no solo desde src/:
 # las placas con sus dibujos y los firmwares, con el MISMO ARBOL que en src/

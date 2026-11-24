@@ -133,6 +133,7 @@
 #include "../parts/netlist_xml.h"
 #include "../parts/frontera_gui.h"
 #include "../parts/enlace_gui.h"
+#include "../parts/exporta_piezas.h"
 #include "../soc/stm32f4_mcu.h"
 #include "../soc/stm32f446.h"
 #include "../soc/msp432p4/msp432p4_mcu.h"
@@ -2454,6 +2455,10 @@ static const OpcionCli OPCIONES[] = {
      "frena la simulacion al reloj de pared. Con --gui el ritmo lo dice la ventana"},
     {"--gui", "valor_opcional", "texto", "localhost:3344", "", "", false, false,
      "localhost:3344", "habla con mcu-sim-gui. Con la ventana, la pone ella"},
+    {"--exporta-piezas", "valor", "texto", "", "", "", false, false, "biblioteca/piezas",
+     "escribe en la carpeta DIR, que tiene que existir, un TIPO.pieza.xml por cada "
+     "tipo de componente: su ficha de --help como dato, para mcu-sim-build. No "
+     "necesita placa"},
     {"--argumentos", "accion", "", "", "", "", false, false, "",
      "esta lista de opciones, en XML, para mcu-sim-gui"},
     {"--help", "accion", "", "", "", "", false, false, "",
@@ -2610,6 +2615,27 @@ int sc_main(int argc, char** argv) {
         else if (a == "--traza-gdb") g_traza_gdb = true;
         else if (a == "--verbose") stm32::verbose() = true;
         else if (a == "--argumentos") return vuelca_argumentos();
+        // `--exporta-piezas DIR`: las fichas de la factoria como XML, una por
+        // tipo, para la biblioteca de mcu-sim-build (parts/exporta_piezas.h,
+        // fase B1 de doc/analisis_build.md). No necesita placa ni simula
+        else if (a == "--exporta-piezas" || a.rfind("--exporta-piezas=", 0) == 0) {
+            std::string dir;
+            if (a.rfind("--exporta-piezas=", 0) == 0) dir = a.substr(17);
+            else if (i + 1 < argc && argv[i + 1][0] != '-') dir = argv[++i];
+            if (dir.empty()) {
+                std::fprintf(stderr, "--exporta-piezas: falta la carpeta, como en "
+                             "--exporta-piezas biblioteca/piezas\n");
+                return 1;
+            }
+            unsigned n = 0;
+            const std::string e = stm32::exporta_piezas(dir, &n);
+            if (!e.empty()) {
+                std::fprintf(stderr, "--exporta-piezas: %s\n", e.c_str());
+                return 1;
+            }
+            std::printf("%u piezas en %s\n", n, dir.c_str());
+            return 0;
+        }
         else if (a == "--mcus") g_lista_mcus = true;
         else if (a == "--memorias") g_lista_memorias = true;
         // `--contenido ID=FICHERO`: como --firmware, con el id de un MCU o de
@@ -2953,6 +2979,8 @@ int sc_main(int argc, char** argv) {
                 "                                mcu-sim-gui construya su dialogo\n"
                 "     sim --help COMPONENTE      que hace ese componente y que\n"
                 "                                atributos admite en el XML\n"
+                "     sim --exporta-piezas DIR   la ficha de cada componente como\n"
+                "                                DIR/TIPO.pieza.xml, para mcu-sim-build\n"
                 "     sim --licencia             licencia de mcu-sim (AGPLv3), donde\n"
                 "                                esta el fuente y el software ajeno\n"
                 "                                que lleva dentro\n"

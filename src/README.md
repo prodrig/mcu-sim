@@ -81,7 +81,7 @@ cada cambio.
 
 | Orden | Qué ejecuta | Comprobaciones | Tiempo simulado |
 | :--- | :--- | ---: | ---: |
-| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2151** | `2416514909555 ps` (`resto`: **`2281249034555 ps`**) |
+| `make test407` | La suite acumulada de las siete fases, sobre el F407VG | **2165** | `2416514909555 ps` (`resto`: **`2281249034555 ps`**) |
 | `make test446` | La del F446RE y sus ocho referencias | **204** | `1033367277932 ps` |
 | `make test417` | La del acelerador criptográfico del F415/F417 | **165** | `718988288 ps` |
 | `make testserie` | La del puente UART: `PuenteSerie`, un F407 con `vcp_demo` y clientes TCP y RFC 2217 de verdad | **189** | `400677589564 ps` |
@@ -104,11 +104,11 @@ en el F407, `A0` en el F446 y el F417— lo comprueba antes de simular nada. `ma
 que es otra cosa y avisa antes: `doc/compilacion.md` §6, y **T-22** para el
 motivo.
 
-Las 2151 del primero salen de: 1 de T00 + 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
+Las 2165 del primero salen de: 1 de T00 + 143 de F1 + 12 de F2 + 85 de F3 + 345 de F4
 (DMA, UART/USART, TIM y EXTI/SYSCFG) + 680 de F5 (SPI/I2S, I2C, ADC, DAC, RTC y
 perros guardianes, SDIO, CRC/RNG y bxCAN) + 159 de F6 (depuración y los dos
 servidores GDB) + 426 de F7 (116 de bajo consumo, 61 del DCMI, 54 del FSMC,
-113 del USB OTG y 82 del Ethernet) + 300 del netlist y las piezas sueltas. Código de salida 0 si
+113 del USB OTG y 82 del Ethernet) + 314 del netlist y las piezas sueltas. Código de salida 0 si
 todas pasan, en unos 23 s. Verificado con SystemC 2.3.4 / g++ 13 / C++17
 y arm-none-eabi-gcc 13.2.
 
@@ -138,7 +138,10 @@ rebote—, y lo que suma es **T132**, su prueba, con 36,3 ms propios: `resto` en
 motor CAN sigue las reglas de error de ISO 11898-1 (**T-24**), y T87, que daba
 por bueno que un nodo sin nadie que asienta llegara al bus-off, comprueba ahora
 que se queda en error pasivo: 2149 → **2151**, y `resto` 0,57875 ms menos,
-`2281249034555 ps`. Las otras suites no se mueven.
+`2281249034555 ps`. Las otras suites no se mueven. Después, el 2026-11-24,
+**T133** —las fichas de las piezas como dato para `mcu-sim-build`,
+`--exporta-piezas`— suma 14 comprobaciones puras: 2151 → **2165**, sin mover
+ni un picosegundo.
 
 **Con una precondición que costó una segunda máquina descubrir**: vale siempre
 que los **firmwares sean los mismos binarios**. Mientras los `.bin` no se

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de PuenteTrifasico, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="PuenteTrifasico" version="1">
+  <resumen>Un PUENTE TRIFASICO integrado, el L6230 de ST: tres medios puentes de DMOS, de 8 a 52 V y 2,8 A de pico, para un BLDC que conmuta el MCU (el de la X-NUCLEO-IHM07M1). Por medio puente: ENx lo habilita -bajo, sus dos transistores abiertos- e INx elige: alto, OUTx a VS por el de arriba; bajo, a masa por el de abajo, 0,73 ohm cada uno. DIAG-EN, baja, los abre todos, y el chip la baja el mismo -drenador abierto- con una SOBRECORRIENTE de 2,8 A, durante t_bloqueo_us. La corriente de una fase que se suelta sigue por los diodos de sus transistores hasta acabarse.</resumen>
+  <terminales>
+    <grupo fila="vs, gnd" cuando="obligatorios">
+      <terminal nombre="vs"/>
+      <terminal nombre="gnd"/>
+      <texto>La alimentacion de los transistores, de 8 a 52 V. Por debajo de 5,5 V no hace nada (UVLO; vuelve a 6,3).</texto>
+    </grupo>
+    <grupo fila="in1, in2, in3" cuando="obligatorios">
+      <terminal nombre="in1"/>
+      <terminal nombre="in2"/>
+      <terminal nombre="in3"/>
+      <texto>Las entradas de cada medio puente: alto, la salida a VS; bajo, a masa. Cortan en 1,8 V al subir y en 1,3 al bajar.</texto>
+    </grupo>
+    <grupo fila="en1, en2, en3" cuando="obligatorios">
+      <terminal nombre="en1"/>
+      <terminal nombre="en2"/>
+      <terminal nombre="en3"/>
+      <texto>Las habilitaciones: bajo, el medio puente abierto.</texto>
+    </grupo>
+    <grupo fila="out1, out2, out3" cuando="obligatorios">
+      <terminal nombre="out1"/>
+      <terminal nombre="out2"/>
+      <terminal nombre="out3"/>
+      <texto>Las salidas, a las fases del motor.</texto>
+    </grupo>
+    <grupo fila="diag" cuando="opcional">
+      <terminal nombre="diag"/>
+      <texto>DIAG-EN: entrada -baja, todo abierto- y salida de drenador abierto, a masa con 100 ohm mientras dura una sobrecorriente. El pull-up es de la placa.</texto>
+    </grupo>
+    <grupo fila="sense1, sense2, sense3" cuando="opcionales">
+      <terminal nombre="sense1"/>
+      <terminal nombre="sense2"/>
+      <terminal nombre="sense3"/>
+      <texto>Las fuentes de los transistores de abajo, a sus shunts, que pone la placa: por cada una sale hacia el shunt -i mientras conduce el de abajo -o su diodo-, con i la que sale por OUTx, y nada si no. Tres nodos con un shunt cada uno, o -los tres pines al mismo nodo- un shunt para las tres, que se lleva la suma. Para medir la corriente (la FOC, o la del bus). Sin ellos, las fuentes van a masa.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="r_on" omision="0.73">La resistencia de cada transistor, en ohm.</atributo>
+  <atributo nombre="i_ocp" omision="2.8">La sobrecorriente, en A, en cualquier transistor que conduzca.</atributo>
+  <atributo nombre="t_bloqueo_us" omision="200">Lo que se queda DIAG-EN bajo tras ella: el RC de REN y CEN de la placa.</atributo>
+  <nota>Deja ver `corriente_1` a `corriente_3` (A, la que sale por cada salida), `disipacion`, `sobrecorrientes` y la alarma `fallo`.</nota>
+  <nota>Lo que no hace: el tiempo muerto de 1 us entre los dos transistores de una fase, los tiempos de conmutacion y la proteccion termica.</nota>
+  <ejemplo>&lt;componente tipo=&quot;PuenteTrifasico&quot; id=&quot;U1&quot;&gt;
+  &lt;pin nombre=&quot;vs&quot; nodo=&quot;VBUS&quot;/&gt; &lt;pin nombre=&quot;gnd&quot; nodo=&quot;GND&quot;/&gt;
+  &lt;pin nombre=&quot;in1&quot; nodo=&quot;IN1&quot;/&gt; &lt;pin nombre=&quot;in2&quot; nodo=&quot;IN2&quot;/&gt;
+  &lt;pin nombre=&quot;in3&quot; nodo=&quot;IN3&quot;/&gt;
+  &lt;pin nombre=&quot;en1&quot; nodo=&quot;EN1&quot;/&gt; &lt;pin nombre=&quot;en2&quot; nodo=&quot;EN2&quot;/&gt;
+  &lt;pin nombre=&quot;en3&quot; nodo=&quot;EN3&quot;/&gt;
+  &lt;pin nombre=&quot;out1&quot; nodo=&quot;J2.A&quot;/&gt; &lt;pin nombre=&quot;out2&quot; nodo=&quot;J2.B&quot;/&gt;
+  &lt;pin nombre=&quot;out3&quot; nodo=&quot;J2.C&quot;/&gt;
+  &lt;pin nombre=&quot;diag&quot; nodo=&quot;DIAG&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

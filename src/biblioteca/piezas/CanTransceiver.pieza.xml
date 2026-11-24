@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de CanTransceiver, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="CanTransceiver" version="1">
+  <resumen>El chip que va al lado del microcontrolador: convierte los dos pines digitales en el estado del hilo y al reves. Necesita EL OBJETO del hilo -para leer si el bus esta dominante y a que tension-, no solo el punto electrico, y por eso ademas del terminal bus lleva una referencia.</resumen>
+  <terminales>
+    <grupo fila="txd" cuando="obligatorio">
+      <terminal nombre="txd"/>
+      <texto>El pin CAN_TX del MCU. LLEVA PULL-UP DE 10 kohm, como los chips reales: sin el, un TXD flotante -el MCU aun sin configurar- atascaria el bus entero en dominante.</texto>
+    </grupo>
+    <grupo fila="rxd" cuando="obligatorio">
+      <terminal nombre="rxd"/>
+      <texto>El pin CAN_RX. El transceptor lo gobierna push-pull a 50 ohmios.</texto>
+    </grupo>
+    <grupo fila="bus" cuando="recomendado">
+      <terminal nombre="bus"/>
+      <texto>El nodo del hilo. La construccion no lo usa -para eso esta la referencia-, pero SIN EL EL NETLIST QUEDA INCOMPLETO y la comprobacion de ida y vuelta lo detecta.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="vdd" omision="3.3">Tension de la logica del transceptor.</atributo>
+  <referencia nombre="hilo">El id del CanWire. TIENE QUE ESTAR DECLARADO ANTES: los componentes se construyen en el orden del fichero, y una referencia hacia delante se rechaza al validar.</referencia>
+  <nota>TIENE DOS INTERRUPTORES DISTINTOS, y conviene no confundirlos: conectada=&quot;no&quot; es no soldarlo a la placa; set_standby(false) desde C++ es el modo de bajo consumo, en el que deja de gobernar el hilo pero sigue escuchando.</nota>
+  <ejemplo>&lt;componente tipo=&quot;CanTransceiver&quot; id=&quot;U2&quot;&gt;
+  &lt;pin nombre=&quot;txd&quot; nodo=&quot;PD1&quot;/&gt;
+  &lt;pin nombre=&quot;rxd&quot; nodo=&quot;PD0&quot;/&gt;
+  &lt;pin nombre=&quot;bus&quot; nodo=&quot;n_can&quot;/&gt;
+  &lt;ref nombre=&quot;hilo&quot; componente=&quot;bus1&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

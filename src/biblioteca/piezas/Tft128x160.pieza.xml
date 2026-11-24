@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Tft128x160, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Tft128x160" version="1">
+  <resumen>Una pantalla TFT de 1,8 pulgadas y 128x160 pixeles con su controlador ST7735S, por SPI de CUATRO hilos: el modulo rojo de ocho pines, con su regulador de 3,3 V y su retroiluminacion. Lo que se ve es lo que ensenaria la pantalla de verdad: BLANCA mientras el chip no tiene tension, esta en reset, dormido o con la pantalla apagada -el cristal es de los normalmente blancos-; ruido al encenderla sin borrar la memoria; y la imagen, con MADCTL, desplazamiento, modo parcial, ocho colores e inversion. Todo con la LUZ del pin LED: sin ella, negro. Las ordenes del sistema estan todas, tambien las de lectura, que contestan por SDA; las del panel (B1h-FCh) se aceptan y no cambian nada de lo que se ve.</resumen>
+  <terminales>
+    <grupo fila="vcc" cuando="obligatorio">
+      <terminal nombre="vcc"/>
+      <texto>La alimentacion del modulo, de 3,3 a 5 V: va al regulador de 3,3 V del chip. Con menos de 2,65 V el chip no arranca.</texto>
+    </grupo>
+    <grupo fila="gnd" cuando="obligatorio">
+      <terminal nombre="gnd"/>
+      <texto>La masa.</texto>
+    </grupo>
+    <grupo fila="cs" cuando="obligatorio">
+      <terminal nombre="cs"/>
+      <texto>CSX, la seleccion: con ella alta no atiende.</texto>
+    </grupo>
+    <grupo fila="reset" cuando="obligatorio">
+      <terminal nombre="reset"/>
+      <texto>RESX: un pulso bajo de mas de 5 us reinicia el chip, que no atiende ordenes hasta 5 ms despues.</texto>
+    </grupo>
+    <grupo fila="ad" cuando="obligatorio">
+      <terminal nombre="ad"/>
+      <texto>D/CX, el A0: bajo, el byte es una orden; alto, un dato.</texto>
+    </grupo>
+    <grupo fila="sda" cuando="obligatorio">
+      <terminal nombre="sda"/>
+      <texto>SDA, el dato: lo toma en el flanco de subida de SCK, y lo pone el chip al contestar una lectura.</texto>
+    </grupo>
+    <grupo fila="sck" cuando="obligatorio">
+      <terminal nombre="sck"/>
+      <texto>SCL, el reloj.</texto>
+    </grupo>
+    <grupo fila="led" cuando="obligatorio">
+      <terminal nombre="led"/>
+      <texto>La retroiluminacion: el anodo de los LEDs, con su resistencia en la placa. A 3,3 V da la luz entera.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="memoria" omision="128x160">Como direcciona la memoria el ST7735S: 128x160 (GM = 11, la imagen empieza en la columna 0 y la fila 0) o 132x162 (GM = 00, el de algunos modulos: lo visible empieza en la columna 2 y la fila 1).</atributo>
+  <atributo nombre="panel" omision="rgb">El orden de los filtros de color del panel, rgb o bgr. Con uno bgr el rojo y el azul salen cambiados si el firmware no pone el bit RGB de MADCTL.</atributo>
+  <atributo nombre="vf_luz" omision="2.9">La tension de los LEDs de la retroiluminacion, en V.</atributo>
+  <atributo nombre="r_luz" omision="15">Su resistencia en la placa, en ohmios.</atributo>
+  <nota>Deja ver `encendida` (si ensena la memoria), `luz` (mA de la retroiluminacion) y una IMAGEN, `pantalla`, de 128x160: lo que se ve, que la ventana pinta encima del dibujo de la pieza. Avisa, una vez cada cosa, de lo que en la pantalla de verdad saldria mal: ordenes en los 5 ms tras el reset (se pierden), las esperas de 120 ms de SLPOUT, SLPIN y SWRESET, un reloj mas rapido que 66 ns de ciclo (150 al leer) y 5 V en sus entradas, que son de 3,3 V.</nota>
+  <ejemplo>&lt;componente tipo=&quot;Tft128x160&quot; id=&quot;TFT&quot;&gt;
+  &lt;pin nombre=&quot;vcc&quot;   nodo=&quot;P1.VCC&quot;/&gt;
+  &lt;pin nombre=&quot;gnd&quot;   nodo=&quot;P1.GND&quot;/&gt;
+  &lt;pin nombre=&quot;cs&quot;    nodo=&quot;P1.CS&quot;/&gt;
+  &lt;pin nombre=&quot;reset&quot; nodo=&quot;P1.RESET&quot;/&gt;
+  &lt;pin nombre=&quot;ad&quot;    nodo=&quot;P1.AD&quot;/&gt;
+  &lt;pin nombre=&quot;sda&quot;   nodo=&quot;P1.SDA&quot;/&gt;
+  &lt;pin nombre=&quot;sck&quot;   nodo=&quot;P1.SCK&quot;/&gt;
+  &lt;pin nombre=&quot;led&quot;   nodo=&quot;P1.LED&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

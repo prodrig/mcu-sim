@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de AutoResetEsp, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="AutoResetEsp" version="1">
+  <resumen>El reinicio automatico de las placas de Espressif: dos NPN cruzados entre el DTR y el RTS del puente USB-UART, y el RC del pin de habilitacion. RTS sola activa (baja) pone EN a masa; DTR sola, IO0. EN sube por el RC (tau = r c), asi que IO0 sigue abajo cuando el chip guarda los pines de arranque: es como esptool (y idf.py, PlatformIO, Arduino) lo pone en descarga sin tocar ningun boton.</resumen>
+  <terminales>
+    <grupo fila="dtr" cuando="obligatorio">
+      <terminal nombre="dtr"/>
+      <texto>El DTR del puente (PuenteSerie, terminal dtr): alto en reposo.</texto>
+    </grupo>
+    <grupo fila="rts" cuando="obligatorio">
+      <terminal nombre="rts"/>
+      <texto>El RTS del puente (PuenteSerie, terminal rts): alto en reposo.</texto>
+    </grupo>
+    <grupo fila="en" cuando="obligatorio">
+      <terminal nombre="en"/>
+      <texto>CHIP_PU (EN). La pieza lleva su pull-up y su condensador.</texto>
+    </grupo>
+    <grupo fila="io0" cuando="obligatorio">
+      <terminal nombre="io0"/>
+      <texto>El pin de arranque: GPIO9 en el ESP32-C3 y el C6, GPIO0 en el ESP32.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="r" omision="10000">El pull-up de EN, en ohmios.</atributo>
+  <atributo nombre="c" omision="1e-6">El condensador de EN, en faradios.</atributo>
+  <atributo nombre="vdd" omision="3.3">La alimentacion a la que sube EN.</atributo>
+  <nota>No hace falta un Rpull en CHIP_PU: va dentro. Un pulsador de RESET a masa en el mismo nodo descarga el condensador, como en la placa.</nota>
+  <nota>Con RFC 2217, el terminal mueve DTR y RTS de uno en uno y al ritmo del reloj de pared: el PuenteSerie lleva reinicio=&quot;esp&quot; para que el reinicio salga con sus tiempos en tiempo simulado.</nota>
+  <ejemplo>&lt;componente tipo=&quot;AutoResetEsp&quot; id=&quot;Q1&quot;&gt;
+  &lt;pin nombre=&quot;dtr&quot; nodo=&quot;DTR&quot;/&gt;
+  &lt;pin nombre=&quot;rts&quot; nodo=&quot;RTS&quot;/&gt;
+  &lt;pin nombre=&quot;en&quot;  nodo=&quot;CHIP_PU&quot;/&gt;
+  &lt;pin nombre=&quot;io0&quot; nodo=&quot;GPIO9&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

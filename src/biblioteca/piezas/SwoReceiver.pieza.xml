@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de SwoReceiver, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="SwoReceiver" version="1">
+  <resumen>Analizador de traza colgado del pin SWO. SOLO ESCUCHA, NUNCA CONDUCE. En modo NRZ el pin es una linea serie asincrona corriente, asi que esto es un receptor de UART con el desempaquetado del protocolo ITM encima.</resumen>
+  <terminales>
+    <grupo fila="swo" cuando="obligatorio">
+      <terminal nombre="swo"/>
+      <texto>Normalmente PB3.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="bitrate" omision="1000000">Velocidad en bits por segundo. TIENE QUE COINCIDIR CON LA QUE PROGRAME EL TPIU o la trama se desincroniza.</atributo>
+  <nota>Capturar el SWO es una de las cosas que el simulador deja hacer y la STM32F4-Discovery real no: en esa tarjeta PB3 no va al ST-LINK, sale a los conectores de expansion.</nota>
+  <ejemplo>&lt;componente tipo=&quot;SwoReceiver&quot; id=&quot;TRAZA&quot; bitrate=&quot;2000000&quot;&gt;
+  &lt;pin nombre=&quot;swo&quot; nodo=&quot;PB3&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

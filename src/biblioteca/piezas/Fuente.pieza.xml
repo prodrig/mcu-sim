@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Fuente, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Fuente" version="1">
+  <resumen>Una fuente de tension: pone `v` voltios en su nodo, con un limite de corriente opcional. Es el rail de 3,3 V de una placa sin MCU, o el de 5 V de un periferico, y deja ver cuanta corriente entrega.</resumen>
+  <terminales>
+    <grupo fila="pin" cuando="obligatorio">
+      <terminal nombre="pin"/>
+      <texto>El nodo que sostiene.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="v" omision="3.3">La tension, en voltios.</atributo>
+  <atributo nombre="limite_ma" omision="no">EL LIMITE DE CORRIENTE, en mA, o &quot;no&quot; para ninguno. Como en una fuente de laboratorio: si la carga pide mas, la fuente entrega exactamente el limite, deja caer la tension, pone su observable `sobrecorriente` a 1 y lo avisa.</atributo>
+  <atributo nombre="r" omision="0.1">La resistencia interna, en ohmios: 0,1 es lo menos que admite un nodo, o sea una fuente casi ideal.</atributo>
+  <atributo nombre="media_ms" omision="0">Con mas de 0, la corriente que deja ver es su MEDIA en esos ms -un filtro de primer orden-, como el display de una fuente de laboratorio, que no salta con el PWM de la carga; y deja ver tambien la `tension`, de media. Con 0, la de cada instante.</atributo>
+  <atributo nombre="absorbe" omision="si">no: una fuente CONMUTADA, que no se traga lo que le devuelven -un motor que frena-: si lo de fuera sube por encima de `v`, se aparta, como tras un diodo, y el bus sube (doc/analisis_cnc.md, fase F5).</atributo>
+  <nota>Lo que deja ver: `corriente`, en mA, la que ENTREGA (negativa si otra cosa la empuja hacia atras), y `sobrecorriente`, que la ventana pinta como alarma; con media_ms, ademas, `tension`.</nota>
+  <nota>Un nodo con una fuente y varias cargas es un RAIL, no un cortocircuito: la validacion electrica no lo cuenta como dos piezas conduciendo. Dos fuentes (o fuente y masa) en el mismo nodo, si, y se avisa: se pelean por el.</nota>
+  <ejemplo>&lt;nodo id=&quot;vcc&quot;/&gt;
+&lt;componente tipo=&quot;Fuente&quot; id=&quot;F1&quot; v=&quot;3.3&quot; limite_ma=&quot;20&quot;&gt;
+  &lt;pin nombre=&quot;pin&quot; nodo=&quot;vcc&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

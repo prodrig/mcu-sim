@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de EthPhy, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="EthPhy" version="1">
+  <resumen>El integrado que va entre el MAC y el conector RJ45. Hace tres cosas que el MAC no puede hacer solo: PONE LOS RELOJES del camino de datos -el MAC no genera nada, los sigue-, habla MDIO bit a bit con los registros de la norma, y hace de buzon de tramas con su CRC-32. Dieciocho terminales para MII; de ellos, nueve son los de RMII.</resumen>
+  <terminales>
+    <grupo fila="mdc" cuando="obligatorio">
+      <terminal nombre="mdc"/>
+      <texto>Reloj del MDIO, que pone el MAC. Pasivo.</texto>
+    </grupo>
+    <grupo fila="mdio" cuando="obligatorio">
+      <terminal nombre="mdio"/>
+      <texto>Datos del MDIO, bidireccional. LLEVA EL PULL-UP DE 10 kohm DE LA PLACA, sin el cual preguntar a una direccion donde no hay nadie devolveria basura en vez de todo unos.</texto>
+    </grupo>
+    <grupo fila="tx_clk" cuando="obligatorio">
+      <terminal nombre="tx_clk"/>
+      <texto>25 MHz en MII a 100 Mbit/s.</texto>
+    </grupo>
+    <grupo fila="rx_clk" cuando="obligatorio">
+      <terminal nombre="rx_clk"/>
+      <texto>En RMII es el REF_CLK de 50 MHz que sirve para los dos sentidos.</texto>
+    </grupo>
+    <grupo fila="tx_en" cuando="obligatorio">
+      <terminal nombre="tx_en"/>
+      <texto>Lo gobierna el MAC. Pasivo.</texto>
+    </grupo>
+    <grupo fila="txd0 ... txd3" cuando="segun el modo">
+      <serie prefijo="txd" desde="0" hasta="3"/>
+      <texto>Los gobierna el MAC. Pasivos. Dos en RMII, cuatro en MII.</texto>
+    </grupo>
+    <grupo fila="rxd0 ... rxd3" cuando="segun el modo">
+      <serie prefijo="rxd" desde="0" hasta="3"/>
+      <texto>Los gobierna el PHY.</texto>
+    </grupo>
+    <grupo fila="rx_dv" cuando="obligatorio">
+      <terminal nombre="rx_dv"/>
+      <texto>RX_DV en MII, CRS_DV en RMII.</texto>
+    </grupo>
+    <grupo fila="rx_er, crs, col" cuando="obligatorios">
+      <terminal nombre="rx_er"/>
+      <terminal nombre="crs"/>
+      <terminal nombre="col"/>
+      <texto>Solo MII, pero se declaran igual.</texto>
+    </grupo>
+  </terminales>
+  <nota>CUIDADO CON LOS PINES: en el LQFP100 estan los dieciocho, pero TODOS ESTAN COGIDOS. MII_CRS es PA0-WKUP, asi que con MII cableado el MCU pierde el pin de despertar desde Standby; MII_RXD0/1 son PC4/PC5 = ADC12_IN14/15, y MII_COL es PA3 = OTG_HS_ULPI_D0.</nota>
+  <nota>Sin atributos en el XML.</nota>
+  <ejemplo>&lt;componente tipo=&quot;EthPhy&quot; id=&quot;PHY&quot;&gt;
+  &lt;pin nombre=&quot;mdc&quot;  nodo=&quot;PC1&quot;/&gt;
+  &lt;pin nombre=&quot;mdio&quot; nodo=&quot;PA2&quot;/&gt;
+  &lt;pin nombre=&quot;txd0&quot; nodo=&quot;PB12&quot;/&gt;  &lt;!-- ... --&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

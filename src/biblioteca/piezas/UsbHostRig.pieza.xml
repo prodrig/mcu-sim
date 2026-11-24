@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de UsbHostRig, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="UsbHostRig" version="1">
+  <resumen>Un PC al otro lado del cable USB: da los 5 V de VBUS, pone los dos 15 kohm a masa -que es lo que convierte a este extremo en anfitrion- y hace el reset de bus con un SE0 largo. TODO LO ELECTRICO VA POR LOS NODOS con tensiones de verdad: la conexion, la velocidad y el reset salen del divisor resistivo, no de una variable booleana. Los paquetes, en cambio, cruzan como paquetes.</resumen>
+  <terminales>
+    <grupo fila="dm, dp" cuando="obligatorios">
+      <terminal nombre="dm"/>
+      <terminal nombre="dp"/>
+      <texto>El par diferencial.</texto>
+    </grupo>
+    <grupo fila="vbus" cuando="obligatorio">
+      <terminal nombre="vbus"/>
+      <texto>Los 5 V.</texto>
+    </grupo>
+    <grupo fila="id" cuando="obligatorio">
+      <terminal nombre="id"/>
+      <texto>A masa = cable A = el que lo tiene enchufado es el anfitrion.</texto>
+    </grupo>
+  </terminales>
+  <nota>Sin atributos. conectada=&quot;no&quot; es EL CABLE DESENCHUFADO, y es lo razonable al arrancar.</nota>
+  <ejemplo>&lt;componente tipo=&quot;UsbHostRig&quot; id=&quot;PC&quot; conectada=&quot;no&quot;&gt;
+  &lt;pin nombre=&quot;dm&quot;   nodo=&quot;PA11&quot;/&gt;
+  &lt;pin nombre=&quot;dp&quot;   nodo=&quot;PA12&quot;/&gt;
+  &lt;pin nombre=&quot;vbus&quot; nodo=&quot;PA9&quot;/&gt;
+  &lt;pin nombre=&quot;id&quot;   nodo=&quot;PA10&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

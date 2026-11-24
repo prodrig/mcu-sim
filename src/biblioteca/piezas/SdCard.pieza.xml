@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de SdCard, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="SdCard" version="1">
+  <resumen>Una tarjeta SD v2.0 A NIVEL DE PIN: habla el protocolo de verdad, bit a bit, con su CRC7 en los comandos y su CRC16 por cada linea de datos. No entiende de registros del MCU; solo ve CK, CMD y D0-D3. Implementa el arranque completo: CMD0, CMD8, CMD55, ACMD41, CMD2, CMD3, CMD9, CMD7, CMD16, ACMD6 -que es lo que pone el bus a cuatro hilos-, CMD17 y CMD24.</resumen>
+  <terminales>
+    <grupo fila="ck" cuando="obligatorio">
+      <terminal nombre="ck"/>
+      <texto>El reloj, que pone el host. Pasivo.</texto>
+    </grupo>
+    <grupo fila="cmd" cuando="obligatorio">
+      <terminal nombre="cmd"/>
+      <texto>Bidireccional. Lleva el pull-up de 47 kohm del zocalo.</texto>
+    </grupo>
+    <grupo fila="dat0" cuando="recomendado">
+      <terminal nombre="dat0"/>
+      <texto>Con solo dat0 la tarjeta funciona en modo de un hilo.</texto>
+    </grupo>
+    <grupo fila="dat1, dat2, dat3" cuando="opcionales">
+      <terminal nombre="dat1"/>
+      <terminal nombre="dat2"/>
+      <terminal nombre="dat3"/>
+      <texto>Hacen falta para el bus de cuatro hilos. Cada uno con su pull-up de 47 kohm.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="contenido" omision="ninguno">Un fichero Intel HEX con sus 2 KB, desde 0: se carga al arrancar y se guarda al acabar, tambien con Ctrl-C. Si aun no existe, la pieza arranca como siempre y el fichero se crea. En un &lt;sistema&gt;, &lt;memoria ref=&quot;placa/id&quot; contenido=&quot;...&quot;/&gt; manda sobre el de la placa, y --contenido ID=FICHERO sobre los dos</atributo>
+  <nota>conectada=&quot;no&quot; es el zocalo vacio, y SE VAN CON ELLA LOS PULL-UPS, que es precisamente lo que distingue un zocalo vacio de uno ocupado.</nota>
+  <ejemplo>&lt;componente tipo=&quot;SdCard&quot; id=&quot;SD1&quot;&gt;
+  &lt;pin nombre=&quot;ck&quot;   nodo=&quot;PC12&quot;/&gt;
+  &lt;pin nombre=&quot;cmd&quot;  nodo=&quot;PD2&quot;/&gt;
+  &lt;pin nombre=&quot;dat0&quot; nodo=&quot;PC8&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

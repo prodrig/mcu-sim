@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de FuenteAjustable, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="FuenteAjustable" version="1">
+  <resumen>Una tension que se mueve con un mando: el cursor de un potenciometro visto como su equivalente de Thevenin. Los ejes de un joystick, los de un acelerometro analogico, un microfono en reposo.</resumen>
+  <terminales>
+    <grupo fila="pin" cuando="obligatorio">
+      <terminal nombre="pin"/>
+      <texto>El nodo al que da la tension.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="v" omision="1.65">La tension de partida, en voltios.</atributo>
+  <atributo nombre="vmin" omision="0">El minimo del mando.</atributo>
+  <atributo nombre="vmax" omision="3.3">El maximo del mando.</atributo>
+  <atributo nombre="r" omision="100">Su resistencia de salida, en ohmios.</atributo>
+  <ejemplo>&lt;componente tipo=&quot;FuenteAjustable&quot; id=&quot;JOY_X&quot; v=&quot;1.65&quot;&gt;
+  &lt;pin nombre=&quot;pin&quot; nodo=&quot;P6.0&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

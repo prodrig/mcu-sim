@@ -298,7 +298,7 @@ natural de editar como texto.
 ```
 src/biblioteca/
   LEEME.md
-  piezas/      <Tipo>.pieza.xml  <Tipo>.svg               (76 tipos)
+  piezas/      <Tipo>.pieza.xml (generado, B1)  <Tipo>.forma.xml  <Tipo>.svg   (76 tipos)
   mcus/        <TIPO>.mcu.xml    <TIPO>.detalle.svg  <TIPO>.simple.svg
   conectores/  <perfil>.conector.xml  <perfil>.svg
                <conjunto>.conjunto.xml                     (§4.4)
@@ -313,11 +313,14 @@ compartidas.
 ### 4.2 Una pieza: `Led.pieza.xml`
 
 Sale de la ficha de `part_help.h` con `mcu-sim --exporta-piezas DIR`, así que
-no puede decir otra cosa que `--help Led`. Lo único que añade la mano es la
-`<forma>`: dónde está cada patilla en el dibujo y hacia dónde sale.
+no puede decir otra cosa que `--help Led`. **Hecho en B1** (el formato real
+está en `parts/exporta_piezas.h`; el ejemplo de abajo es el de partida). Lo
+único que añade la mano es la `<forma>`: dónde está cada patilla en el dibujo
+y hacia dónde sale. Va **en un fichero aparte**, `TIPO.forma.xml`, porque el
+`.pieza.xml` se regenera y se compara byte a byte con lo versionado.
 
 **Un matiz que encarece B1.** Las fichas nombran los terminales **para una
-persona**, no para una máquina. De sus 204 filas `.pin(...)`, unas cuarenta
+persona**, no para una máquina. De sus 196 filas `.pin(...)`, unas cuarenta
 agrupan varios terminales en una:
 
 * `anodo o catodo`, en la del `Led`;
@@ -832,7 +835,7 @@ orden sea claro.
 | Fase | Repo | Qué | Entregable | Cómo se comprueba |
 | :--- | :--- | :--- | :--- | :--- |
 | **B0** | los dos | Este análisis y las ramas `build` | `doc/analisis_build.md` en las dos | — |
-| **B1** | mcu-sim | `--exporta-piezas DIR`: un `.pieza.xml` por tipo, desde la ficha, con el analizador de terminales agrupados | `src/biblioteca/piezas/*.pieza.xml` (sin `<forma>`) | Prueba nueva: los 76 tipos están, **toda** fila de terminales se analiza, y cada terminal y atributo de la ficha está. Lo versionado coincide con lo regenerado |
+| **B1** ✔ | mcu-sim | `--exporta-piezas DIR`: un `.pieza.xml` por tipo, desde la ficha, con el analizador de terminales agrupados | `src/biblioteca/piezas/*.pieza.xml` (sin `<forma>`) | Prueba nueva: los 76 tipos están, **toda** fila de terminales se analiza, y cada terminal y atributo de la ficha está. Lo versionado coincide con lo regenerado |
 | **B2** | mcu-sim | `--exporta-mcu TIPO`: patillas soldadas y funciones **simuladas** | La salida, en XML | Pruebas por familia: el recuento de pads coincide con `Encapsulado::n_gpio` (lo mismo que T128) |
 | **B3** | mcu-sim | Datos de ST: `herramientas/exporta_mcus_st.py` sobre Open Pin Data (commit fijado) + B2 | `mcus/STM32*.mcu.xml` y `*.detalle.svg`/`*.simple.svg` de los 46 | **Contraste**: toda función simulada existe en Open Pin Data con el mismo AF, y todo pad soldado tiene patilla |
 | **B4** | mcu-sim | Datos de TI y Espressif, con PMAP y matriz | Los `.mcu.xml` y SVG de MSP432, MSP430 y ESP32 | El mismo contraste que B3. Las mapeables del P401R coinciden con `PmapP4::PM_*` |

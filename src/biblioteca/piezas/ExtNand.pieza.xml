@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de ExtNand, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="ExtNand" version="1">
+  <resumen>NAND flash de 16 paginas de 512 bytes en el bus externo (FSMC). Una NAND NO TIENE BUS DE DIRECCIONES: tiene ocho hilos por los que van mandatos, direcciones y datos, y dos senales -CLE y ALE- que dicen cual de las tres cosas viaja en cada ciclo. El FSMC saca CLE y ALE por A16 y A17, de modo que ESCRIBIR EN UNA DIRECCION U OTRA DEL BANCO es lo que elige el tipo de ciclo. Entiende leer identificacion (0x90), leer pagina (0x00...0x30), programar (0x80...0x10) y leer estado (0x70).</resumen>
+  <terminales>
+    <grupo fila="d0 ... d7" cuando="obligatorios">
+      <serie prefijo="d" desde="0" hasta="7"/>
+      <texto>Los ocho hilos, compartidos con la SRAM.</texto>
+    </grupo>
+    <grupo fila="cle" cuando="obligatorio">
+      <terminal nombre="cle"/>
+      <texto>Command latch enable (A16). Pasivo.</texto>
+    </grupo>
+    <grupo fila="ale" cuando="obligatorio">
+      <terminal nombre="ale"/>
+      <texto>Address latch enable (A17). Pasivo.</texto>
+    </grupo>
+    <grupo fila="nce" cuando="obligatorio">
+      <terminal nombre="nce"/>
+      <texto>Chip enable. Pasivo.</texto>
+    </grupo>
+    <grupo fila="noe, nwe" cuando="obligatorios">
+      <terminal nombre="noe"/>
+      <terminal nombre="nwe"/>
+      <texto>Output y write enable. Pasivos.</texto>
+    </grupo>
+    <grupo fila="rb" cuando="opcional">
+      <terminal nombre="rb"/>
+      <texto>Ready/Busy. Si se conecta, la NAND lo gobierna.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="contenido" omision="ninguno">Un fichero Intel HEX con sus 8 KB, pagina a pagina, desde 0: se carga al arrancar y se guarda al acabar, tambien con Ctrl-C. Si aun no existe, la pieza arranca como siempre y el fichero se crea. En un &lt;sistema&gt;, &lt;memoria ref=&quot;placa/id&quot; contenido=&quot;...&quot;/&gt; manda sobre el de la placa, y --contenido ID=FICHERO sobre los dos</atributo>
+  <nota>Comparte el chip select con la ExtSram en este encapsulado, asi que las dos no pueden estar puestas a la vez.</nota>
+  <ejemplo>&lt;componente tipo=&quot;ExtNand&quot; id=&quot;U8&quot; conectada=&quot;no&quot;&gt;
+  &lt;pin nombre=&quot;d0&quot;  nodo=&quot;PD14&quot;/&gt;  &lt;!-- d1 ... d7 --&gt;
+  &lt;pin nombre=&quot;cle&quot; nodo=&quot;PD11&quot;/&gt;
+  &lt;pin nombre=&quot;ale&quot; nodo=&quot;PD12&quot;/&gt;
+  &lt;pin nombre=&quot;nce&quot; nodo=&quot;PD7&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

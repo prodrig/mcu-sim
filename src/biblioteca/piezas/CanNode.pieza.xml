@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de CanNode, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="CanNode" version="1">
+  <resumen>Otro controlador colgado del mismo hilo, que habla el protocolo de verdad -relleno de bits, CRC15, asentimiento- con las mismas funciones que el periferico del MCU. NO TOCA NINGUN PIN DEL MCU: todos sus terminales son del nodo externo, que es algo que un netlist tiene que poder describir porque hay componentes de placa que el MCU ni ve. SIN EL NO SE PUEDE PROBAR CASI NADA: sin nadie que asienta, un bus CAN no entrega nada.</resumen>
+  <terminales>
+    <grupo fila="bus" cuando="obligatorio">
+      <terminal nombre="bus"/>
+      <texto>El nodo del hilo.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="bitrate" omision="500000">Velocidad en bits por segundo. TIENE QUE COINCIDIR CON LA DEL bxCAN o no habra mas que errores de bit.</atributo>
+  <referencia nombre="hilo">El id del CanWire, declarado antes.</referencia>
+  <ejemplo>&lt;componente tipo=&quot;CanNode&quot; id=&quot;otro&quot; bitrate=&quot;500e3&quot;&gt;
+  &lt;pin nombre=&quot;bus&quot; nodo=&quot;n_can&quot;/&gt;
+  &lt;ref nombre=&quot;hilo&quot; componente=&quot;bus1&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de Button, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="Button" version="1">
+  <resumen>Pulsador. SIN PULSAR DEJA EL PIN ABIERTO, asi que el nivel de reposo tiene que darlo alguien: el pull interno del MCU o un Rpull externo. Sin ninguno de los dos el pin queda indeterminado, que es lo que pasa en una placa real y lo que el modelo reproduce.</resumen>
+  <terminales>
+    <grupo fila="pin" cuando="obligatorio">
+      <terminal nombre="pin"/>
+      <texto>El pin del pulsador.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="r_cerrado" omision="10">Resistencia del contacto cerrado, en ohmios. Cerrado, la pieza gobierna el nodo con {v_cerrado, r_cerrado}.</atributo>
+  <atributo nombre="v_cerrado" omision="0">LA TENSION A LA QUE LLEVA EL PIN AL CERRARSE. Cero es el pulsador a masa de siempre; 3.3 es el pulsador a VDD. No todos van a masa, y la diferencia se nota en el firmware: en la STM32F4-Discovery el boton de usuario lleva PA0 a VDD y es una resistencia externa la que lo sujeta abajo, y por eso el codigo que genera STM32CubeIDE configura PA0 como EXTI por flanco de SUBIDA y sin pull interno. Descrito con un pulsador a masa ese flanco no llegaria nunca y el firmware pareceria roto sin estarlo.</atributo>
+  <atributo nombre="rebote" omision="2">LOS REBOTES DEL CONTACTO: lo que tarda como mucho, en ms, en quedarse quieto al cerrarse -al abrirse, la mitad-. &quot;0&quot; o &quot;no&quot; es un contacto ideal, que cambia de una vez.</atributo>
+  <atributo nombre="rebotes" omision="5">CUANTAS VECES se separa y vuelve a tocar en cada rebote: exactamente esas, en instantes al azar dentro de `rebote` ms. Con N rebotes, una EXTI por flanco de subida ve N+1 flancos al pulsar. De 1 a 1000; para no rebotar, rebote=&quot;no&quot;.</atributo>
+  <atributo nombre="semilla" omision="0">La del patron pseudoaleatorio de los rebotes. 0 la saca del id, asi que dos pulsadores de la misma placa no rebotan igual y el mismo rebota igual en todas las ejecuciones.</atributo>
+  <atributo nombre="normalmente" omision="abierto">El REPOSO DEL CONTACTO: abierto (suelto no conduce, pulsado conduce) o cerrado (suelto CONDUCE, y pulsarlo lo ABRE). Cualquier otra palabra es un error, no un abierto silencioso.</atributo>
+  <nota>normalmente=&quot;cerrado&quot; NO ES UNA RAREZA: ES LO QUE HAY EN SEGURIDAD. Un final de carrera, una seta de emergencia o un detector de puerta se cablean NC a proposito, para que un cable cortado se vea igual que una pulsacion y la maquina pare. Descrito como NA, el montaje parece funcionar hasta el dia en que se corta el cable, que es justo el dia que importa.</nota>
+  <nota>LOS REBOTES SON LA REALIDAD, y por eso vienen puestos. Un contacto mecanico golpea y rebota antes de quedarse cerrado: un firmware que cuente flancos de EXTI sin filtrarlos cuenta varias pulsaciones donde hubo una, igual que en la placa. Los 2 ms por omision son del orden de lo que se mide en pulsadores de verdad (Ganssle, &quot;A Guide to Debouncing&quot;). El patron es pseudoaleatorio pero reproducible al picosegundo: la misma pulsacion rebota igual en todas las ejecuciones y en todas las plataformas. Para un contacto ideal, rebote=&quot;no&quot;.</nota>
+  <nota>Lo que conduce no es &quot;pulsado&quot; sino &quot;pulsado XOR normalmente cerrado&quot;:
+    normalmente    suelto    pulsado    desoldado
+    abierto        abierto   CIERRA     abierto
+    cerrado        CIERRA    abre       abierto
+La ultima columna es la misma para los dos, y es lo razonable: una pieza que no esta no cierra ningun contacto. Al volver a soldarla recupera su reposo, que en un NC es conduciendo.</nota>
+  <ejemplo>&lt;nodo id=&quot;PA0&quot; bus=&quot;si&quot;/&gt;
+&lt;componente tipo=&quot;Button&quot; id=&quot;B1&quot; v_cerrado=&quot;3.3&quot; r_cerrado=&quot;10&quot;&gt;
+  &lt;pin nombre=&quot;pin&quot; nodo=&quot;PA0&quot;/&gt;
+&lt;/componente&gt;
+&lt;componente tipo=&quot;Rpull&quot; id=&quot;R35&quot; v=&quot;0&quot; r=&quot;100000&quot;&gt;
+  &lt;pin nombre=&quot;a&quot; nodo=&quot;PA0&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>

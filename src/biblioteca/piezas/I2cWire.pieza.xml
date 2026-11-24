@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- La ficha de I2cWire, la misma que imprime la ayuda de mcu-sim.
+     La genera mcu-sim con su opcion exporta-piezas: no se edita a mano,
+     se regenera con `make biblioteca` (doc/analisis_build.md, B1). -->
+<pieza tipo="I2cWire" version="1">
+  <resumen>El hilo de un bus I2C: CORTOCIRCUITA ENTRE SI N PINES y les pone un pull-up comun. Es de colector abierto -nadie fuerza un uno, solo se tira de la linea a cero (30 ohmios) o se suelta- y todo eso ocurre de verdad en el nodo. Es lo que permite que el I2C1 del MCU y el I2C3 hablen por el mismo bus, o que una EEPROM este colgada de los mismos hilos que el maestro.</resumen>
+  <terminales>
+    <grupo fila="l0, l1, ..." cuando="al menos uno">
+      <serie prefijo="l" desde="0" abierta="si"/>
+      <texto>Los pines que quedan unidos. Es un BUS INDEXADO: se cuenta desde cero y sin huecos, asi que declarar l0, l1 y l3 da un hilo de DOS lineas, no de cuatro.</texto>
+    </grupo>
+  </terminales>
+  <atributo nombre="r_pull" omision="4700">El pull-up, en ohmios. Subirlo hace la linea mas lenta al soltarla, que es el efecto real de un pull-up flojo.</atributo>
+  <nota>HACE FALTA UNA INSTANCIA POR LINEA: una para SCL y otra para SDA. Y el nodo de cada linea querra bus=&quot;si&quot;, porque por definicion tendra varios conductores.</nota>
+  <ejemplo>&lt;componente tipo=&quot;I2cWire&quot; id=&quot;scl_bus&quot; r_pull=&quot;4700&quot;&gt;
+  &lt;pin nombre=&quot;l0&quot; nodo=&quot;PB6&quot;/&gt;
+  &lt;pin nombre=&quot;l1&quot; nodo=&quot;PA8&quot;/&gt;
+&lt;/componente&gt;</ejemplo>
+</pieza>
