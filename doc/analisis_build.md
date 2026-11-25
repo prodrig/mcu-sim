@@ -585,27 +585,31 @@ une dos perfiles compatibles, y `CN5.D13` sería un alias válido de `CN5.6`.
 
 ```
 mcu-sim-gui/
-  src/build/
+  src/trazado.{h,cpp}       las líneas, compartidas con la ilustración (G8, D7)
+  src/construccion/         (no `src/build/`: .gitignore ignora todo build/)
+    ficha.{h,cpp}           leer .pieza.xml, .forma.xml, .mcu.xml y perfiles;
+                            el generador de las paramétricas (sin pantalla)
     biblioteca.{h,cpp}      importar carpetas, el índice, la caché (sin pantalla)
-    documento.{h,cpp}       el modelo: placa o sistema, instancias, conexiones
+    catalogo.{h,cpp}        fichas y dibujos de cada instancia (sin pantalla)
+    documento.{h,cpp}       el modelo: instancias, conexiones, marco, bus
     redes.{h,cpp}           union-find, nombres de nodo (§3.1) (sin pantalla)
     exporta_placa.{h,cpp}   XML y SVG de una placa nueva (sin pantalla)
-    edita_xml.{h,cpp}       la edición como texto de un XML que ya existe
-    exporta_sistema.{h,cpp}
-    importa.{h,cpp}         abrir una placa o un sistema existente
+    abre.{h,cpp}            reabrir una placa con <build> (sin pantalla)
+    importa.{h,cpp}         leer una placa cualquiera y reconstruirla en
+                            rejilla: la prueba de ida y vuelta (sin pantalla)
     valida.{h,cpp}          QProcess: mcu-sim X.xml --valida, y su informe
-    lienzo.{h,cpp}          QGraphicsScene/View; items de pieza, pin y marco
-    conexion_item.{h,cpp}   (en la biblioteca común `trazado`, D7)
+    lienzo.{h,cpp}          QGraphicsScene/View; items de pieza, terminal,
+                            conexión y marco
     panel_biblioteca.{h,cpp}, panel_propiedades.{h,cpp}
     ventana_build.{h,cpp}, main_build.cpp
   tests/
-    prueba_redes.cpp, prueba_exporta.cpp, prueba_edita_xml.cpp,
-    prueba_biblioteca.cpp, prueba_build_cruzada.cpp
+    prueba_biblioteca.cpp, prueba_redes.cpp, prueba_exporta.cpp (ida y
+    vuelta), prueba_build.cpp (la ventana, sin pantalla)
 ```
 
-Igual que en `mcu-sim-gui`, **lo que no pinta no enlaza `Widgets`**:
-biblioteca, redes, exportación y edición se prueban sin pantalla, con
-`ctest`.
+Igual que en `mcu-sim-gui`, **lo que no pinta no enlaza `Widgets`**: la
+biblioteca `construccion` (Core, Gui y Svg) se prueba sin pantalla, con
+`ctest`; la interfaz va en `construccion_ui`.
 
 ### 5.2 La ventana
 
@@ -936,13 +940,22 @@ orden sea claro.
 | **B5** ✔ | mcu-sim | SVG de las piezas no paramétricas y `<forma>` de todas, de plantillas (`herramientas/dibuja_piezas.py`) | `piezas/*.svg` (72) y `piezas/*.forma.xml` (76: cuatro son paramétricas, con `generador=`) | `comprueba_piezas.py`: las anclas son exactamente los terminales de la ficha, cada una existe en su SVG, y el SVG cumple el perfil de autor (sin filtros ni máscaras, con viewBox y mm). Lo versionado es lo regenerado |
 | **B6** ✔ | mcu-sim | Perfiles y conjuntos de conectores, con los `<cableado>` extraídos de las placas (`herramientas/genera_conectores.py`) | `conectores/*`: 16 perfiles, 7 conjuntos, 21 cableados | El contraste con la norma y con `biblioteca/mcus` (§4.4), la geometría contra el SVG de la placa y lo versionado contra lo regenerado |
 | **B7** ✔ | mcu-sim | **`<build>` en placas y sistemas** (D2-B, §7): se admite, se comprueba y no sale en `T_PLACA` ni en el SVG. `doc/parts.md` §2 lo documenta | El parser, con su prueba (T134) y la de `mcu-sim-gui` | Una placa con `<build>` valida y simula igual que sin él. `T_PLACA` no lo lleva. Un `<build>` repetido, mal colocado o con `version` desconocida es un error. Una `<instancia>` que no está es un aviso. «Guardar en el XML» de la ventana lo deja intacto |
-| **G8** | gui | Biblioteca `trazado` (D7), sin cambio de comportamiento | Refactorización | Todas las pruebas actuales de `mcu-sim-gui`, sin tocar |
-| **G9** | gui | `mcu-sim-build`: esqueleto y biblioteca persistente (D6) | El ejecutable abre, importa carpetas y enseña piezas y tarjetas con su miniatura y su ficha | `prueba_biblioteca`: importar, cachear, cambiar un fichero y refrescar |
-| **G10** | gui | **Placa nueva**: lienzo, colocar, id, mover, girar, escalar, borrar, marco, conexiones (Ctrl+clic, curva, tramos, ocultar, alternar), propiedades, deshacer. Redes → nodos, exportar XML+SVG con su `<build>`, validar | **Primera versión usable**: una placa nueva de principio a fin | `prueba_redes`, `prueba_exporta`, y la **prueba de ida y vuelta**: se reconstruyen en el lienzo, desde las piezas de la biblioteca, placas sencillas del repositorio (`servo_sg90`, `ky040`, `l298n`…), se exportan, y `mcu-sim` da **el mismo netlist** que con la original. Si no hay volcado del netlist, B2 añade `--netlist` |
-| **G11** | gui | **Reabrir placas propias** (D3-C): leer el `<build>`, regenerar conservando los comentarios (§3.5), la bandeja de los componentes añadidos a mano | Editar una placa hecha con `mcu-sim-build` | `prueba_reabre`: abrir y guardar sin cambios da los mismos bytes. Un comentario de encima de un componente viaja con él. Uno fuera de la regla se anuncia. Un componente añadido a mano aparece en la bandeja |
+| **G8** ✔ | gui | Biblioteca `trazado` (D7), sin cambio de comportamiento | `src/trazado.{h,cpp}`: enganches, curva, tramos, codos, esquinas redondeadas; la ilustración la usa | Todas las pruebas actuales de `mcu-sim-gui`, sin tocar: `prueba_ilustracion` 353 y `prueba_ventana` 83, las mismas |
+| **G9** ✔ | gui | `mcu-sim-build`: esqueleto y biblioteca persistente (D6) | El ejecutable abre, importa carpetas (la primera vez, las de mcu-sim si hay `MCU_SIM_SRC` o se conoce el ejecutable) y enseña piezas y tarjetas con su miniatura -cacheada en PNG- y su resumen | `prueba_biblioteca` (22): importar, el índice que se reutiliza sin releer, un fichero cambiado que se relee solo, uno borrado que se marca y el refresco completo que lo quita, las miniaturas de la caché |
+| **G10** ✔ | gui | **Placa nueva**: lienzo, colocar, id, mover, girar, escalar, borrar, marco, conexiones (Ctrl+clic, curva, tramos, ocultar, alternar), propiedades, deshacer. Redes → nodos, exportar XML+SVG con su `<build>`, validar | **Primera versión usable**: una placa nueva de principio a fin, y se reabre (el `<build>`; sin los comentarios, que son de G11) | `prueba_redes` (22), `prueba_build` (39: la ventana sin pantalla, con Ctrl+clic de verdad) y la **prueba de ida y vuelta** (`prueba_exporta`): **49 placas** del repositorio se reconstruyen desde la biblioteca, se exportan, dan el mismo netlist que la original -comparado sobre el XML: las mismas redes con los mismos terminales, sin `--netlist`-, `mcu-sim --valida` las acepta y reabiertas dan el mismo XML. Las 17 que no se reconstruyen llevan lo que aún no se dibuja (`<ref>`, `<transmision>`, `<ilustracion>`, varios MCU) y se dicen. `ky040` es de ellas (lleva `<ilustracion>`); van `pololu_a4988` y `nucleo_f446re` en su lugar |
+| **G11** | gui | **Reabrir placas propias** (D3-C): leer el `<build>` (hecho en G10, `abre.cpp`), regenerar conservando los comentarios (§3.5), la bandeja de los componentes añadidos a mano | Editar una placa hecha con `mcu-sim-build` | `prueba_reabre`: abrir y guardar sin cambios da los mismos bytes. Un comentario de encima de un componente viaja con él. Uno fuera de la regla se anuncia. Un componente añadido a mano aparece en la bandeja |
 | **G12** | gui | **Sistemas**: nuevos y existentes, hilos, acoples, rutas, `<mcu ref>` y rutas relativas | Sistemas de principio a fin | Los 29 sistemas: abrir y guardar sin cambios da los mismos bytes. Rehacer `nucleo_f446re_servo.xml` en el lienzo da el mismo netlist. «Guardar en el XML» de `mcu-sim-gui` deja intacto el `<build>` |
 | **G13** | gui | Empaquetado (Linux, Windows y macOS), CI, `doc/guia de usuario.md` y notas de versión | `mcu-sim-build` en los paquetes de la Release | CI de las tres plataformas, con y sin la vista 3D |
 | **B14** | mcu-sim | *(Después, D4-B)* `perfil=` en `Conector` y `Jumper`, acoples compatibles y alias por uso | — | Suite de `mcu-sim` |
+
+**Lo que encontró la ida y vuelta de G10.** (1) `cripto_f417` unía un
+`osc_out` del `Crystal`, que no tiene ese terminal: `mcu-sim` pasa por alto
+un `<pin>` con un nombre que la pieza no tiene, **sin avisar** (también con
+`--valida`). Se quitó de la placa; que el parser lo diga es una mejora
+pendiente de `mcu-sim`. (2) En los ESP32, `mcu-sim` acepta el nombre de la
+función como alias del nodo (`SPICS0` por `GPIO14`, `c3_desc.h`); el
+`.mcu.xml` no lo dice aparte, pero está en el nombre de la patilla
+(`SPICS0/GPIO14`), y de ahí lo lee `mcu-sim-build`.
 
 **Orden y paralelismo.** B1 a B7, G8 y G9 no dependen entre sí y se
 pueden hacer en cualquier orden. G10 necesita B1, B5, **B7** y G8, pero **no** los
