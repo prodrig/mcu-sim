@@ -30,12 +30,12 @@
 <placa nombre="cripto-f417">
   <mcu tipo="STM32F417VG" id="u0"/>
 
-  <!-- El cristal de 8 MHz de la Discovery, en PH0/PH1. -->
+  <!-- El cristal de 8 MHz de la Discovery, en PH0/PH1. La pieza Crystal
+       solo tiene osc_in: lo que el pin OSC_IN ve del lazo (su ficha). -->
   <nodo id="PH0"/>
   <nodo id="PH1"/>
   <componente tipo="Crystal" id="X1" vdd="3.3">
     <pin nombre="osc_in"  nodo="PH0"/>
-    <pin nombre="osc_out" nodo="PH1"/>
   </componente>
 
   <!-- Un LED verde al aire, para que la placa haga algo visible. -->
