@@ -150,3 +150,7 @@ doc/pdf/
 # Paquetes de Python descargados (pip download) para algun generador de
 # vectores: no son parte del proyecto. Uno se colo en E8 (9a96378).
 *.whl
+
+# Workspaces de IDEs de desarrollo de programas de pruebas
+idetest/
+
